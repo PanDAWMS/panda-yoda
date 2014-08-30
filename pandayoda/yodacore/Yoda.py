@@ -1,6 +1,6 @@
 import sys
 import pickle
-import Interaction,Database
+import Interaction,Database,Logger
 
 # main Yoda class
 class Yoda:
@@ -60,10 +60,8 @@ class Yoda:
         # make response
         res = {'StatusCode':0,
                'command':'NULL'}
-        # encode
-        rData = urllib.urlencode(res)
         # return
-        self.comm.returnResponse(rData)
+        self.comm.returnResponse(res)
         
 
     # get event ranges
@@ -78,10 +76,8 @@ class Yoda:
         # make response
         res = {'StatusCode':0,
                'eventRanges':eventRanges}
-        # encode
-        rData = urllib.urlencode(res)
         # return response
-        self.comm.returnResponse(rData)
+        self.comm.returnResponse(res)
         # dump updated records
         self.db.dumpUpdates()
 
@@ -96,10 +92,8 @@ class Yoda:
         self.db.updateEventRange(eventRangeID,eventStatus)
         # make response
         res = {'StatusCode':0}
-        # encode
-        rData = urllib.urlencode(res)
         # return
-        self.comm.returnResponse(rData)
+        self.comm.returnResponse(res)
         # dump updated records
         self.db.dumpUpdates()
 
@@ -107,6 +101,8 @@ class Yoda:
 
     # main
     def run(self):
+        # get logger
+        tmpLog = Logger.Logger()
         # load job
         tmpStat,tmpOut = self.loadJob()
         if not tmpStat:
@@ -126,7 +122,7 @@ class Yoda:
             # execute
             if hasattr(self,method):
                 methodObj = getattr(self,method)
-                apply(self,methodObj,params)
+                apply(methodObj,[params])
             else:
                 tmpLog.error('unknown method={0} was requested'.format(method))
         # final dump

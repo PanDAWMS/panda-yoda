@@ -1,5 +1,6 @@
 import cgi
 import sys
+import json
 import time
 import urllib
 import mpi4py
@@ -19,16 +20,15 @@ class Receiver:
     # receive request
     def receiveRequest(self):
         # wait for a request from any ranks
-        while not comm.Iprobe(source=mpi4py.MPI.ANY_SOURCE,
-                              status=self.stat):
+        while not self.comm.Iprobe(source=mpi4py.MPI.ANY_SOURCE,
+                                   status=self.stat):
             time.sleep(1)
         try:
             # get the request
             reqData = self.comm.recv(source=self.stat.Get_source())
             # decode
-            data = cgi.parse_qs(reqData)
-            params = cgi.parse_qs(data['params'])
-            return True,data['method'],params
+            data = json.loads(reqData)
+            return True,data['method'],data['params']
         except:
             errtype,errvalue = sys.exc_info()[:2]
             errMsg = 'failed to got proper request with {0}:{1}'.format(errtype.__name__,errvalue)
@@ -38,7 +38,8 @@ class Receiver:
     # return response 
     def returnResponse(self,rData):
         try:
-            self.comm.send(rData,dest=self.stat.Get_source())
+            data = urllib.urlencode(rData)
+            self.comm.send(data,dest=self.stat.Get_source())
             return True,None
         except:
             errtype,errvalue = sys.exc_info()[:2]
@@ -51,9 +52,9 @@ class Receiver:
         self.nRank -= 1
         
 
-    # check if there is active rank
+    # check if there is active worker rank
     def activeRanks(self):
-        return self.nRank > 0
+        return self.nRank > 1
 
 
 
@@ -72,7 +73,7 @@ class Requester:
             # encode
             data = {'method':method,
                     'params':params}
-            reqData = urllib.urlencode(data)
+            reqData = json.dumps(data)
             # send a request ro rank0
             self.comm.send(reqData,dest=0)
             # wait for the answer from Rank 0
@@ -82,7 +83,7 @@ class Requester:
             ansData = self.comm.recv()
             # decode
             answer = cgi.parse_qs(ansData)
-            return True,retDict
+            return True,answer
         except:
             errtype,errvalue = sys.exc_info()[:2]
             errMsg = 'failed to send the request with {0}:{1}'.format(errtype.__name__,errvalue)
