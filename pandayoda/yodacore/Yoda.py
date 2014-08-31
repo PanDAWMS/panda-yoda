@@ -11,6 +11,8 @@ class Yoda:
         self.comm = Interaction.Receiver()
         # database backend
         self.db = Database.Backend()
+        # logger
+        self.tmpLog = Logger.Logger()
 
 
 
@@ -61,6 +63,7 @@ class Yoda:
         res = {'StatusCode':0,
                'command':'NULL'}
         # return
+        self.tmpLog.debug('res={0}'.format(str(res)))
         self.comm.returnResponse(res)
         
 
@@ -77,6 +80,7 @@ class Yoda:
         res = {'StatusCode':0,
                'eventRanges':eventRanges}
         # return response
+        self.tmpLog.debug('res={0}'.format(str(res)))
         self.comm.returnResponse(res)
         # dump updated records
         self.db.dumpUpdates()
@@ -93,6 +97,7 @@ class Yoda:
         # make response
         res = {'StatusCode':0}
         # return
+        self.tmpLog.debug('res={0}'.format(str(res)))
         self.comm.returnResponse(res)
         # dump updated records
         self.db.dumpUpdates()
@@ -102,29 +107,36 @@ class Yoda:
     # main
     def run(self):
         # get logger
-        tmpLog = Logger.Logger()
+        self.tmpLog.info('start')
         # load job
+        self.tmpLog.info('loading job')
         tmpStat,tmpOut = self.loadJob()
         if not tmpStat:
-            tmpLog.error(tmpOut)
+            self.tmpLog.error(tmpOut)
             sys.exit(1)
         # make event table
+        self.tmpLog.info('making EventTable')
         tmpStat,tmpOut = self.makeEventTable()
         if not tmpStat:
-            tmpLog.error(tmpOut)
+            self.tmpLog.error(tmpOut)
             sys.exit(1)
         # main loop
         while self.comm.activeRanks():
             # get request
             tmpStat,method,params = self.comm.receiveRequest()
             if not tmpStat:
+                self.tmpLog.error(method)
                 sys.exit(1)
             # execute
+            self.tmpLog.debug('rank={0} method={1} param={2}'.format(self.comm.getRequesterRank(),
+                                                                method,str(params)))
             if hasattr(self,method):
                 methodObj = getattr(self,method)
                 apply(methodObj,[params])
             else:
-                tmpLog.error('unknown method={0} was requested'.format(method))
+                self.tmpLog.error('unknown method={0} was requested from rank={1} '.format(method,
+                                                                                      self.comm.getRequesterRank()))
         # final dump
+        self.tmpLog.info('final dumping')
         self.db.dumpUpdates(True)
-                
+        self.tmpLog.info('done')

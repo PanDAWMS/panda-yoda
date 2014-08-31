@@ -47,6 +47,11 @@ class Receiver:
             return False,errMsg,None
 
 
+    # get rank of the requester
+    def getRequesterRank(self):
+        return self.stat.Get_source()
+
+        
     # decrement nRank
     def decrementNumRank(self):
         self.nRank -= 1

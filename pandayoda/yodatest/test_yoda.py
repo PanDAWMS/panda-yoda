@@ -4,6 +4,10 @@ import pickle
 from mpi4py import MPI
 from pandayoda.yodacore import Interaction
 from pandayoda.yodacore import Yoda
+from pandayoda.yodacore import Logger
+
+import logging
+logging.basicConfig(level=logging.DEBUG)
 
 er = [
     {'eventRangeID':'1-2-3',
@@ -31,6 +35,9 @@ f = open('eventranges_pickle.txt','w')
 pickle.dump(er,f)
 f.close()
 
+# get logger
+tmpLog = Logger.Logger()
+
 
 comm = MPI.COMM_WORLD
 mpirank = comm.Get_rank()
@@ -38,22 +45,21 @@ mpirank = comm.Get_rank()
 if mpirank==0:
     yoda = Yoda.Yoda()
     yoda.run()
-    print "yoda done"
 else:
     snd = Interaction.Requester()
-    print mpirank,"sending req"
+    tmpLog.debug("rank{0} sending req".format(mpirank))
     tmpStat,res = snd.sendRequest('getJob',{1:2,3:4,'rank':mpirank})
     while True:
         tmpStat,res = snd.sendRequest('getEventRanges',{})
         eventRangesStr = res['eventRanges'][0]
         eventRanges = json.loads(eventRangesStr)
-        print mpirank,"go {0} ranges".format(len(eventRanges))
+        tmpLog.debug("rank{0} got {1} ranges".format(mpirank,len(eventRanges)))
         if eventRanges == []:
             res = snd.sendRequest('updateJob',{'jobStatus':'finished'})
             break
         else:
             for eventRange in eventRanges:
-                print mpirank,"update rangeID={0} ranges".format(eventRange['eventRangeID'])
+                tmpLog.debug("update rangeID={0} ranges".format(eventRange['eventRangeID']))
                 snd.sendRequest('updateEventRange',{"eventRangeID":eventRange['eventRangeID'],
                                                     'eventStatus':"finished"})
-    print mpirank,"done"
+    tmpLog.info('rank{0} done'.format(mpirank))
