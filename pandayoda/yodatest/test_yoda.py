@@ -57,7 +57,7 @@ else:
         eventRanges = json.loads(eventRangesStr)
         tmpLog.debug("rank{0} got {1} ranges".format(mpirank,len(eventRanges)))
         if eventRanges == []:
-            res = snd.sendRequest('updateJob',{'jobID':jobData['jobsetID'],
+            res = snd.sendRequest('updateJob',{'jobID':jobData['PandaID'],
                                                'state':'finished'})
             break
         else:
