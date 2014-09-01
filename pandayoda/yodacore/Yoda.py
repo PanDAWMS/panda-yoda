@@ -57,7 +57,7 @@ class Yoda:
     # update job
     def updateJob(self,params):
         # final heartbeat
-        if params['jobStatus'] in ['finished','failed']:
+        if params['state'] in ['finished','failed']:
             self.comm.decrementNumRank()
         # make response
         res = {'StatusCode':0,

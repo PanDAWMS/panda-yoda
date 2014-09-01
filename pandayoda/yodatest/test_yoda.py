@@ -25,6 +25,7 @@ er = [
     ]
 
 job = {'PandaID':'123',
+       'jobsetID':'567',
        }
 
 f = open('job_pickle.txt','w')
@@ -48,14 +49,16 @@ if mpirank==0:
 else:
     snd = Interaction.Requester()
     tmpLog.debug("rank{0} sending req".format(mpirank))
-    tmpStat,res = snd.sendRequest('getJob',{1:2,3:4,'rank':mpirank})
+    tmpStat,jobData = snd.sendRequest('getJob',{'siteName':'TEST'})
     while True:
-        tmpStat,res = snd.sendRequest('getEventRanges',{})
+        tmpStat,res = snd.sendRequest('getEventRanges',{'pandaID':jobData['PandaID'],
+                                                        'jobsetID':jobData['jobsetID']})
         eventRangesStr = res['eventRanges'][0]
         eventRanges = json.loads(eventRangesStr)
         tmpLog.debug("rank{0} got {1} ranges".format(mpirank,len(eventRanges)))
         if eventRanges == []:
-            res = snd.sendRequest('updateJob',{'jobStatus':'finished'})
+            res = snd.sendRequest('updateJob',{'jobID':jobData['jobsetID'],
+                                               'state':'finished'})
             break
         else:
             for eventRange in eventRanges:
