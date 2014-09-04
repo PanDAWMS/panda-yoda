@@ -134,11 +134,14 @@ class Backend:
         # forced or first dump or enough interval
         if forceDump or self.dumpedTime == None or \
                 timeNow-self.dumpedTime > datetime.timedelta(seconds=600):
+            # sql to get event ranges to be dumped
+            sqlG = "SELECT eventRangeID,status FROM JEDI_Events WHERE todump=:todump "
+            # sql to reset flag
+            sqlR = "UPDATE JEDI_Events SET todump=:todump WHERE eventRangeID=:eventRangeID AND status=:status"
             # get event ranges to be dumped
-            sql = "SELECT eventRangeID,status FROM JEDI_Events WHERE todump=:todump "
             varMap = {}
             varMap['todump'] = 1
-            self.cur.execute(sql,varMap)
+            self.cur.execute(sqlG,varMap)
             # dump
             res = self.cur.fetchall()
             if len(res) > 0:
@@ -146,6 +149,12 @@ class Backend:
                 outFile = open(outFileName,'w')
                 for eventRangeID,status in res:
                     outFile.write('{0} {1}\n'.format(eventRangeID,status))
+                    # reset flag
+                    varMap = {}
+                    varMap['todump'] = 0
+                    varMap['status'] = status
+                    varMap['eventRangeID'] = eventRangeID
+                    self.cur.execute(sqlR,varMap)
                 outFile.close()
             # update timestamp
             self.dumpedTime = timeNow
