@@ -11,13 +11,11 @@ import traceback
 import threading
 import pickle
 import signal
-from os.path import abspath as _abspath, join as _join
 
-# logging.basicConfig(filename='Yoda.log', level=logging.DEBUG)
+import Interaction,Database
+from signal_block import block_sig, unblock_sig
 
-import Interaction,Database,Logger
-from signal_block.signal_block import block_sig, unblock_sig
-#from HPC import EventServer
+logger = logging.getLogger(__name__)
 
 # main Yoda class
 class Yoda(threading.Thread):
@@ -51,23 +49,21 @@ class Yoda(threading.Thread):
 
       # constructor
       def __init__(self, globalWorkingDir, localWorkingDir, pilotJob=None, 
-                  rank=None, nonMPIMode=False, outputDir=None, dumpEventOutputs=False):
+                   outputDir=None, dumpEventOutputs=False):
          threading.Thread.__init__(self)
          self.globalWorkingDir = globalWorkingDir
          self.localWorkingDir = localWorkingDir
          self.currentDir = None
          # database backend
          self.db = Database.Backend(self.globalWorkingDir)
-         # logger
-         self.tmpLog = Logger.Logger(filename='Yoda.log')
-
+         
          # communication channel
-         self.comm = Interaction.Receiver(rank=rank, nonMPIMode=nonMPIMode, logger=self.tmpLog)
+         self.comm = Interaction.Receiver(rank=rank, nonMPIMode=nonMPIMode, logger=logger)
          self.rank = self.comm.getRank()
 
-         self.tmpLog.info("Global working dir: %s" % self.globalWorkingDir)
+         logger.info("Global working dir: %s",self.globalWorkingDir)
          self.initWorkingDir()
-         self.tmpLog.info("Current working dir: %s" % self.currentDir)
+         logger.info("Current working dir: %s",self.currentDir)
          self.failed_updates = []
          self.outputDir = outputDir
          self.dumpEventOutputs = dumpEventOutputs
@@ -119,9 +115,9 @@ class Yoda(threading.Thread):
 
    def initWorkingDir(self):
       # Create separate working directory for each rank
-      curdir = _abspath (self.localWorkingDir)
+      curdir = os.path.abspath(self.localWorkingDir)
       wkdirname = "rank_%s" % str(self.rank)
-      wkdir  = _abspath (_join(curdir,wkdirname))
+      wkdir  = os.path.abspath (os.path.join(curdir,wkdirname))
       if not os.path.exists(wkdir):
           os.makedirs (wkdir)
       os.chdir (wkdir)
@@ -130,9 +126,9 @@ class Yoda(threading.Thread):
    def postExecJob(self):
      if self.globalWorkingDir != self.localWorkingDir:
          command = "mv " + self.currentDir + " " + self.globalWorkingDir
-         self.tmpLog.debug("Rank %s: copy files from local working directory to global working dir(cmd: %s)" % (self.rank, command))
+         logger.debug("Rank %s: copy files from local working directory to global working dir(cmd: %s)",self.rank, command)
          status, output = commands.getstatusoutput(command)
-         self.tmpLog.debug("Rank %s: (status: %s, output: %s)" % (self.rank, status, output))
+         logger.debug("Rank %s: (status: %s, output: %s)",self.rank, status, output)
 
    # setup 
    def setupJob(self, job):
@@ -144,6 +140,7 @@ class Yoda(threading.Thread):
          json.dump(self.job, tmpFile)
          return True, None
      except:
+         logger.exception("Exception in Rank %s",self.rank)
          errtype,errvalue = sys.exc_info()[:2]
          errMsg = 'failed to dump job with {0}:{1}'.format(errtype.__name__,errvalue)
          return False,errMsg
@@ -159,6 +156,7 @@ class Yoda(threading.Thread):
          tmpFile.close()
          return True,self.job
       except:
+         logger.exception("Exception in Rank %s",self.rank)
          errtype,errvalue = sys.exc_info()[:2]
          errMsg = 'failed to load job with {0}:{1}'.format(errtype.__name__,errvalue)
          return False,errMsg
@@ -174,6 +172,7 @@ class Yoda(threading.Thread):
          tmpFile.close()
          return True,self.jobs
       except:
+         logger.exception("Exception in Rank %s",self.rank)
          errtype,errvalue = sys.exc_info()[:2]
          errMsg = 'failed to load job with {0}:{1}'.format(errtype.__name__,errvalue)
          return False,errMsg
@@ -191,32 +190,32 @@ class Yoda(threading.Thread):
                if self.cores < 1:
                   self.cores = 10
             except:
-               self.tmpLog.debug("Rank %s: failed to get core count" % (self.rank, traceback.format_exc()))
+               logger.debug("Rank %s: failed to get core count",self.rank, traceback.format_exc())
             if job['neededRanks'] not in neededRanks:
                neededRanks[job['neededRanks']] = []
             neededRanks[job['neededRanks']].append(jobId)
          keys = neededRanks.keys()
          keys.sort(reverse=True)
          for key in keys:
-            self.tmpLog.debug("Rank %s: Needed ranks %s" % (self.rank, key))
+            logger.debug("Rank %s: Needed ranks %s",self.rank, key)
 
             if key < 1:
                for jobId in neededRanks[key]:
-                  self.tmpLog.debug("Rank %s: Adding %s to small piece queue" % (self.rank, jobId))
+                  logger.debug("Rank %s: Adding %s to small piece queue",self.rank, jobId)
                   self.totalJobRanksSmallPiece += key
                   self.jobRanksSmallPiece.append(jobId)
             else:
                for jobId in neededRanks[key]:            
                   # for i in range(int(math.ceil(key))):
                   for i in range(int(key)):
-                     self.tmpLog.debug("Rank %s: Adding %s to full rank queue" % (self.rank, jobId))
+                     logger.debug("Rank %s: Adding %s to full rank queue",self.rank, jobId)
                      self.jobRanks.append(jobId)
          self.totalJobRanks = len(self.jobRanks)
-         self.tmpLog.debug("Rank %s: Jobs in small piece queue(one job is not enough to take the full rank) %s, total needed ranks %s" % (self.rank, self.jobRanksSmallPiece, self.totalJobRanksSmallPiece))
-         self.tmpLog.debug("Rank %s: Jobs in full rank queue(one job is long enough to take the full rank) %s, total needed ranks %s" % (self.rank, self.jobRanks, self.totalJobRanks))
+         logger.debug("Rank %s: Jobs in small piece queue(one job is not enough to take the full rank) %s, total needed ranks %s" % (self.rank, self.jobRanksSmallPiece, self.totalJobRanksSmallPiece))
+         logger.debug("Rank %s: Jobs in full rank queue(one job is long enough to take the full rank) %s, total needed ranks %s",self.rank, self.jobRanks, self.totalJobRanks)
          return True,self.jobRanks
       except:
-         self.tmpLog.debug("Rank %s: %s" % (self.rank, traceback.format_exc()))
+         logger.exception("Exception in Rank %s",self.rank)
          errtype,errvalue = sys.exc_info()[:2]
          errMsg = 'failed to load job with {0}:{1}'.format(errtype.__name__,errvalue)
          return False,errMsg
@@ -227,6 +226,7 @@ class Yoda(threading.Thread):
          self.db.createEventTable()
          return True,None
       except:
+         logger.exception("Exception in Rank %s",self.rank)
          errtype,errvalue = sys.exc_info()[:2]
          errMsg = 'failed to create event table with {0}:{1}'.format(errtype.__name__,errvalue)
          return False,errMsg
@@ -236,6 +236,7 @@ class Yoda(threading.Thread):
          self.db.insertEventRanges(eventRanges)
          return True,None
       except:
+         logger.exception("Exception in Rank %s",self.rank)
          errtype,errvalue = sys.exc_info()[:2]
          errMsg = 'failed to insert event range to table with {0}:{1}'.format(errtype.__name__,errvalue)
          return False,errMsg
@@ -245,6 +246,7 @@ class Yoda(threading.Thread):
          self.db.insertJobsEventRanges(eventRanges)
          return True,None
       except:
+         logger.exception("Exception in Rank %s",self.rank)
          errtype,errvalue = sys.exc_info()[:2]
          errMsg = 'failed to insert event range to table with {0}:{1}'.format(errtype.__name__,errvalue)
          return False,errMsg
@@ -281,7 +283,7 @@ class Yoda(threading.Thread):
              self.stagedOutJobsEventRanges[jobId] = []
          return True,None
       except:
-         self.tmpLog.debug("Rank %s: %s" % (self.rank, traceback.format_exc()))
+         logger.exception("Exception in Rank %s",self.rank)
          errtype,errvalue = sys.exc_info()[:2]
          errMsg = 'failed to make event table with {0}:{1}'.format(errtype.__name__,errvalue)
          return False,errMsg
@@ -292,18 +294,18 @@ class Yoda(threading.Thread):
             job = self.jobs[jobId]
             neededRanks = job['neededRanks']
             readyEvents = len(self.readyJobsEventRanges[jobId]) if jobId in self.readyJobsEventRanges else 0
-            self.tmpLog.debug("Rank %s: Job %s has %s events, needs %s ranks" % (self.rank, jobId, readyEvents, neededRanks))
-         self.tmpLog.debug("Rank %s: Job full rank queue: %s" % (self.rank, self.jobRanks))
-         self.tmpLog.debug("Rank %s: Job small piece queue: %s" % (self.rank, self.jobRanksSmallPiece))
+            logger.debug("Rank %s: Job %s has %s events, needs %s ranks" % (self.rank, jobId, readyEvents, neededRanks))
+         logger.debug("Rank %s: Job full rank queue: %s",self.rank, self.jobRanks)
+         logger.debug("Rank %s: Job small piece queue: %s",self.rank, self.jobRanksSmallPiece)
          return True, None
       except:
-         self.tmpLog.debug("Rank %s: %s" % (self.rank, traceback.format_exc()))
+         logger.exception("Exception in Rank %s",self.rank)
          errtype,errvalue = sys.exc_info()[:2]
          errMsg = 'failed to make event table with {0}:{1}'.format(errtype.__name__,errvalue)
          return False,errMsg
 
-    # inject more events
-    def injectEvents(self):
+   # inject more events
+   def injectEvents(self):
       try:
          # scan new event ranges json files
          all_files = os.listdir(self.globalWorkingDir)
@@ -317,6 +319,7 @@ class Yoda(threading.Thread):
                   self.readyEventRanges.append(eventRange)
          return True,None
       except:
+         logger.exception("Exception in Rank %s",self.rank)
          errtype,errvalue = sys.exc_info()[:2]
          errMsg = 'failed to inject more event range to table with {0}:{1}'.format(errtype.__name__,errvalue)
          return False,errMsg
@@ -338,17 +341,18 @@ class Yoda(threading.Thread):
                      self.readyJobsEventRanges[jobId].append(eventRange)
          return True,None
       except:
+         logger.exception("Exception in Rank %s",self.rank)
          errtype,errvalue = sys.exc_info()[:2]
          errMsg = 'failed to inject more event range to table with {0}:{1}'.format(errtype.__name__,errvalue)
          return False,errMsg
 
    def rescheduleJobRanks(self):
       try:
-         self.tmpLog.debug("Rank %s: rescheduleJobRanks" % (self.rank))
+         logger.debug("Rank %s: rescheduleJobRanks" % (self.rank))
          numEvents = {}
          for jobId in self.readyJobsEventRanges:
              no = len(self.readyJobsEventRanges[jobId])
-             self.tmpLog.debug("Rank %s: Job %s ready events %s"  % (self.rank, jobId, no))
+             logger.debug("Rank %s: Job %s ready events %s",self.rank, jobId, no)
              if no not in numEvents:
                  numEvents[len] = []
              numEvents.append(jobId)
@@ -359,11 +363,11 @@ class Yoda(threading.Thread):
                  continue
              for jobId in numEvents[key]:
                  #for i in range(key/self.cores):
-                 self.tmpLog.debug("Rank %s: Adding job %s to small piece queue"  % (self.rank, jobId))
+                 logger.debug("Rank %s: Adding job %s to small piece queue",self.rank, jobId)
                  self.jobRanksSmallPiece.append(jobId)
 
-         self.tmpLog.debug("Rank %s: Jobs in small piece queue(one job is not enough to take the full rank) %s" % (self.rank, self.jobRanksSmallPiece))
-         self.tmpLog.debug("Rank %s: Jobs in full rank queue(one job is long enough to take the full rank, should be empty if reaching here) %s" % (self.rank, self.jobRanks))
+         logger.debug("Rank %s: Jobs in small piece queue(one job is not enough to take the full rank) %s",self.rank, self.jobRanksSmallPiece)
+         logger.debug("Rank %s: Jobs in full rank queue(one job is long enough to take the full rank, should be empty if reaching here) %s",self.rank, self.jobRanks)
 
          self.printEventStatus()
       except:
@@ -377,31 +381,31 @@ class Yoda(threading.Thread):
       job = None
       jobId = None
       if int(rank) <= self.lastRankForBigJobFirst:
-         self.tmpLog.debug("Rank %s: Big jobs first for rank %s(<=%s the last rank for big job first)"  % (self.rank, rank, self.lastRankForBigJobFirst))
+         logger.debug("Rank %s: Big jobs first for rank %s(<=%s the last rank for big job first)",self.rank, rank, self.lastRankForBigJobFirst)
          while len(self.jobRanks):
             jobId = self.jobRanks.pop(0)
             if rank in self.rankJobsTries and jobId in self.rankJobsTries[rank]:
-               self.tmpLog.debug("Rank %s: Job %s already tried on rank %s, will not scheduled to it again."  % (self.rank, jobId, rank))
+               logger.debug("Rank %s: Job %s already tried on rank %s, will not scheduled to it again.",self.rank, jobId, rank)
                continue
             if len(self.readyJobsEventRanges[jobId]) > 0:
                job = self.jobs[jobId]
                break
          if job is None:
-            self.tmpLog.debug("Rank %s: no available jobs in full rank queue, try to get job from small piece queue"  % (self.rank))
+            logger.debug("Rank %s: no available jobs in full rank queue, try to get job from small piece queue"  % (self.rank))
             while len(self.jobRanksSmallPiece):
                jobId = self.jobRanksSmallPiece.pop(0)
                if rank in self.rankJobsTries and jobId in self.rankJobsTries[rank]:
-                  self.tmpLog.debug("Rank %s: Job %s already tried on rank %s, will not scheduled to it again."  % (self.rank, jobId, rank))
+                  logger.debug("Rank %s: Job %s already tried on rank %s, will not scheduled to it again.",self.rank, jobId, rank)
                   continue
                if len(self.readyJobsEventRanges[jobId]) > 0:
                   job = self.jobs[jobId]
                   break
       else:
-         self.tmpLog.debug("Rank %s: Small jobs first for rank %s(>%s the last rank for big job first)"  % (self.rank, rank, self.lastRankForBigJobFirst))
+         logger.debug("Rank %s: Small jobs first for rank %s(>%s the last rank for big job first)",self.rank, rank, self.lastRankForBigJobFirst)
          while len(self.jobRanksSmallPiece):
             jobId = self.jobRanksSmallPiece.pop()
             if rank in self.rankJobsTries and jobId in self.rankJobsTries[rank]:
-               self.tmpLog.debug("Rank %s: Job %s already tried on rank %s, will not scheduled to it again."  % (self.rank, jobId, rank))
+               logger.debug("Rank %s: Job %s already tried on rank %s, will not scheduled to it again.",self.rank, jobId, rank)
                continue
             if len(self.readyJobsEventRanges[jobId]) > 0:
                job = self.jobs[jobId]
@@ -410,7 +414,7 @@ class Yoda(threading.Thread):
             while len(self.jobRanks):
                jobId = self.jobRanks.pop()
                if rank in self.rankJobsTries and jobId in self.rankJobsTries[rank]:
-                  self.tmpLog.debug("Rank %s: Job %s already tried on rank %s, will not scheduled to it again."  % (self.rank, jobId, rank))
+                  logger.debug("Rank %s: Job %s already tried on rank %s, will not scheduled to it again.",self.rank, jobId, rank)
                   continue
                if len(self.readyJobsEventRanges[jobId]) > 0:
                   job = self.jobs[jobId]
@@ -430,7 +434,7 @@ class Yoda(threading.Thread):
 
       res = {'StatusCode':0,
             'job': job}
-      self.tmpLog.debug('res={0}'.format(str(res)))
+      logger.debug('res={0}'.format(str(res)))
 
       if jobId:
          if jobId not in self.jobsRuningRanks:
@@ -443,7 +447,7 @@ class Yoda(threading.Thread):
          self.rankJobsTries[rank].append(jobId)
 
       self.comm.returnResponse(res)
-      self.tmpLog.debug('return response')
+      logger.debug('return response')
 
 
    # update job
@@ -456,9 +460,9 @@ class Yoda(threading.Thread):
       res = {'StatusCode':0,
             'command':'NULL'}
       # return
-      self.tmpLog.debug('res={0}'.format(str(res)))
+      logger.debug('res={0}'.format(str(res)))
       self.comm.returnResponse(res)
-      self.tmpLog.debug('return response')
+      logger.debug('return response')
 
 
    # finish job
@@ -476,9 +480,9 @@ class Yoda(threading.Thread):
       res = {'StatusCode':0,
             'command':'NULL'}
       # return
-      self.tmpLog.debug('res={0}'.format(str(res)))
+      logger.debug('res={0}'.format(str(res)))
       self.comm.returnResponse(res)
-      self.tmpLog.debug('return response')
+      logger.debug('return response')
 
 
    # finish droid
@@ -490,9 +494,9 @@ class Yoda(threading.Thread):
       res = {'StatusCode':0,
             'command':'NULL'}
       # return
-      self.tmpLog.debug('res={0}'.format(str(res)))
+      logger.debug('res={0}'.format(str(res)))
       self.comm.returnResponse(res)
-      self.tmpLog.debug('return response')
+      logger.debug('return response')
      
 
    # get event ranges
@@ -506,7 +510,7 @@ class Yoda(threading.Thread):
       try:
          eventRanges = self.db.getEventRanges(nRanges)
       except Exception as e:
-         self.tmpLog.debug('db.getEventRanges failed: %s' % str(e))
+         logger.exception("db.getEventRanges failed Exception in Rank %s",self.rank)
          res = {'StatusCode':-1,
                 'eventRanges':None}
       else:
@@ -514,13 +518,13 @@ class Yoda(threading.Thread):
          res = {'StatusCode':0,
                 'eventRanges':eventRanges}
       # return response
-      self.tmpLog.debug('res={0}'.format(str(res)))
+      logger.debug('res={0}'.format(str(res)))
       self.comm.returnResponse(res)
       # dump updated records
       try:
          self.db.dumpUpdates()
       except Exception as e:
-         self.tmpLog.debug('db.dumpUpdates failed: %s' % str(e))
+         logger.exception('db.dumpUpdates failed with exception in Rank %s',self.rank)
 
 
    # get event ranges
@@ -541,17 +545,17 @@ class Yoda(threading.Thread):
              else:
                  break
       except:
-         self.tmpLog.warning("Failed to get event ranges: %s" % traceback.format_exc())
-         print self.readyJobsEventRanges
-         print self.runningJobsEventRanges
+         logger.warning("Failed to get event ranges: %s" % traceback.format_exc())
+         logger.debug('readyJobsEventRanges: %s',self.readyJobsEventRanges)
+         logger.debug('runningJobsEventRanges: %s',self.runningJobsEventRanges)
 
       # make response
       res = {'StatusCode':0,
             'eventRanges':eventRanges}
       # return response
-      self.tmpLog.debug('res={0}'.format(str(res)))
+      logger.debug('res=%s',str(res))
       self.comm.returnResponse(res)
-      self.tmpLog.debug('return response')
+      logger.debug('return response')
 
 
    # update event range
@@ -564,18 +568,18 @@ class Yoda(threading.Thread):
       try:
          self.db.updateEventRange(eventRangeID,eventStatus, output)
       except Exception as e:
-         self.tmpLog.debug('db.updateEventRange failed: %s' % str(e))
+         logger.debug('db.updateEventRange failed: %s' % str(e))
          self.failed_updates.append([eventRangeID,eventStatus, output])
       # make response
       res = {'StatusCode':0}
       # return
-      self.tmpLog.debug('res={0}'.format(str(res)))
+      logger.debug('res={0}'.format(str(res)))
       self.comm.returnResponse(res)
       # dump updated records
       try:
          self.db.dumpUpdates()
       except Exception as e:
-         self.tmpLog.debug('db.dumpUpdates failed: %s' % str(e))
+         logger.debug('db.dumpUpdates failed: %s' % str(e))
 
 
    # update event range
@@ -597,9 +601,9 @@ class Yoda(threading.Thread):
       # make response
       res = {'StatusCode':0}
       # return
-      self.tmpLog.debug('res={0}'.format(str(res)))
+      logger.debug('res={0}'.format(str(res)))
       self.comm.returnResponse(res)
-      self.tmpLog.debug('return response')
+      logger.debug('return response')
 
 
    # update event ranges
@@ -622,9 +626,9 @@ class Yoda(threading.Thread):
       # make response
       res = {'StatusCode':0}
       # return
-      self.tmpLog.debug('res={0}'.format(str(res)))
+      logger.debug('res={0}'.format(str(res)))
       self.comm.returnResponse(res)
-      self.tmpLog.debug('return response')
+      logger.debug('return response')
 
 
    def updateFailedEventRanges(self):
@@ -633,7 +637,7 @@ class Yoda(threading.Thread):
          try:
              self.db.updateEventRange(eventRangeID,eventStatus, output)
          except Exception as e:
-             self.tmpLog.debug('db.updateEventRange failed: %s' % str(e))
+             logger.debug('db.updateEventRange failed: %s',e)
 
 
    def updateRunningEventRangesToDB(self):
@@ -641,14 +645,14 @@ class Yoda(threading.Thread):
          runningEvents = []
          for jobId in self.runningJobsEventRanges:
              for eventRangeID in self.runningJobsEventRanges[jobId]:
-                 # self.tmpLog.debug(self.runningEventRanges[eventRangeID])
+                 # logger.debug(self.runningEventRanges[eventRangeID])
                  status = 'running'
                  output = None
                  runningEvents.append((eventRangeID, status, output))
          if len(runningEvents):
              self.db.updateEventRanges(runningEvents)
       except Exception as e:
-         self.tmpLog.debug('updateRunningEventRangesToDB failed: %s, %s' % (str(e), traceback.format_exc()))
+         logger.debug('updateRunningEventRangesToDB failed: %s, %s',str(e), traceback.format_exc())
 
    def dumpUpdates(self, jobId, outputs, type=''):
       #if self.dumpEventOutputs == False:
@@ -658,7 +662,7 @@ class Yoda(threading.Thread):
       outFileName = str(jobId) + "_event_status.dump" + type
       outFileName = os.path.join(self.globalWorkingDir, outFileName)
       outFile = open(outFileName + ".new", 'w')
-      self.tmpLog.debug("dumpUpdates: dumpFileName %s" % (outFileName))
+      logger.debug("dumpUpdates: dumpFileName %s" % (outFileName))
 
       metadataFileName = None
       metafd = None
@@ -671,7 +675,7 @@ class Yoda(threading.Thread):
              metadataFileName = os.path.join(self.globalWorkingDir, metadataFileName)
 
 
-         self.tmpLog.debug("dumpUpdates: outputDir %s, metadataFileName %s" % (self.outputDir, metadataFileName))
+         logger.debug("dumpUpdates: outputDir %s, metadataFileName %s" % (self.outputDir, metadataFileName))
          metafd = open(metadataFileName + ".new", "w")
          metafd.write('<?xml version="1.0" encoding="UTF-8" standalone="no" ?>\n')
          metafd.write("<!-- Edited By POOL -->\n")
@@ -705,17 +709,17 @@ class Yoda(threading.Thread):
       command = "mv %s.new %s" % (outFileName, outFileName)
       retS, retOut = commands.getstatusoutput(command)
       if retS:
-         self.tmpLog.debug('Failed to execute %s: %s' % (command, retOut))
+         logger.debug('Failed to execute %s: %s',command, retOut)
 
       if metadataFileName:
          command = "mv %s.new %s" % (metadataFileName, metadataFileName)
          retS, retOut = commands.getstatusoutput(command)
          if retS:
-             self.tmpLog.debug('Failed to execute %s: %s' % (command, retOut))
+             logger.debug('Failed to execute %s: %s',command, retOut)
 
    def updateFinishedEventRangesToDB(self):
       try:
-         self.tmpLog.debug('start to updateFinishedEventRangesToDB')
+         logger.debug('start to updateFinishedEventRangesToDB')
 
          for jobId in self.stagedOutJobsEventRanges:
              if len(self.stagedOutJobsEventRanges[jobId]):
@@ -731,9 +735,9 @@ class Yoda(threading.Thread):
                  #for i in self.finishedJobsEventRanges[jobId]:
                  #    self.finishedJobsEventRanges[jobId].remove(i)
                  #self.finishedJobsEventRanges[jobId] = []
-         self.tmpLog.debug('finished to updateFinishedEventRangesToDB')
+         logger.debug('finished to updateFinishedEventRangesToDB')
       except Exception as e:
-         self.tmpLog.debug('updateFinishedEventRangesToDB failed: %s, %s' % (str(e), traceback.format_exc()))
+         logger.debug('updateFinishedEventRangesToDB failed: %s, %s',str(e), traceback.format_exc())
 
 
    def updateEventRangesToDB(self, force=False, final=False):
@@ -741,19 +745,19 @@ class Yoda(threading.Thread):
       # forced or first dump or enough interval
       if force or self.updateEventRangesToDBTime == None or \
          ((timeNow - self.updateEventRangesToDBTime) > 60 * 5):
-         self.tmpLog.debug('start to updateEventRangesToDB')
+         logger.debug('start to updateEventRangesToDB')
          self.updateEventRangesToDBTime = time.time()
          #if not final:
          #    self.updateRunningEventRangesToDB()
          self.updateFinishedEventRangesToDB()
-         self.tmpLog.debug('finished to updateEventRangesToDB')
+         logger.debug('finished to updateEventRangesToDB')
 
 
-      def finishDroids(self):
-      self.tmpLog.debug('finish Droids')
+   def finishDroids(self):
+      logger.debug('finish Droids')
       # make message
       res = {'StatusCode':0, 'State': 'finished'}
-      self.tmpLog.debug('res={0}'.format(str(res)))
+      logger.debug('res={0}'.format(str(res)))
       self.comm.sendMessage(res)
       #self.comm.disconnect()
 
@@ -809,16 +813,16 @@ class Yoda(threading.Thread):
       """
       {"jobId": , "rank": , "startTime": ,"readyTime": , "endTime": , "setupTime": , "totalTime": , "cores": , "processCPUHour": , "totalCPUHour": , "queuedEvents": , "processedEvents": , "cpuConsumptionTime": }
       """
-      self.tmpLog.debug('heartbeat')
+      logger.debug('heartbeat')
       jobId = params['jobId']
       rank = params['rank']
 
       # make response
       res = {'StatusCode':0}
       # return
-      self.tmpLog.debug('res={0}'.format(str(res)))
+      logger.debug('res={0}'.format(str(res)))
       self.comm.returnResponse(res)
-      self.tmpLog.debug('return response')
+      logger.debug('return response')
 
       if jobId not in self.jobMetrics:
          self.jobMetrics[jobId] = {'ranks': {}, 'collect': {}}
@@ -835,10 +839,10 @@ class Yoda(threading.Thread):
          #outputDir = self.jobs[jobId]["GlobalWorkingDir"]
          outputDir = self.globalWorkingDir
       except:
-         self.tmpLog.debug("Failed to get job's global working dir: %s" % (traceback.format_exc()))
+         logger.debug("Failed to get job's global working dir: %s" % (traceback.format_exc()))
          outputDir = self.globalWorkingDir
       jobMetrics = os.path.join(outputDir, jobMetricsFileName)
-      self.tmpLog.debug("JobMetrics file: %s" % (jobMetrics + ".new"))
+      logger.debug("JobMetrics file: %s" % (jobMetrics + ".new"))
       tmpFile = open(jobMetrics+ ".new", "w")
       json.dump(self.jobMetrics, tmpFile)
       tmpFile.close()
@@ -846,13 +850,13 @@ class Yoda(threading.Thread):
       command = "mv %s.new %s" % (jobMetrics, jobMetrics)
       retS, retOut = commands.getstatusoutput(command)
       if retS:
-         self.tmpLog.debug('Failed to execute %s: %s' % (command, retOut))
+         logger.debug('Failed to execute %s: %s' % (command, retOut))
 
    def dumpJobsStartTime(self):
       jobsTimestampFileName = "jobsTimestamp-yoda.json"
       outputDir = self.globalWorkingDir
       jobsTimestampFile = os.path.join(outputDir, jobsTimestampFileName)
-      self.tmpLog.debug("JobsStartTime file: %s" % (jobsTimestampFile + ".new"))
+      logger.debug("JobsStartTime file: %s" % (jobsTimestampFile + ".new"))
       tmpFile = open(jobsTimestampFile + ".new", "w")
       json.dump(self.jobsTimestamp, tmpFile)
       tmpFile.close()
@@ -860,7 +864,7 @@ class Yoda(threading.Thread):
       command = "mv %s.new %s" % (jobsTimestampFile, jobsTimestampFile)
       retS, retOut = commands.getstatusoutput(command)
       if retS:
-         self.tmpLog.debug('Failed to execute %s: %s' % (command, retOut))
+         logger.debug('Failed to execute %s: %s' % (command, retOut))
 
    def helperFunction(self):
       # flush the updated event ranges to db
@@ -872,60 +876,60 @@ class Yoda(threading.Thread):
    # main yoda
    def runYoda(self):
       # get logger
-      self.tmpLog.info('start')
+      logger.info('start')
       # load job
-      self.tmpLog.info('loading job')
+      logger.info('loading job')
       tmpStat,tmpOut = self.loadJobs()
-      self.tmpLog.info("loading jobs: (status: %s, output: %s)" %(tmpStat, tmpOut))
+      logger.info("loading jobs: (status: %s, output: %s)" %(tmpStat, tmpOut))
       if not tmpStat:
-         self.tmpLog.error(tmpOut)
+         logger.error(tmpOut)
          raise Exception(tmpOut)
 
-      self.tmpLog.info("init job ranks")
+      logger.info("init job ranks")
       tmpStat,tmpOut = self.initJobRanks()
-      self.tmpLog.info("initJobRanks: (status: %s, output: %s)" %(tmpStat, tmpOut))
+      logger.info("initJobRanks: (status: %s, output: %s)" %(tmpStat, tmpOut))
       if not tmpStat:
-         self.tmpLog.error(tmpOut)
+         logger.error(tmpOut)
          raise Exception(tmpOut)
 
       # make event table
-      self.tmpLog.info('making JobsEventTable')
+      logger.info('making JobsEventTable')
       tmpStat,tmpOut = self.makeJobsEventTable()
       if not tmpStat:
-         self.tmpLog.error(tmpOut)
+         logger.error(tmpOut)
          raise Exception(tmpOut)
 
       # print event status
-      self.tmpLog.info('print event status')
+      logger.info('print event status')
       tmpStat,tmpOut = self.printEventStatus()
 
-      self.tmpLog.info('Initialize Helper thread')
-      helperThread = Yoda.HelperThread(self.tmpLog, self.helperFunction)
+      logger.info('Initialize Helper thread')
+      helperThread = Yoda.HelperThread(logger, self.helperFunction)
       helperThread.start()
 
       # main loop
-      self.tmpLog.info('main loop')
+      logger.info('main loop')
       time_dupmJobMetrics = time.time()
       while self.comm.activeRanks():
          #self.injectEvents()
          # get request
-         self.tmpLog.info('waiting requests')
+         logger.info('waiting requests')
          tmpStat,method,params = self.comm.receiveRequest()
-         self.tmpLog.debug("received request: (rank: %s, status: %s, method: %s, params: %s)" %(self.comm.getRequesterRank(),tmpStat,method,params))
+         logger.debug("received request: (rank: %s, status: %s, method: %s, params: %s)",self.comm.getRequesterRank(),tmpStat,method,params)
          if not tmpStat:
-            self.tmpLog.error(method)
+            logger.error(method)
             raise Exception(method)
          # execute
-         self.tmpLog.debug('rank={0} method={1} param={2}'.format(self.comm.getRequesterRank(),
+         logger.debug('rank={0} method={1} param={2}'.format(self.comm.getRequesterRank(),
                            method,str(params)))
          if hasattr(self,method):
             methodObj = getattr(self,method)
             try:
                apply(methodObj,[params])
             except:
-               self.tmpLog.debug("Failed to run function %s: %s" % (method, traceback.format_exc()))
+               logger.debug("Failed to run function %s: %s",method, traceback.format_exc())
          else:
-             self.tmpLog.error('unknown method={0} was requested from rank={1} '.format(method,
+             logger.error('unknown method={0} was requested from rank={1} '.format(method,
                                                                                    self.comm.getRequesterRank()))
       helperThread.stop()
       self.flushMessages()
@@ -934,12 +938,12 @@ class Yoda(threading.Thread):
       self.dumpJobMetrics()
       self.dumpJobsStartTime()
       # final dump
-      #self.tmpLog.info('final dumping')
+      #logger.info('final dumping')
       #self.db.dumpUpdates(True)
-      self.tmpLog.info("post Exec job")
+      logger.info("post Exec job")
       self.postExecJob()
       self.finishDroids()
-      self.tmpLog.info('done')
+      logger.info('done')
      
 
    # main
@@ -947,35 +951,35 @@ class Yoda(threading.Thread):
       try:
          self.runYoda()
       except:
-         self.tmpLog.info("Excpetion to run Yoda: %s" % traceback.format_exc())
+         logger.info("Excpetion to run Yoda: %s",traceback.format_exc())
          raise
 
    def flushMessages(self):
-      self.tmpLog.info('flush messages')
+      logger.info('flush messages')
 
       while self.comm.activeRanks():
          # get request
          tmpStat,method,params = self.comm.receiveRequest()
-         self.tmpLog.debug("received request: (rank: %s, status: %s, method: %s, params: %s)" %(self.comm.getRequesterRank(),tmpStat,method,params))
+         logger.debug("received request: (rank: %s, status: %s, method: %s, params: %s)",self.comm.getRequesterRank(),tmpStat,method,params)
          if not tmpStat:
-             self.tmpLog.error(method)
+             logger.error(method)
              raise Exception(method)
          # execute
-         self.tmpLog.debug('rank={0} method={1} param={2}'.format(self.comm.getRequesterRank(),
-                                                             method,str(params)))
+         logger.debug('rank=%s method=%s param=%s',self.comm.getRequesterRank(),
+                                                             method,str(params))
          if hasattr(self,method):
              methodObj = getattr(self,method)
              apply(methodObj,[params])
          else:
-             self.tmpLog.error('unknown method={0} was requested from rank={1} '.format(method, self.comm.getRequesterRank()))
+             logger.error('unknown method={0} was requested from rank={1} '.format(method, self.comm.getRequesterRank()))
 
 
    def stopYoda(self, signum=None, frame=None):
-      self.tmpLog.info('stopYoda signal %s received' % signum)
+      logger.info('stopYoda signal %s received' % signum)
       #signal.signal(signum, self.originSigHandler[signum])
       # make message
       res = {'StatusCode':0, 'State': 'signal', 'signum': signum}
-      self.tmpLog.debug('res={0}'.format(str(res)))
+      logger.debug('res=%s',str(res))
       self.comm.sendMessage(res)
 
       self.dumpJobMetrics()
@@ -988,7 +992,7 @@ class Yoda(threading.Thread):
       self.updateEventRangesToDB(force=True, final=True)
 
    def stop(self, signum=None, frame=None):
-      self.tmpLog.info('stop signal %s received' % signum)
+      logger.info('stop signal %s received' % signum)
       block_sig(signum)
       signal.siginterrupt(signum, False)
       self.dumpJobMetrics()
@@ -1001,12 +1005,12 @@ class Yoda(threading.Thread):
       #self.flushMessages()
       #self.updateFailedEventRanges()
       # final dump
-      self.tmpLog.info('final dumping')
+      logger.info('final dumping')
       self.updateEventRangesToDB(force=True, final=True)
       #self.db.dumpUpdates(True)
-      self.tmpLog.info("post Exec job")
+      logger.info("post Exec job")
       self.postExecJob()
-      self.tmpLog.info('stop')
+      logger.info('stop')
       #signal.siginterrupt(signum, True)
       unblock_sig(signum)
 
@@ -1015,13 +1019,13 @@ class Yoda(threading.Thread):
 
 
    def __del_not_use__(self):
-      self.tmpLog.info('__del__ function')
+      logger.info('__del__ function')
       self.flushMessages()
       self.updateFailedEventRanges()
       # final dump
-      self.tmpLog.info('final dumping')
+      logger.info('final dumping')
       self.updateEventRangesToDB(force=True, final=True)
       #self.db.dumpUpdates(True)
-      self.tmpLog.info("post Exec job")
+      logger.info("post Exec job")
       self.postExecJob()
-      self.tmpLog.info('__del__ function')
+      logger.info('__del__ function')

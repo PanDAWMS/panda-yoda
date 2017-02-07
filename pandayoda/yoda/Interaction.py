@@ -92,8 +92,8 @@ class Receiver:
             return False,errMsg,None
 
 
-    # return response 
-    def returnResponse(self,rData):
+   # return response 
+   def returnResponse(self,rData):
       if self.hasMessage:
          try:
             #data = urllib.urlencode(rData)
@@ -164,7 +164,7 @@ class Requester:
     
    # constructor
    def __init__(self, rank=None, nonMPIMode=False, logger=None):
-     self.nonMPIMode = nonMPIMode
+      self.nonMPIMode = nonMPIMode
       if not self.nonMPIMode:
          from mpi4py import MPI
          self.comm = MPI.COMM_WORLD
@@ -227,10 +227,10 @@ class Requester:
                   self.logger.debug("Failed to handle signal message: %s" % traceback.format_exc())
                break
          return True,answer
-        except:
-            errtype,errvalue = sys.exc_info()[:2]
-            errMsg = 'failed to send the request with mode %s: %s' % (self.nonMPIMode, traceback.format_exc())
-            return False,errMsg
+      except:
+         errtype,errvalue = sys.exc_info()[:2]
+         errMsg = 'failed to send the request with mode %s: %s' % (self.nonMPIMode, traceback.format_exc())
+         return False,errMsg
             
         
    def waitMessage(self):

@@ -1,4 +1,4 @@
-
+#!/usr/bin/env python
 import argparse
 import logging
 import os
@@ -6,33 +6,37 @@ import sys
 import time
 import traceback
 from mpi4py import MPI
-from pandayoda.yodacore import Yoda
-from pandayoda.yodaexe import Droid
+from pandayoda.yoda import Yoda
+from pandayoda.droid import Droid
 logger = logging.getLogger(__name__)
 
 def main(globalWorkDir, localWorkDir, outputDir=None, dumpEventOutputs=True):
 
    # get MPI world info
-   comm = MPI.COMM_WORLD
-   mpirank = comm.Get_rank()
-   mpisize = comm.Get_size()
+   try:
+      comm = MPI.COMM_WORLD
+      mpirank = comm.Get_rank()
+      mpisize = comm.Get_size()
+   except:
+      logger.error('Exception retrieving MPI rank information')
+      raise
 
    # Create separate working directory for each rank
-   curdir = os.path.abspath (localWorkDir)
+   curdir = os.path.abspath(localWorkDir)
    wkdirname = "rank_%08i" % mpirank
-   wkdir  = os.path.abspath (os.path.join(curdir,wkdirname))
+   wkdir  = os.path.abspath(os.path.join(curdir,wkdirname))
    if not os.path.exists(wkdir):
-      os.makedirs (wkdir)
-   os.chdir (wkdir)
+      os.makedirs(wkdir)
+   os.chdir(wkdir)
 
-   logger.info("GlobalWorkDir: %s" % globalWorkDir)
-   logger.info("LocalWorkDir: %s" % localWorkDir)
-   logger.info("OutputDir: %s" % outputDir)
-   logger.info("RANK: %08i of %08i" % (mpirank,mpisize))
+   logger.info("GlobalWorkDir: %s",globalWorkDir)
+   logger.info("LocalWorkDir: %s",localWorkDir)
+   logger.info("OutputDir: %s",outputDir)
+   logger.info("RANK: %08i of %08i",mpirank,mpisize)
 
    if mpirank==0:
-     try:
-         yoda = Yoda.Yoda(globalWorkDir, localWorkDir, rank=0, nonMPIMode=nonMPIMode, 
+      try:
+         yoda = Yoda.Yoda(globalWorkDir, localWorkDir, 
                            outputDir=outputDir, dumpEventOutputs=dumpEventOutputs)
          yoda.start()
 
@@ -47,16 +51,16 @@ def main(globalWorkDir, localWorkDir, outputDir=None, dumpEventOutputs=True):
 
          i = 30
          while True:
-            logger.info("Rank %s: Yoda isAlive %s" % (mpirank, yoda.isAlive()))
-            logger.info("Rank %s: Droid isAlive %s" % (mpirank, droid.isAlive()))
+            logger.info("Rank %s: Yoda isAlive %s",mpirank, yoda.isAlive())
+            logger.info("Rank %s: Droid isAlive %s",mpirank, droid.isAlive())
 
             if yoda and yoda.isAlive():
               time.sleep(60)
             else:
                break
-         logger.info("Rank %s: Yoda finished" % (mpirank))
+         logger.info("Rank %s: Yoda finished",mpirank)
       except:
-         logger.exception("Rank %s: Yoda failed" % mpirank)
+         logger.exception("Rank %s: Yoda failed",mpirank)
          raise
      #os._exit(0)
    else:
@@ -69,9 +73,9 @@ def main(globalWorkDir, localWorkDir, outputDir=None, dumpEventOutputs=True):
              droid.join(timeout=1)
          # parent process
          #pid, status = os.waitpid(child_pid, 0)
-         logger.info("Rank %s: Droid finished status: %s" % (mpirank, status))
+         logger.info("Rank %s: Droid finished status: %s",mpirank, status)
       except:
-         logger.exception("Rank %s: Droid failed" % mpirank)
+         logger.exception("Rank %s: Droid failed",mpirank)
          raise
    return mpirank
 
@@ -84,9 +88,9 @@ if __name__ == "__main__":
    oparser.add_argument('--globalWorkingDir',dest="globalWorkingDir",
                         help="Global share working directory",required=True)
    oparser.add_argument('--localWorkingDir',dest="localWorkingDir",
-                        help="Local working directory. if it's not set, it will use global working directory",
-                        required=True)
-   oparser.add_argument('--outputDir', dest="outputDir",help="Copy output files to this directory")
+                        help="Local working directory. if it's not set, it will use global working directory",default=None)
+   oparser.add_argument('--outputDir', dest="outputDir",
+                        help="Copy output files to this directory",default=None)
    oparser.add_argument('--dumpEventOutputs',default=False,action='store_true',
                         help="Dump event output info to xml")
    oparser.add_argument('--verbose', '-v', default=False, action='store_true',
@@ -106,18 +110,8 @@ if __name__ == "__main__":
       oparser.print_help()
       sys.exit(-1)
 
-   try:
-     logger.info("Start HPCJob")
-     rank = main(args.globalWorkingDir, args.localWorkingDir, args.nonMPIMode, args.outputDir, args.dumpEventOutputs)
-     logger.info( "Rank %s: HPCJob-Yoda success" % rank )
-     if rank == 0:
-         # this causes all MPI ranks to exit, uncleanly
-         MPI.COMM_WORLD.Abort(-1)
-         sys.exit(0)
-   except Exception as e:
-     logger.exception("Rank " + rank + ": HPCJob-Yoda failed, exiting all ranks.")
-     if rank == 0:
-         # this causes all MPI ranks to exit, uncleanly
-         MPI.COMM_WORLD.Abort(-1)
-         sys.exit(-1)
-   #os._exit(0)
+   if args.localWorkingDir == None:
+      args.localWorkingDir = args.globalWorkingDir
+
+   main(args.globalWorkingDir, args.localWorkingDir, args.outputDir, args.dumpEventOutputs)
+
