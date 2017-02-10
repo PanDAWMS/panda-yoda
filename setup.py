@@ -21,7 +21,7 @@ setup(
               'pandayoda/test',
               ],
    entry_points = {
-           'console_scripts': ['yoda-droid=pandayoda.yoda-droid:main'],
+           'console_scripts': ['yoda_droid=pandayoda.yoda_droid:main'],
                },
    data_files = [],
    classifiers=[
