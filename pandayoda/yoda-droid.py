@@ -12,7 +12,7 @@ from pandayoda.droid import Droid
 logger = logging.getLogger(__name__)
 
 
-def main(globalWorkDir, localWorkDir, outputDir=None, dumpEventOutputs=True):
+def yoda_droid(globalWorkDir, localWorkDir, outputDir=None, dumpEventOutputs=True):
 
 
    logger.info("GlobalWorkDir:    %s",globalWorkDir)
@@ -81,8 +81,7 @@ def main(globalWorkDir, localWorkDir, outputDir=None, dumpEventOutputs=True):
          logger.exception("Rank %s: Droid failed",mpirank)
          raise
    
-
-if __name__ == "__main__":
+def main():
    logging.basicConfig(level=logging.INFO,
          format='%(asctime)s|%(process)s|%(levelname)s|%(name)s|%(message)s',
          datefmt='%Y-%m-%d %H:%M:%S')
@@ -116,5 +115,8 @@ if __name__ == "__main__":
    if args.localWorkingDir == None:
       args.localWorkingDir = args.globalWorkingDir
 
-   main(args.globalWorkingDir, args.localWorkingDir, args.outputDir, args.dumpEventOutputs)
+   yoda_droid(args.globalWorkingDir, args.localWorkingDir, args.outputDir, args.dumpEventOutputs)
 
+
+if __name__ == "__main__":
+   main()

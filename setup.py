@@ -20,7 +20,9 @@ setup(
               'pandayoda/droid',
               'pandayoda/test',
               ],
-   scripts = [],
+   entry_points = {
+           'console_scripts': ['yoda-droid=pandayoda.yoda-droid:main'],
+               }
    data_files = [],
    classifiers=[
       'Development Status :: 3 - Alpha',
