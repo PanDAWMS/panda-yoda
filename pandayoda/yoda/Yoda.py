@@ -11,6 +11,7 @@ import traceback
 import threading
 import pickle
 import signal
+import multiprocessing
 
 import Interaction,Database
 from signal_block import block_sig, unblock_sig
@@ -47,68 +48,71 @@ class Yoda(threading.Thread):
             self.__log.debug("Exception: HelperThread failed: %s" % traceback.format_exc())
 
 
-      # constructor
-      def __init__(self, globalWorkingDir, localWorkingDir, pilotJob=None, 
-                   outputDir=None, dumpEventOutputs=False):
-         threading.Thread.__init__(self)
-         self.globalWorkingDir = globalWorkingDir
-         self.localWorkingDir = localWorkingDir
-         self.currentDir = None
-         # database backend
-         self.db = Database.Backend(self.globalWorkingDir)
-         
-         # communication channel
-         self.comm = Interaction.Receiver(rank=rank, nonMPIMode=nonMPIMode, logger=logger)
-         self.rank = self.comm.getRank()
+   # constructor
+   def __init__(self, globalWorkingDir, localWorkingDir, inputJobFile,
+                pilotJob=None, 
+                outputDir=None, dumpEventOutputs=False,):
+      # call Thread constructor
+      super(threading.Thread,self).__init__()
+      
+      self.globalWorkingDir   = globalWorkingDir
+      self.localWorkingDir    = localWorkingDir
+      self.inputJobFile       = inputJobFile
+      self.currentDir         = None
+      
+      # database backend
+      self.db = Database.Backend(self.globalWorkingDir)
+      
+      # communication channel
+      self.comm = Interaction.Receiver()
+      self.rank = self.comm.getRank()
 
-         logger.info("Global working dir: %s",self.globalWorkingDir)
-         self.initWorkingDir()
-         logger.info("Current working dir: %s",self.currentDir)
-         self.failed_updates = []
-         self.outputDir = outputDir
-         self.dumpEventOutputs = dumpEventOutputs
+      self.initWorkingDir()
+      self.failed_updates = []
+      self.outputDir = outputDir
+      self.dumpEventOutputs = dumpEventOutputs
 
-         self.pilotJob = pilotJob
+      self.pilotJob = pilotJob
 
-         self.cores = 10
-         self.jobs = []
+      self.cores = multiprocessing.cpu_count()
+      self.jobs = []
 
-         # jobs which needs more than one rank
-         self.jobRanks = []
-         self.totalJobRanks = 0
-         # jobs which needs less than one rank
-         self.jobRanksSmallPiece = []
-         self.totalJobRanksSmallPiece = 0
-         self.rankJobsTries = {}
+      # jobs which need more than one rank
+      self.jobRanks = []
+      self.totalJobRanks = 0
+      # jobs which needs less than one rank
+      self.jobRanksSmallPiece = []
+      self.totalJobRanksSmallPiece = 0
+      self.rankJobsTries = {}
 
-         # scheduler policy:
-         self.bigJobFirst = True
-         self.lastRankForBigJobFirst = int(self.getTotalRanks() * 0.9)
+      # scheduler policy:
+      self.bigJobFirst = True
+      self.lastRankForBigJobFirst = int(self.getTotalRanks() * 0.9)
 
-         self.readyEventRanges = []
-         self.runningEventRanges = {}
-         self.finishedEventRanges = []
+      self.readyEventRanges = []
+      self.runningEventRanges = {}
+      self.finishedEventRanges = []
 
-         self.readyJobsEventRanges = {}
-         self.runningJobsEventRanges = {}
-         self.finishedJobsEventRanges = {}
-         self.stagedOutJobsEventRanges = {}
+      self.readyJobsEventRanges = {}
+      self.runningJobsEventRanges = {}
+      self.finishedJobsEventRanges = {}
+      self.stagedOutJobsEventRanges = {}
 
-         self.updateEventRangesToDBTime = None
+      self.updateEventRangesToDBTime = None
 
-         self.jobMetrics = {}
-         self.jobsTimestamp = {}
-         self.jobsRuningRanks = {}
+      self.jobMetrics = {}
+      self.jobsTimestamp = {}
+      self.jobsRuningRanks = {}
 
-         self.originSigHandler = {}
-         for sig in [signal.SIGTERM, signal.SIGQUIT, signal.SIGSEGV, signal.SIGXCPU, signal.SIGUSR1, signal.SIGBUS]:
-            self.originSigHandler[sig] = signal.getsignal(sig)
-         signal.signal(signal.SIGTERM, self.stop)
-         signal.signal(signal.SIGQUIT, self.stop)
-         signal.signal(signal.SIGSEGV, self.stop)
-         signal.signal(signal.SIGXCPU, self.stopYoda)
-         signal.signal(signal.SIGUSR1, self.stopYoda)
-         signal.signal(signal.SIGBUS, self.stopYoda)
+      self.originSigHandler = {}
+      for sig in [signal.SIGTERM, signal.SIGQUIT, signal.SIGSEGV, signal.SIGXCPU, signal.SIGUSR1, signal.SIGBUS]:
+         self.originSigHandler[sig] = signal.getsignal(sig)
+      signal.signal(signal.SIGTERM, self.stop)
+      signal.signal(signal.SIGQUIT, self.stop)
+      signal.signal(signal.SIGSEGV, self.stop)
+      signal.signal(signal.SIGXCPU, self.stopYoda)
+      signal.signal(signal.SIGUSR1, self.stopYoda)
+      signal.signal(signal.SIGBUS, self.stopYoda)
 
    def getTotalRanks(self):
       return self.comm.getTotalRanks()
@@ -873,10 +877,10 @@ class Yoda(threading.Thread):
       self.dumpJobMetrics()
       self.dumpJobsStartTime()
 
-   # main yoda
-   def runYoda(self):
+   # main
+   def run(self):
       # get logger
-      logger.info('start')
+      logger.info('Starting Yoda Thread')
       # load job
       logger.info('loading job')
       tmpStat,tmpOut = self.loadJobs()
@@ -943,16 +947,9 @@ class Yoda(threading.Thread):
       logger.info("post Exec job")
       self.postExecJob()
       self.finishDroids()
-      logger.info('done')
+      logger.info('Exiting Yoda Thread')
      
 
-   # main
-   def run(self):
-      try:
-         self.runYoda()
-      except:
-         logger.info("Excpetion to run Yoda: %s",traceback.format_exc())
-         raise
 
    def flushMessages(self):
       logger.info('flush messages')

@@ -5,12 +5,29 @@ import os
 import sys
 import time
 import traceback
+import ConfigParser
 from mpi4py import MPI
 from pandayoda.yoda import Yoda
 from pandayoda.droid import Droid
 logger = logging.getLogger(__name__)
 
+
 def main(globalWorkDir, localWorkDir, outputDir=None, dumpEventOutputs=True):
+
+
+   logger.info("GlobalWorkDir:    %s",globalWorkDir)
+   logger.info("LocalWorkDir:     %s",localWorkDir)
+   logger.info("OutputDir:        %s",outputDir)
+   logger.info("DumpEventOutputs: %s",str(dumpEventOutputs))
+
+   # parse config file
+   configFile = os.path.join(os.path.realpath(__file__),'yoda.cfg')
+   config = ConfigParser.RawConfigParser()
+   config.read(configFile)
+
+   inputJobFile = config.get('yoda','InputJobFile')
+   logger.info("InputJobFile:  %s",inputJobFile)
+
 
    # get MPI world info
    try:
@@ -29,35 +46,23 @@ def main(globalWorkDir, localWorkDir, outputDir=None, dumpEventOutputs=True):
       os.makedirs(wkdir)
    os.chdir(wkdir)
 
-   logger.info("GlobalWorkDir: %s",globalWorkDir)
-   logger.info("LocalWorkDir: %s",localWorkDir)
-   logger.info("OutputDir: %s",outputDir)
-   logger.info("RANK: %08i of %08i",mpirank,mpisize)
+   logger.info("RANK %08i of %08i",mpirank,mpisize)
 
    if mpirank==0:
       try:
          yoda = Yoda.Yoda(globalWorkDir, localWorkDir, 
-                           outputDir=outputDir, dumpEventOutputs=dumpEventOutputs)
+                           outputDir=outputDir, dumpEventOutputs=dumpEventOutputs,
+                           inputJobFile=inputJobFile)
          yoda.start()
-
          
-         if nonMPIMode:
-            reserveCores = 0
-         else:
-            reserveCores = 1
-         droid = Droid.Droid(globalWorkDir, localWorkDir, rank=0, nonMPIMode=True, 
-                             reserveCores=reserveCores, outputDir=outputDir)
+         droid = Droid.Droid(globalWorkDir, localWorkDir, outputDir=outputDir)
          droid.start()
 
-         i = 30
-         while True:
+         while yoda.isAlive() or droid.isAlive():
             logger.info("Rank %s: Yoda isAlive %s",mpirank, yoda.isAlive())
             logger.info("Rank %s: Droid isAlive %s",mpirank, droid.isAlive())
-
-            if yoda and yoda.isAlive():
-              time.sleep(60)
-            else:
-               break
+            time.sleep(300)
+            
          logger.info("Rank %s: Yoda finished",mpirank)
       except:
          logger.exception("Rank %s: Yoda failed",mpirank)
@@ -66,18 +71,16 @@ def main(globalWorkDir, localWorkDir, outputDir=None, dumpEventOutputs=True):
    else:
       try:
          status = 0
-         droid = Droid.Droid(globalWorkDir, localWorkDir, rank=mpirank, 
-                             nonMPIMode=nonMPIMode, outputDir=outputDir)
+         droid = Droid.Droid(globalWorkDir, localWorkDir, outputDir=outputDir)
          droid.start()
-         while (droid and droid.isAlive()):
-             droid.join(timeout=1)
-         # parent process
-         #pid, status = os.waitpid(child_pid, 0)
+         
+         while droid.isAlive():
+            droid.join(timeout=300)
          logger.info("Rank %s: Droid finished status: %s",mpirank, status)
       except:
          logger.exception("Rank %s: Droid failed",mpirank)
          raise
-   return mpirank
+   
 
 if __name__ == "__main__":
    logging.basicConfig(level=logging.INFO,

@@ -6,31 +6,26 @@ import time
 import urllib
 import Queue
 import traceback
+from mpi4py import MPI
+import logging
+logger = logging.getLogger(__name__)
 
 recvQueue = Queue.Queue()
 sendQueue = Queue.Queue()
-
 
 # class to receive requests
 class Receiver:
 
    # constructor
-   def __init__(self, rank=None, nonMPIMode=False, logger=None):
-      if nonMPIMode:
-         self.comm = None
-         self.stat = None
-         self.nRank = 0
-         self.totalRanks = 1
-         self.selectSource = None
-      else:
-         from mpi4py import MPI
-         self.comm = MPI.COMM_WORLD
-         self.stat = MPI.Status()
-         self.nRank = self.comm.Get_rank()
-         self.totalRanks = self.comm.Get_size()
-         self.selectSource = MPI.ANY_SOURCE
-
-      self.logger = logger
+   def __init__(self):
+      self.comm = MPI.COMM_WORLD
+      self.stat = MPI.Status()
+      self.nRank = self.comm.Get_rank()
+      self.totalRanks = self.comm.Get_size()
+      self.selectSource = MPI.ANY_SOURCE
+      self.nonMPIMode = False
+      if self.nRank == 1:
+         self.nonMPIMode = True
 
       # for message in rank 0
       self.hasMessage = False
@@ -161,18 +156,14 @@ class Receiver:
 
 # class to send requests
 class Requester:
-    
    # constructor
-   def __init__(self, rank=None, nonMPIMode=False, logger=None):
-      self.nonMPIMode = nonMPIMode
-      if not self.nonMPIMode:
-         from mpi4py import MPI
-         self.comm = MPI.COMM_WORLD
-         self.rank = 0
-      else:
-         self.comm = None
-
-      self.logger = logger
+   def __init__(self):
+      self.comm = MPI.COMM_WORLD
+      self.rank = MPI.COMM_WORLD.Get_rank()
+      self.nRank = MPI.COMM_WORLD.Get_size()
+      self.nonMPIMode = False
+      if self.nRank == 0:
+         self.nonMPIMode = True
 
       # for message in rank 0
       self.hasMessage = False
@@ -183,7 +174,7 @@ class Requester:
    def getRank(self):
       if self.nonMPIMode:
          return 0
-      return self.comm.Get_rank()
+      return self.rank
 
 
    # send request
@@ -216,15 +207,13 @@ class Requester:
             # {'StatusCode':0, 'State': 'signal', 'signum': signum}
             try:
                if 'StatusCode' in answer and answer['StatusCode'] == 0 and 'State' in answer and  answer['State'] == 'signal':
-                  if self.logger:
-                     self.logger.debug("Received signal messages: %s" % answer)
+                  logger.debug("Received signal messages: %s",answer)
                   os.kill(os.getpid(), answer['signum'])
                   continue
                else:
                   break
             except:
-               if self.logger:
-                  self.logger.debug("Failed to handle signal message: %s" % traceback.format_exc())
+               logger.debug("Failed to handle signal message: %s",traceback.format_exc())
                break
          return True,answer
       except:

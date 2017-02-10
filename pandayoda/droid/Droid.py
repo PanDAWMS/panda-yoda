@@ -11,34 +11,31 @@ import pickle
 import signal
 import threading
 import traceback
-from os.path import abspath as _abspath, join as _join
 from Queue import Queue
+from mpi4py import MPI
 
 logger = logging.getLogger(__name__)
 
 from pandayoda.yoda import Interaction,Database,signal_block
-from EventServer.EventServerJobManager import EventServerJobManager
+from pandayoda.droid.EventServerJobManager import EventServerJobManager
 
 
 class Droid(threading.Thread):
-    def __init__(self, globalWorkingDir, localWorkingDir, rank=None, nonMPIMode=False, reserveCores=0, outputDir=None):
+    def __init__(self, globalWorkingDir, localWorkingDir, outputDir=None, coreCount=None):
         threading.Thread.__init__(self)
         self.__globalWorkingDir = globalWorkingDir
         self.__localWorkingDir = localWorkingDir
         self.__currentDir = None
-        self.__comm = Interaction.Requester(rank=rank, nonMPIMode=nonMPIMode, logger=logger)
+        self.__comm = Interaction.Requester()
         self.__esJobManager = None
         self.__isFinished = False
-        if nonMPIMode:
-            self.__rank = rank
-        else:
-            self.__rank = self.__comm.getRank()
-        logger.info("Rank %s: Global working dir: %s" % (self.__rank, self.__globalWorkingDir))
+        self.__rank = self.__comm.getRank()
+        logger.info("Rank %s: Global working dir: %s",self.__rank, self.__globalWorkingDir)
         if not os.environ.has_key('PilotHomeDir'):
             os.environ['PilotHomeDir'] = self.__globalWorkingDir
 
         self.initWorkingDir()
-        logger.info("Rank %s: Current working dir: %s" % (self.__rank, self.__currentDir))
+        logger.info("Rank %s: Current working dir: %s",self.__rank, self.__currentDir)
 
         self.__jobId = None
         self.__startTimeOneJobDroid = None
