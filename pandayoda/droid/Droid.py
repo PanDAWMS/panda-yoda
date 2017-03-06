@@ -17,7 +17,7 @@ from mpi4py import MPI
 logger = logging.getLogger(__name__)
 
 from pandayoda.yoda import Interaction,Database,signal_block
-from pandayoda.droid.EventServerJobManager import EventServerJobManager
+from EventServerJobManager import EventServerJobManager
 
 
 class Droid(threading.Thread):
@@ -51,7 +51,6 @@ class Droid(threading.Thread):
 
       self.__yodaToOS = False
 
-      self.reserveCores = reserveCores
       self.__hostname = socket.getfqdn()
 
       self.__outputs = Queue()
@@ -60,13 +59,12 @@ class Droid(threading.Thread):
 
       self.__stop = False
 
-      if not nonMPIMode:
-         signal.signal(signal.SIGTERM, self.stop)
-         signal.signal(signal.SIGQUIT, self.stop)
-         signal.signal(signal.SIGSEGV, self.stop)
-         signal.signal(signal.SIGXCPU, self.stop)
-         signal.signal(signal.SIGUSR1, self.stop)
-         signal.signal(signal.SIGBUS, self.stop)
+      signal.signal(signal.SIGTERM, self.stop)
+      signal.signal(signal.SIGQUIT, self.stop)
+      signal.signal(signal.SIGSEGV, self.stop)
+      signal.signal(signal.SIGXCPU, self.stop)
+      signal.signal(signal.SIGUSR1, self.stop)
+      signal.signal(signal.SIGBUS, self.stop)
 
    def initWorkingDir(self):
       # Create separate working directory for each rank
@@ -108,9 +106,8 @@ class Droid(threading.Thread):
          self.__yodaToOS = job.get('yodaToOS', False)
 
          self.__ATHENA_PROC_NUMBER = int(job.get('ATHENA_PROC_NUMBER', 1))
-         self.__ATHENA_PROC_NUMBER -= self.reserveCores
-         if self.__ATHENA_PROC_NUMBER < 0:
-            self.__ATHENA_PROC_NUMBER = 1
+         if self.__ATHENA_PROC_NUMBER < 1:
+            raise Exception('ATHENA_PROC_NUMBER = ' + str(self.__ATHENA_PROC_NUMBER) + ' must be at least 1 to make sense.')
          job["AthenaMPCmd"] = "export ATHENA_PROC_NUMBER=" + str(self.__ATHENA_PROC_NUMBER) + "; " + job["AthenaMPCmd"]
          self.__jobWorkingDir = job.get('GlobalWorkingDir', None)
          if self.__jobWorkingDir:
