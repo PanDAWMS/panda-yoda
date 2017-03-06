@@ -18,11 +18,13 @@ logger = logging.getLogger(__name__)
 try:
    import yampl
 except:
-   logger.exeception("Failed to import yampl")
+   logger.exception("Failed to import yampl")
 
-from FileHandling import getCPUTimes
-
-from pandayoda.yoda.signal_block.signal_block import block_sig, unblock_sig
+try:
+   from pandayoda.yoda import signal_block
+except:
+   logger.exception(os.environ['PYTHONPATH'])
+   raise
 
 class EventServerJobManager():
    class MessageThread(threading.Thread):
@@ -386,7 +388,7 @@ class EventServerJobManager():
       return None
 
    def sendEventRangeToAthenaMP(self, eventRanges):
-      block_sig(signal.SIGTERM)
+      signal_block.block_sig(signal.SIGTERM)
 
       if "No more events" in eventRanges:
          logger.debug("Rank %s: sendEventRangeToAthenaMP: %s" % (self.__rank, eventRanges))
@@ -409,7 +411,7 @@ class EventServerJobManager():
 
       self.__athenaMP_isReady = False
 
-      unblock_sig(signal.SIGTERM)
+      signal_block.unblock_sig(signal.SIGTERM)
 
    def getOutput(self):
       if len(self.__outputMessage) > 0:
@@ -569,13 +571,13 @@ class EventServerJobManager():
       return error_acronym, event_range_id, error_diagnostics
 
    def handleMessage(self):
-      block_sig(signal.SIGTERM)
+      signal_block.block_sig(signal.SIGTERM)
       try:
          #message = self.__messageQueue.get(True, self.__pollTimeout)
          message = self.__messageQueue.get(False)
          #self.__messageQueue.task_done()
       except Queue.Empty:
-         unblock_sig(signal.SIGTERM)
+         signal_block.unblock_sig(signal.SIGTERM)
          return False
       else:
          if self.__readyForEventTime is None:
@@ -614,7 +616,7 @@ class EventServerJobManager():
                self.terminate()
          else:
             logger.error("Rank %s: Received an unknown message: %s" % (self.__rank, message))
-         unblock_sig(signal.SIGTERM)
+         signal_block.unblock_sig(signal.SIGTERM)
          return True
 
    def findChildProcesses(self,pid):
@@ -766,7 +768,7 @@ class EventServerJobManager():
 
 
    def flushMessages(self):
-      block_sig(signal.SIGTERM)
+      signal_block.block_sig(signal.SIGTERM)
 
       logger.info("Rank %s: ESJobManager flush messages" % self.__rank)
       while self.isReady():
@@ -775,4 +777,40 @@ class EventServerJobManager():
       while self.handleMessage():
          pass
 
-      unblock_sig(signal.SIGTERM)
+      signal_block.unblock_sig(signal.SIGTERM)
+
+# Taken from pilot.FileHandling
+
+def getCPUTimes(workDir):
+    """ Extract and add up the total CPU times from the job report """
+    # Note: this is used with Event Service jobs
+
+    # Input:  workDir (location of jobReport.json)
+    # Output: cpuCU (unit), totalCPUTime, conversionFactor (output consistent with pUtil::setTimeConsumed())
+
+    totalCPUTime = 0L
+
+    jobReport_dictionary = getJobReport(workDir)
+    if jobReport_dictionary != {}:
+        if jobReport_dictionary.has_key('resource'):
+            resource_dictionary = jobReport_dictionary['resource']
+            if resource_dictionary.has_key('executor'):
+                executor_dictionary = resource_dictionary['executor']
+                for format in executor_dictionary.keys(): # "RAWtoESD", ..
+                    if executor_dictionary[format].has_key('cpuTime'):
+                        try:
+                            totalCPUTime += executor_dictionary[format]['cpuTime']
+                        except:
+                            pass
+                    else:
+                        tolog("Format %s has no such key: cpuTime" % (format))
+            else:
+                tolog("No such key: executor")
+        else:
+            tolog("No such key: resource")
+
+    conversionFactor = 1.0
+    cpuCU = "s"
+
+    return cpuCU, totalCPUTime, conversionFactor
+
