@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class Yoda(threading.Thread):
    class HelperThread(threading.Thread):
       def __init__(self, logger, helperFunc, **kwds):
-         threading.Thread.__init__(self, **kwds)
+         super(Yoda.HelperThread,self).__init__()
          self.__log = logger
          self.__func = helperFunc
          self._stop = threading.Event()
@@ -53,7 +53,7 @@ class Yoda(threading.Thread):
                 pilotJob=None, 
                 outputDir=None, dumpEventOutputs=False,):
       # call Thread constructor
-      super(threading.Thread,self).__init__()
+      super(Yoda,self).__init__()
       
       self.globalWorkingDir   = globalWorkingDir
       self.localWorkingDir    = localWorkingDir
@@ -195,9 +195,15 @@ class Yoda(threading.Thread):
                   self.cores = 10
             except:
                logger.debug("Rank %s: failed to get core count",self.rank, traceback.format_exc())
+            
+            if 'neededRanks' not in job.keys():
+               job['neededRanks'] = 1
+            
             if job['neededRanks'] not in neededRanks:
                neededRanks[job['neededRanks']] = []
+            
             neededRanks[job['neededRanks']].append(jobId)
+         
          keys = neededRanks.keys()
          keys.sort(reverse=True)
          for key in keys:
