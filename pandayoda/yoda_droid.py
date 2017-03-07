@@ -5,67 +5,18 @@ import os
 import sys
 import time
 import traceback
-import ConfigParser
 from mpi4py import MPI
 from pandayoda.yoda import Yoda
 from pandayoda.droid import Droid
 logger = logging.getLogger(__name__)
 
 
-def yoda_droid(configFile='yoda.cfg'):
+def yoda_droid(globalWorkingDir,localWorkingDir = None,
+               outputDir = None,dumpEventOutputs = False, 
+               inputJobFile = 'HPCJobs.json'):
 
-   # config defaults
-   defaults={
-      'DumpEventOutputs':'false',
-      'LogLevel':'INFO',
-      'LocalWorkingDir':None,
-      'OutputDir':None,
-      'InputJobFile':'HPCJobs.json',
-   }
-
-   # parse config file
-   logger.info("Reading Configuration from file: %s",configFile)
-   if os.path.exists(configFile):
-      config = ConfigParser.RawConfigParser(defaults)
-      config.read(configFile)
-   else:
-      raise Exception(" input configuration file does not exist ")
-
-   logLevel = config.get('yoda','LogLevel')
-   if logLevel == 'INFO':
-      logger.setLevel(logging.INFO)
-   elif logLevel == 'DEBUG':
-      logger.setLevel(logging.DEBUG)
-   elif logLevel == 'WARNING':
-      logger.setLevel(logging.WARNING)
-   elif logLevel == 'ERROR':
-      logger.setLevel(logging.ERROR)
-   elif logLevel == 'CRITICAL':
-      logger.setLevel(logging.CRITICAL)
-   else:
-      raise Exception(' LogLevel set to %s which is not accepted',logLevel)
-
-
-   try:
-      globalWorkingDir     = config.get('yoda','GlobalWorkingDir')
-   except:
-      logger.error(' must specify GlobalWorkingDir in the config file %s',configFile)
-      raise
-   localWorkingDir      = config.get('yoda','LocalWorkingDir')
    if localWorkingDir is None:
       localWorkingDir = globalWorkingDir
-   outputDir         = config.get('yoda','OutputDir')
-   dumpEventOutputs  = config.getboolean('yoda','DumpEventOutputs')
-
-   logger.info("GlobalWorkingDir:    %s",globalWorkingDir)
-   logger.info("LocalWorkingDir:     %s",localWorkingDir)
-   logger.info("OutputDir:        %s",outputDir)
-   logger.info("DumpEventOutputs: %s",str(dumpEventOutputs))
-
-   
-   inputJobFile = config.get('yoda','InputJobFile')
-   logger.info("InputJobFile:  %s",inputJobFile)
-
 
    # get MPI world info
    try:
@@ -76,6 +27,15 @@ def yoda_droid(configFile='yoda.cfg'):
    except:
       logger.error('Exception retrieving MPI rank information')
       raise
+
+   if mpirank == 0:
+      logger.info("GlobalWorkingDir:    %s",globalWorkingDir)
+      logger.info("LocalWorkingDir:     %s",localWorkingDir)
+      logger.info("OutputDir:           %s",outputDir)
+      logger.info("DumpEventOutputs:    %s",str(dumpEventOutputs))
+      logger.info("inputJobFile:        %s",str(inputJobFile))
+
+
 
    # Create separate working directory for each rank
    curdir = os.path.abspath(localWorkingDir)
@@ -97,25 +57,25 @@ def yoda_droid(configFile='yoda.cfg'):
          droid = Droid.Droid(globalWorkingDir, localWorkingDir, outputDir=outputDir)
          droid.start()
 
-         while yoda.isAlive() or droid.isAlive():
+         while yoda.isAlive() and droid.isAlive():
             logger.info("Rank %s: Yoda isAlive %s",mpirank, yoda.isAlive())
             logger.info("Rank %s: Droid isAlive %s",mpirank, droid.isAlive())
             time.sleep(300)
             
-         logger.info("Rank %s: Yoda finished",mpirank)
+         logger.info("Rank %s: Yoda and Droid finished",mpirank)
       except:
          logger.exception("Rank %s: Yoda failed",mpirank)
          raise
      #os._exit(0)
    else:
       try:
-         status = 0
          droid = Droid.Droid(globalWorkingDir, localWorkingDir, outputDir=outputDir)
          droid.start()
          
          while droid.isAlive():
             droid.join(timeout=300)
-         logger.info("Rank %s: Droid finished status: %s",mpirank, status)
+            logger.info("Rank %s: Droid isAlive %s",mpirank, droid.isAlive())
+         logger.info("Rank %s: Droid finished",mpirank)
       except:
          logger.exception("Rank %s: Droid failed",mpirank)
          raise
@@ -126,10 +86,33 @@ def main():
          datefmt='%Y-%m-%d %H:%M:%S')
    logging.info('Start yoda_droid')
    oparser = argparse.ArgumentParser()
-   oparser.add_argument('-c','--config',dest='configFile',help='input configuration filename',default='yoda.cfg')
+   oparser.add_argument('-g','--globalWorkingDir', dest="globalWorkingDir", help="Global share working directory",required=True)
+   oparser.add_argument('-l','--localWorkingDir', dest="localWorkingDir", default=None, help="Local working directory. if it's not set, it will use global working directory")
+   oparser.add_argument('-o','--outputDir', dest="outputDir", default=None, help="Copy output files to this directory")
+   oparser.add_argument('-i','--inputJobFile', dest="inputJobFile", default='HPCJobs.json', help="Copy output files to this directory")
+   oparser.add_argument('-d','--dumpEventOutputs', dest='dumpEventOutputs', default=False, action='store_true', help="Dump event output info to xml")
+   oparser.add_argument('--debug', dest='debug', default=False, action='store_true', help="Set Logger to DEBUG")
+   oparser.add_argument('--error', dest='error', default=False, action='store_true', help="Set Logger to ERROR")
+   oparser.add_argument('--warning', dest='warning', default=False, action='store_true', help="Set Logger to ERROR")
    args = oparser.parse_args()
 
-   yoda_droid(args.configFile)
+   if args.debug and not args.error and not args.warning:
+      logger.setLevel(logging.DEBUG)
+   elif not args.debug and args.error and not args.warning:
+      logger.setLevel(logging.ERROR)
+   elif not args.debug and not args.error and args.warning:
+      logger.setLevel(logging.WARNING)
+   elif not args.debug and not args.error and not args.warning:
+      logger.setLevel(logging.INFO)
+   else:
+      logger.error('cannot set more than one of --debug, --error, or --warning.')
+      oparser.print_help()
+      return
+
+
+
+   yoda_droid(args.globalWorkingDir,args.localWorkingDir,
+              args.outputDir,args.dumpEventOutputs,args.inputJobFile)
 
 
 if __name__ == "__main__":
