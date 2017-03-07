@@ -19,29 +19,28 @@ try:
    import yampl
 except:
    logger.exception("Failed to import yampl")
-
-try:
-   from pandayoda.yoda import signal_block
-except:
-   logger.exception(os.environ['PYTHONPATH'])
    raise
+
+from pandayoda.yoda import signal_block
 
 class EventServerJobManager():
    class MessageThread(threading.Thread):
       def __init__(self, messageQ, socketname, context, **kwds):
-         threading.Thread.__init__(self, **kwds)
+         super(EventServerJobManager.MessageThread,self).__init__()
          self.__messageQ = messageQ
          self._stop = threading.Event()
          try:
             self.__messageSrv = yampl.ServerSocket(socketname, context)
          except:
-            logger.debug("Exception: failed to start yampl server socket: %s" % traceback.format_exc())
+            logger.exception("Failed to start yampl server socket")
+            raise
 
       def send(self, message):
          try:
             self.__messageSrv.send_raw(message)
          except:
-            logger.debug("Exception: failed to send yampl message: %s" % traceback.format_exc())
+            logger.exception("Failed to send yampl message")
+            raise
 
       def stop(self):
          self._stop.set()
@@ -60,12 +59,13 @@ class EventServerJobManager():
                else:
                   self.__messageQ.put(buf)
          except:
-            logger.debug("Exception: Message Thread failed: %s" % traceback.format_exc())
+            logger.exception("Message Thread failed")
+            raise
 
 
    class HelperThread(threading.Thread):
       def __init__(self, helperFunc, **kwds):
-         threading.Thread.__init__(self, **kwds)
+         super(EventServerJobManager.HelperThread,self).__init__()
          self.__func = helperFunc
          self._stop = threading.Event()
          logger.debug("HelperThread initialized.")
@@ -87,10 +87,11 @@ class EventServerJobManager():
                   exec_time = time.time()
                time.sleep(1)
          except:
-            logger.debug("Exception: HelperThread failed: %s" % traceback.format_exc())
+            logger.exception("HelperThread failed")
+            raise
 
 
-   def __init__(self, rank=None, ATHENA_PROC_NUMBER=1, workingDir=None):
+   def __init__(self, rank=-1, ATHENA_PROC_NUMBER=1, workingDir=None):
       self.__rank = rank
       self.__name = "EventServerJobManager"
       self.__eventRanges = []
@@ -119,7 +120,7 @@ class EventServerJobManager():
       self.__insertedMessages = 0
       self.__ATHENA_PROC_NUMBER = int(ATHENA_PROC_NUMBER)
       self.__numOutputs = 0
-      self.initSignalHandler()
+      #self.initSignalHandler()
 
       self.__childRetStatus = 0
       self.__retry = 0
@@ -130,7 +131,7 @@ class EventServerJobManager():
       self.__readyForEventTime = None
       self.__endTime = None
       self.__startOSTimes = os.times()
-      logger.debug("Rank %s: startOSTimes: %s" % (self.__rank, self.__startOSTimes))
+      logger.debug("Rank %s: startOSTimes: %s",self.__rank, self.__startOSTimes)
       self.__endOSTimes = None
       self.__totalQueuedEvents = 0
       self.__totalProcessedEvents = 0
@@ -138,15 +139,16 @@ class EventServerJobManager():
       self.__helperThread = None
 
    def handler(self, signal, frame):
-      logger.debug("!!FAILED!!3000!! Signal %s is caught" % signal)
-      self.terminate()
-      sys.exit(-1)
+      logger.error("Rank %s: !!FAILED!!3000!! Signal %s is caught",self.__rank,signal)
+      if self.isAlive():
+         self.terminate()
+      raise Exception("Rank %s: !!FAILED!!3000!! Signal %s is caught" % (self.__rank,signal))
 
    def initSignalHandler(self):
-      #signal.signal(signal.SIGTERM, self.handler)
-      #signal.signal(signal.SIGQUIT, self.handler)
-      #signal.signal(signal.SIGSEGV, self.handler)
-      #signal.signal(signal.SIGINT, self.handler)
+      signal.signal(signal.SIGTERM, self.handler)
+      signal.signal(signal.SIGQUIT, self.handler)
+      signal.signal(signal.SIGSEGV, self.handler)
+      signal.signal(signal.SIGINT, self.handler)
       pass
 
    def getSetupTime(self):
@@ -177,8 +179,8 @@ class EventServerJobManager():
             proctotal = int(utime) + int(stime)
          return(float(proctotal))
       except:
-         # logger.debug("Rank %s: Failed to get cpu consumption time for pid %s: %s" % (self.__rank, pid, traceback.format_exc()))
-         return 0
+         logger.exception("Rank %s: Failed to get cpu consumption time for pid %s",self.__rank, pid)
+         raise
 
    def getCPUConsumptionTimeFromProc(self):
       cpuConsumptionTime = 0L
@@ -196,14 +198,15 @@ class EventServerJobManager():
                   self.__child_cpuTime[process] = cpuTime
                cpuConsumptionTime += self.__child_cpuTime[process]
       except:
-         logger.debug("Rank %s: Failed to get cpu consumption time from proc: %s" % (self.__rank, traceback.format_exc()))
+         logger.exception("Rank %s: Failed to get cpu consumption time for pid %s",self.__rank, pid)
+         raise
       return cpuConsumptionTime
 
    def getCPUConsumptionTimeReal(self):
       cpuConsumptionUnit, cpuConsumptionTime, cpuConversionFactor = getCPUTimes(os.getcwd())
-      logger.debug("Rank %s: cpuConsumptionTime: %s" % (self.__rank, cpuConsumptionTime))
-      logger.debug("Rank %s: start os.times: %s" % (self.__rank, self.__startOSTimes))
-      logger.debug("Rank %s: os.times: %s" % (self.__rank, os.times()))
+      logger.debug("Rank %s: cpuConsumptionTime: %s",self.__rank, cpuConsumptionTime)
+      logger.debug("Rank %s: start os.times: %s",self.__rank, self.__startOSTimes)
+      logger.debug("Rank %s: os.times: %s",self.__rank, os.times())
       if cpuConsumptionTime < 10:
          endOSTimes = os.times()
          if self.__endOSTimes:
@@ -212,10 +215,10 @@ class EventServerJobManager():
          if cpuConsumptionTime < 0:
             cpuConsumptionTime = 0
       procCPUConsumptionTime = self.getCPUConsumptionTimeFromProc()
-      logger.debug("Rank %s: cpuConsumptionTime from proc: %s" % (self.__rank, procCPUConsumptionTime))
+      logger.debug("Rank %s: cpuConsumptionTime from proc: %s",self.__rank,procCPUConsumptionTime)
       if self.__isKilled or cpuConsumptionTime < procCPUConsumptionTime * 0.9:
          cpuConsumptionTime = procCPUConsumptionTime
-      logger.debug("Rank %s: cpuConsumptionTime: %s" % (self.__rank, cpuConsumptionTime))
+      logger.debug("Rank %s: cpuConsumptionTime: %s",self.__rank, cpuConsumptionTime)
       return cpuConsumptionTime
 
    def getCPUConsumptionTime(self):
@@ -254,56 +257,59 @@ class EventServerJobManager():
 
    def preSetup(self, preSetup):
       if preSetup:
-         logger.debug("Rank %s: PreSetup: %s" % (self.__rank, preSetup))
+         logger.debug("Rank %s: PreSetup: %s",self.__rank, preSetup)
          status, output = commands.getstatusoutput(preSetup)
-         logger.debug("Rank %s: PreSetup status: %s, output: %s" % (self.__rank, status, output))
+         logger.debug("Rank %s: PreSetup status: %s, output: %s",self.__rank, status, output)
          return status, output
       else:
          return 0, None
 
    def postRun(self, postRun):
       if postRun:
-         logger.debug("Rank %s: postRun: %s" % (self.__rank, postRun))
+         logger.debug("Rank %s: postRun: %s",self.__rank, postRun)
          status, output = commands.getstatusoutput(postRun)
-         logger.debug("Rank %s: postRun status: %s, output: %s" % (self.__rank, status, output))
+         logger.debug("Rank %s: postRun status: %s, output: %s",self.__rank, status, output)
 
    def initMessageThread(self, socketname='EventService_EventRanges', context='local'):
-      logger.debug("Rank %s: initMessageThread: socketname: %s, context: %s, workdir: %s" %(self.__rank, socketname, context, os.getcwd()))
+      logger.debug("Rank %s: initMessageThread: socketname: %s, context: %s, workdir: %s",self.__rank, socketname, context, os.getcwd())
       try:
          self.__messageThread = EventServerJobManager.MessageThread(self.__messageQueue, socketname, context)
          self.__messageThread.start()
       except:
-         logger.warning("Rank %s: Failed to initMessageThread: %s" % (self.__rank, str(traceback.format_exc())))
+         logger.exception("Rank %s: Failed to initMessageThread",self.__rank)
          self.terminate()
+         raise
 
    def initTokenExtractorProcess(self, cmd):
-      logger.debug("Rank %s: initTokenExtractorProcess: %s, workdir: %s" % (self.__rank, cmd, os.getcwd()))
+      logger.debug("Rank %s: initTokenExtractorProcess: %s, workdir: %s",self.__rank, cmd, os.getcwd())
       try:
          self.__TokenExtractorCmd = cmd
          if cmd:
             self.__TokenExtractorProcess = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stdout, shell=True)
             # self.__TokenExtractorProcess = subprocess.Popen(cmd, shell=True)
             if self.__TokenExtractorProcess.poll() is not None:
-               logger.warning("Rank %s: Failed to initTokenExtractorProcess, poll is not None: %s" % (self.__rank, self.__TokenExtractorProcess.poll()))
+               logger.warning("Rank %s: Failed to initTokenExtractorProcess, poll is not None: %s",self.__rank, self.__TokenExtractorProcess.poll())
                self.terminate()
          else:
-            logger.debug("Rank %s: TokenExtractor cmd(%s) is None, will not use it" % (self.__rank, cmd))
+            logger.debug("Rank %s: TokenExtractor cmd(%s) is None, will not use it",self.__rank, cmd)
             self.__TokenExtractorProcess = None
       except:
-         logger.warning("Rank %s: Failed to initTokenExtractorProcess: %s" % (self.__rank, str(traceback.format_exc())))
+         logger.exception("Rank %s: Failed to initTokenExtractorProcess",self.__rank)
          self.terminate()
+         raise
 
    def initAthenaMPProcess(self, cmd):
-      logger.debug("Rank %s: initAthenaMPProcess: %s, workdir: %s" % (self.__rank, cmd, os.getcwd()))
+      logger.debug("Rank %s: initAthenaMPProcess: %s, workdir %s ",self.__rank, cmd, os.getcwd())
       try:
          self.__athenaMPProcess = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stdout, shell=True)
          # self.__athenaMPProcess = subprocess.Popen(cmd, shell=True)
          if self.__athenaMPProcess.poll() is not None:
-            logger.warning("Rank %s: Failed to initAthenaMPProcess, poll is not None: %s" % (self.__rank, self.__athenaMPProcess.poll()))
+            logger.warning("Rank %s: Failed to initAthenaMPProcess, poll is not None: %s",self.__rank, self.__athenaMPProcess.poll())
             self.terminate()
       except:
-         logger.warning("Rank %s: Failed to initAthenaMPProcess: %s" % (self.__rank, str(traceback.format_exc())))
+         logger.warning("Rank %s: Failed to initAthenaMPProcess",self.__rank)
          self.terminate()
+         raise
 
    def init(self, socketname='EventService_EventRanges', context='local', athenaMPCmd=None, tokenExtractorCmd=None):
       self.__childRetStatus = 0
@@ -313,17 +319,17 @@ class EventServerJobManager():
          self.initMessageThread(socketname, context)
          self.initTokenExtractorProcess(tokenExtractorCmd)
          self.initAthenaMPProcess(athenaMPCmd)
-         logger.debug("Rank %s: Child main loop start" % (self.__rank))
+         logger.debug("Rank %s: Child main loop start",self.__rank)
          while True:
             if self.isChildDead():
-               logger.warning("Rank %s: Child One Process in ESJobManager is dead." % self.__rank)
+               logger.warning("Rank %s: Child One Process in ESJobManager is dead.",self.__rank)
                self.terminateChild()
                break
             try:
                message = self.__messageInQueue.get(False)
-               logger.debug("Rank %s: Child get message: %s" % (self.__rank, message))
+               logger.debug("Rank %s: Child get message: %s",self.__rank, message)
                if "Stop_Message_Process" in message:
-                  logger.debug("Rank %s: Child stop" % (self.__rank))
+                  logger.debug("Rank %s: Child stop",self.__rank)
                   break
                else:
                   self.__messageThread.send(message)
@@ -331,22 +337,23 @@ class EventServerJobManager():
             except Queue.Empty:
                pass
             except:
-               logger.debug("Rank %s: Child Exception: failed to send yampl message: %s" % (self.__rank, traceback.format_exc()))
+               logger.exception("Rank %s: Child Exception: failed to send yampl message",self.__rank)
+               raise
 
-         logger.debug("Rank %s: Child main loop end" % (self.__rank))
+         logger.debug("Rank %s: Child main loop end",self.__rank)
          self.terminateChild()
-         logger.debug("Rank %s: Child terminated" % (self.__rank))
+         logger.debug("Rank %s: Child terminated",self.__rank)
          # sys.exit(0)
          os._exit(0)
       else:
          self.__child_pid = child_pid
-         logger.debug("Rank %s: Initialize helper thread" % (self.__rank))
+         logger.debug("Rank %s: Initialize helper thread",self.__rank)
          self.__helperThread = EventServerJobManager.HelperThread(logger, self.helperFunc)
          self.__helperThread.start()
          return 0
          
    def insertEventRange(self, message):
-      logger.debug("Rank %s: insertEventRange to ESJobManager: %s" % (self.__rank, message))
+      logger.debug("Rank %s: insertEventRange to ESJobManager: %s",self.__rank, message)
       self.__eventRanges.append(message)
       self.__athenaMP_needEvents -= 1
       self.__insertedMessages += 1
@@ -366,7 +373,7 @@ class EventServerJobManager():
          self.__noMoreEvents = True
 
    def insertEventRanges(self, messages):
-      logger.debug("Rank %s: insertEventRanges to ESJobManager: %s" % (self.__rank, messages))
+      logger.debug("Rank %s: insertEventRanges to ESJobManager: %s",self.__rank, messages)
       for message in messages:
          self.__athenaMP_needEvents -= 1
          self.__insertedMessages += 1
@@ -383,7 +390,7 @@ class EventServerJobManager():
    def getEventRanges(self):
       if len(self.__eventRanges) > 0:
          eventRanges = self.__eventRanges.pop(0)
-         logger.debug("Rank %s: getEventRanges from ESJobManager(will send to AthenaMP): %s" % (self.__rank, eventRanges))
+         logger.debug("Rank %s: getEventRanges from ESJobManager(will send to AthenaMP): %s",self.__rank, eventRanges)
          return eventRanges
       return None
 
@@ -391,13 +398,13 @@ class EventServerJobManager():
       signal_block.block_sig(signal.SIGTERM)
 
       if "No more events" in eventRanges:
-         logger.debug("Rank %s: sendEventRangeToAthenaMP: %s" % (self.__rank, eventRanges))
+         logger.debug("Rank %s: sendEventRangeToAthenaMP: %s",self.__rank, eventRanges)
          self.__messageInQueue.put(eventRanges)
       else:
          if type(eventRanges) is not list:
             eventRanges = [eventRanges]
          eventRangeFormat = json.dumps(eventRanges)
-         logger.debug("Rank %s: sendEventRangeToAthenaMP: %s" % (self.__rank, eventRangeFormat))
+         logger.debug("Rank %s: sendEventRangeToAthenaMP: %s",self.__rank, eventRangeFormat)
          self.__messageInQueue.put(eventRangeFormat)
          self.__totalQueuedEvents += 1
 
@@ -416,7 +423,7 @@ class EventServerJobManager():
    def getOutput(self):
       if len(self.__outputMessage) > 0:
          output = self.__outputMessage.pop(0)
-         logger.debug("Rank %s: getOutput from ESJobManager(main prog will handle output): %s" % (self.__rank, output))
+         logger.debug("Rank %s: getOutput from ESJobManager(main prog will handle output): %s",self.__rank, output)
          return output
       return None
 
@@ -426,11 +433,11 @@ class EventServerJobManager():
          if len(self.__outputMessage) > 0:
             outputs = self.__outputMessage
             self.__outputMessage = []
-            logger.debug("Rank %s: getOutputs from ESJobManager(main prog will handle outputs): %s" % (self.__rank, outputs))
+            logger.debug("Rank %s: getOutputs from ESJobManager(main prog will handle outputs): %s",self.__rank, outputs)
             return outputs
       else:
          if len(self.__outputMessage) > 0:
-            logger.debug("Rank %s: getOutputs signal from ESJobManager(main prog will handle outputs): %s" % (self.__rank, self.__outputMessage))
+            logger.debug("Rank %s: getOutputs signal from ESJobManager(main prog will handle outputs): %s",self.__rank, self.__outputMessage)
             return self.__outputMessage
       return None
 
@@ -439,7 +446,8 @@ class EventServerJobManager():
          try:
             self.__outputMessage.remove(output)
          except:
-            logger.debug("Rank %s: updatedOutputs failed to updated message: %s" % (self.__rank, output))
+            logger.exception("Rank %s: updatedOutputs failed to updated message: %s",self.__rank, output)
+            raise
 
    def getEventRangesStatus(self):
       return self.__eventRangesStatus
@@ -449,19 +457,19 @@ class EventServerJobManager():
       # if self.__TokenExtractorProcess is None or self.__athenaMPProcess is None or self.__athenaMPProcess.poll() is not None or not self.__messageThread.is_alive(): 
       #    return True
       if (self.__TokenExtractorCmd is not None and self.__TokenExtractorProcess is None) or self.__athenaMPProcess is None:
-         logger.debug("Rank %s: TokenExtractorProcess: %s, athenaMPProcess: %s" % (self.__rank, self.__TokenExtractorProcess, self.__athenaMPProcess))
+         logger.debug("Rank %s: TokenExtractorProcess: %s, athenaMPProcess: %s",self.__rank, self.__TokenExtractorProcess, self.__athenaMPProcess)
          return True
       if self.__athenaMPProcess.poll() is not None:
-         logger.debug("Rank %s: AthenaMP process dead: %s" % (self.__rank, self.__athenaMPProcess.poll()))
+         logger.debug("Rank %s: AthenaMP process dead: %s",self.__rank, self.__athenaMPProcess.poll())
          return True
       if not self.__messageThread.is_alive():
-         logger.debug("Rank %s: Yampl message thread isAlive: %s" % (self.__rank, self.__messageThread.is_alive()))
+         logger.debug("Rank %s: Yampl message thread isAlive: %s",self.__rank, self.__messageThread.is_alive())
          return True
       return False
 
    def isDead(self):
       if self.__child_pid is None:
-         logger.debug("Rank %s: Child process id is %s" % (self.__rank, self.__child_pid))
+         logger.debug("Rank %s: Child process id is %s",self.__rank, self.__child_pid)
          if self.__endTime is None:
             self.__endTime = time.time()
          if self.__helperThread: self.__helperThread.stop()
@@ -469,7 +477,7 @@ class EventServerJobManager():
       try:
          pid, status = os.waitpid(self.__child_pid, os.WNOHANG)
       except OSError, e:
-         logger.debug("Rank %s: Exception when checking child process %s: %s" % (self.__rank, self.__child_pid, e))
+         logger.exception("Rank %s: Exception when checking child process %s",self.__rank, self.__child_pid)
          if "No child processes" in str(e):
             self.__childRetStatus = 0
             if self.__endTime is None:
@@ -478,7 +486,7 @@ class EventServerJobManager():
             return True
       else:
          if pid: # finished
-            logger.debug("Rank %s: Child process %s finished with status: %s" % (self.__rank, pid, status%255))
+            logger.debug("Rank %s: Child process %s finished with status: %s",self.__rank, pid, status%255)
             self.__childRetStatus = status%255
             if self.__endTime is None:
                self.__endTime = time.time()
@@ -533,9 +541,10 @@ class EventServerJobManager():
                event_range = found[0][1] # Note: not the event range id only, but the full event range
                error_diagnostics = found[0][2]
             except Exception, e:
-               logger.error("!!WARNING!!2211!! Failed to extract AthenaMP message: %s" % (e))
+               logger.exception("Rank %s: !!WARNING!!2211!! Failed to extract AthenaMP message",self.__rank)
                error_acronym = "EXTRACTION_FAILURE"
                error_diagnostics = e
+               raise
             else:
                # Can the event range id be extracted?
                if "eventRangeID" in event_range:
@@ -545,11 +554,11 @@ class EventServerJobManager():
                      try:
                         event_range_id = found[0]
                      except Exception, e:
-                        logger.error("!!WARNING!!2212!! Failed to extract event_range_id: %s" % (e))
+                        logger.exception("Rank %s: !!WARNING!!2212!! Failed to extract event_range_id",self.__rank)
                      else:
-                        logger.error("Extracted event_range_id: %s" % (event_range_id))
+                        logger.error("Rank %s: Extracted event_range_id: %s" ,event_range_id,self.__rank)
                else:
-                  logger.error("!!WARNING!!2213!1 event_range_id not found in event_range: %s" % (event_range))
+                  logger.error("Rank %s: !!WARNING!!2213!1 event_range_id not found in event_range: %s",self.__rank,event_range)
       else:
          # General error acronym
          pattern = re.compile(r"(ERR\_[A-Z\_]+)\ ([0-9\-]+)\:\ ?(.+)")
@@ -560,11 +569,11 @@ class EventServerJobManager():
                event_range_id = found[0][1]
                error_diagnostics = found[0][2]
             except Exception, e:
-               logger.error("!!WARNING!!2211!! Failed to extract AthenaMP message: %s" % (e))
+               logger.exception("Rank %s: !!WARNING!!2211!! Failed to extract AthenaMP message",self.__rank)
                error_acronym = "ERR_EXTRACTION_FAILURE"
                error_diagnostics = e
          else:
-            logger.error("!!WARNING!!2212!! Failed to extract AthenaMP message")
+            logger.error("Rank %s: !!WARNING!!2212!! Failed to extract AthenaMP message",self.__rank)
             error_acronym = "ERR_EXTRACTION_FAILURE"
             error_diagnostics = msg
 
@@ -582,7 +591,7 @@ class EventServerJobManager():
       else:
          if self.__readyForEventTime is None:
             self.__readyForEventTime = time.time()
-         logger.debug("Rank %s: Received message: %s" % (self.__rank, message))
+         logger.debug("Rank %s: Received message: %s",self.__rank, message)
          if "Ready for events" in message:
             self.__athenaMP_isReady = True
             self.__athenaMP_needEvents += 1
@@ -597,25 +606,25 @@ class EventServerJobManager():
                self.__eventRangesStatus[eventRangeID]['output'] = message
                self.__outputMessage.append((eventRangeID, 'finished', message))
             except Exception, e:
-               logger.warning("Rank %s: output message format is not recognized: %s " % (self.__rank, message))
-               logger.warning("Rank %s: %s" % (self.__rank, str(e)))
+               logger.exception("Rank %s: output message format is not recognized: %s ",self.__rank, message)
+               raise
          elif message.startswith('ERR'):
-            logger.error("Rank %s: Received an error message: %s" % (self.__rank, message))
+            logger.error("Rank %s: Received an error message: %s",self.__rank, message)
             error_acronym, eventRangeID, error_diagnostics = self.extractErrorMessage(message)
             if eventRangeID != "":
                try:
-                  logger.error("Rank %s: !!WARNING!!2144!! Extracted error acronym %s and error diagnostics \'%s\' for event range %s" % (self.__rank, error_acronym, error_diagnostics, eventRangeID))
+                  logger.error("Rank %s: !!WARNING!!2144!! Extracted error acronym %s and error diagnostics \'%s\' for event range %s",self.__rank, error_acronym, error_diagnostics, eventRangeID)
                   self.__eventRangesStatus[eventRangeID]['status'] = 'failed'
                   self.__eventRangesStatus[eventRangeID]['output'] = message
                   self.__outputMessage.append((eventRangeID, error_acronym, message))
                except Exception, e:
-                  logger.warning("Rank %s: output message format is not recognized: %s " % (self.__rank, message))
-                  logger.warning("Rank %s: %s" % (self.__rank, str(e)))
+                  logger.exception("Rank %s: output message format is not recognized: %s ",self.__rank, message)
+                  raise
             if "FATAL" in error_acronym:
-               logger.error("Rank %s: !!WARNING!!2146!! A FATAL error was encountered, prepare to finish" % (self.__rank))
+               logger.error("Rank %s: !!WARNING!!2146!! A FATAL error was encountered, prepare to finish",self.__rank)
                self.terminate()
          else:
-            logger.error("Rank %s: Received an unknown message: %s" % (self.__rank, message))
+            logger.error("Rank %s: Received an unknown message: %s",self.__rank, message)
          signal_block.unblock_sig(signal.SIGTERM)
          return True
 
@@ -661,50 +670,55 @@ class EventServerJobManager():
             try:
                os.kill(int(process), signal.SIGKILL)
             except:
-               logger.warning("Rank %s: SIGKILL error: %s" % (self.__rank, str(traceback.format_exc())))
+               logger.exception("Rank %s: SIGKILL error" ,self.__rank)
+               raise
 
    def terminateChild(self):
       if self.__helperThread: self.__helperThread.stop()
       self.__isKilled = True
-      logger.debug("Rank %s: ESJobManager Child is terminating" % self.__rank)
+      logger.debug("Rank %s: ESJobManager Child is terminating",self.__rank)
       try:
          if self.__athenaMPProcess and self.__athenaMPProcess.poll() is None:
-            logger.debug("Rank %s: Killing AthenaMP process" % self.__rank)
+            logger.debug("Rank %s: Killing AthenaMP process",self.__rank)
             os.killpg(self.__athenaMPProcess.pid, signal.SIGTERM)
       except:
-         logger.debug("Rank %s: Failed to kill AthenaMP process: %s" % (self.__rank, str(traceback.format_exc())))
+         logger.exception("Rank %s: Failed to kill AthenaMP process",self.__rank)
+         raise
       try:
          if self.__TokenExtractorProcess and self.__TokenExtractorProcess.poll() is None:
-            logger.debug("Rank %s: Killing TokenExtractor process" % self.__rank)
+            logger.debug("Rank %s: Killing TokenExtractor process",self.__rank)
             os.killpg(self.__TokenExtractorProcess.pid, signal.SIGTERM)
       except:
-         logger.debug("Rank %s: Failed to kill TokenExtractor Process process: %s" % (self.__rank, str(traceback.format_exc())))
+         logger.exception("Rank %s: Failed to kill TokenExtractor Process process",self.__rank)
+         raise
 
       # Frequently the process is not stopped. So kill them with SIGKILL
       time.sleep(1)
       try:
          if self.__athenaMPProcess is not None and self.__athenaMPProcess.poll() is None:
-            logger.debug("Rank %s: AthenMP is still running. send SIGKILL" % self.__rank)
+            logger.debug("Rank %s: AthenMP is still running. send SIGKILL",self.__rank)
             self.killProcess(self.__athenaMPProcess.pid)
          if self.__TokenExtractorProcess is not None and self.__TokenExtractorProcess.poll() is None:
-            logger.debug("Rank %s: Token Extractor is still running. send SIGKILL" % self.__rank)
+            logger.debug("Rank %s: Token Extractor is still running. send SIGKILL",self.__rank)
             self.killProcess(self.__TokenExtractorProcess.pid)
       except:
-         logger.debug("Rank %s: Failed to kill process: %s" % (self.__rank, str(traceback.format_exc())))
-      logger.debug("Rank %s: Stopping Message Thread" % self.__rank)
+         logger.exception("Rank %s: Failed to kill process",self.__rank)
+         raise
+      logger.debug("Rank %s: Stopping Message Thread",self.__rank)
       self.__messageThread.stop()
 
    def terminate(self):
       if self.__helperThread: self.__helperThread.stop()
       self.__isKilled = True
-      logger.debug("Rank %s: ESJobManager is terminating" % self.__rank)
+      logger.debug("Rank %s: ESJobManager is terminating",self.__rank)
       try:
          self.__messageInQueue.put("Stop_Message_Process")
          time.sleep(2)
          if not self.isDead():
             os.killpg(self.__child_pid, signal.SIGTERM)
       except:
-         logger.debug("Rank %s: Failed to kill child process: %s" % (self.__rank, str(traceback.format_exc())))
+         logger.exception("Rank %s: Failed to kill child process",self.__rank)
+         raise
 
       # Frequently the process is not stopped. So kill them with SIGKILL
       time.sleep(5)
@@ -712,24 +726,27 @@ class EventServerJobManager():
          if not self.isDead():
             self.killProcess(self.__child_pid)
       except:
-         logger.debug("Rank %s: Failed to kill child process: %s" % (self.__rank, str(traceback.format_exc())))
+         logger.exception("Rank %s: Failed to kill child process",self.__rank)
+         raise
 
    def kill(self):
       self.__isKilled = True
-      logger.debug("Rank %s: ESJobManager is terminating" % self.__rank)
+      logger.debug("Rank %s: ESJobManager is terminating",self.__rank)
       try:
          self.__messageInQueue.put("Stop_Message_Process")
          if not self.isDead():
             os.killpg(self.__child_pid, signal.SIGTERM)
       except:
-         logger.debug("Rank %s: Failed to kill child process: %s" % (self.__rank, str(traceback.format_exc())))
+         logger.exception("Rank %s: Failed to kill child process: %s",self.__rank)
+         raise
 
       # Frequently the process is not stopped. So kill them with SIGKILL
       try:
          if not self.isDead():
             self.killProcess(self.__child_pid)
       except:
-         logger.debug("Rank %s: Failed to kill child process: %s" % (self.__rank, str(traceback.format_exc())))
+         logger.exception("Rank %s: Failed to kill child process: %s",self.__rank)
+         raise
 
    def finish(self):
       if self.__waitTerminate and (time.time() - self.__startTerminateTime) < self.__waitTerminateTime:
@@ -740,7 +757,7 @@ class EventServerJobManager():
    def poll(self):
       try:
          if self.isDead():
-            logger.warning("Rank %s: One Process in ESJobManager is dead." % self.__rank)
+            logger.warning("Rank %s: One Process in ESJobManager is dead.",self.__rank)
             self.terminate()
             return -1
 
@@ -750,29 +767,30 @@ class EventServerJobManager():
             self.finish()
          else:
             while self.isReady():
-               logger.info("Rank %s: AthenMP is ready." % self.__rank)
+               logger.info("Rank %s: AthenMP is ready.",self.__rank)
                eventRanges = self.getEventRanges()
                if eventRanges is None:
                   return -1
                else:
-                  logger.info("Rank %s: Process Event: %s" % (self.__rank, eventRanges))
+                  logger.info("Rank %s: Process Event: %s",self.__rank, eventRanges)
                   self.sendEventRangeToAthenaMP(eventRanges)
                   if "No more events" in eventRanges:
-                     logger.info("Rank %s: ESJobManager is finishing" % self.__rank)
-                     logger.info("Rank %s: wait AthenaMP to finish" % self.__rank)
+                     logger.info("Rank %s: ESJobManager is finishing",self.__rank)
+                     logger.info("Rank %s: wait AthenaMP to finish",self.__rank)
                      self.__startTerminateTime = time.time()
                      self.__waitTerminate = True
                      return 0
       except:
-         logger.warning("Rank %s: Exception happened when polling: %s" % (self.__rank, str(traceback.format_exc())))
+         logger.exception("Rank %s: Exception happened when polling: %s",self.__rank)
+         raise
 
 
    def flushMessages(self):
       signal_block.block_sig(signal.SIGTERM)
 
-      logger.info("Rank %s: ESJobManager flush messages" % self.__rank)
+      logger.info("Rank %s: ESJobManager flush messages",self.__rank)
       while self.isReady():
-         logger.info("Rank %s: AthenaMP is ready, send 'No more events' to it." % self.__rank)
+         logger.info("Rank %s: AthenaMP is ready, send 'No more events' to it.",self.__rank)
          self.sendEventRangeToAthenaMP("No more events")
       while self.handleMessage():
          pass
@@ -782,35 +800,35 @@ class EventServerJobManager():
 # Taken from pilot.FileHandling
 
 def getCPUTimes(workDir):
-    """ Extract and add up the total CPU times from the job report """
-    # Note: this is used with Event Service jobs
+   """ Extract and add up the total CPU times from the job report """
+   # Note: this is used with Event Service jobs
 
-    # Input:  workDir (location of jobReport.json)
-    # Output: cpuCU (unit), totalCPUTime, conversionFactor (output consistent with pUtil::setTimeConsumed())
+   # Input:  workDir (location of jobReport.json)
+   # Output: cpuCU (unit), totalCPUTime, conversionFactor (output consistent with pUtil::setTimeConsumed())
 
-    totalCPUTime = 0L
+   totalCPUTime = 0L
 
-    jobReport_dictionary = getJobReport(workDir)
-    if jobReport_dictionary != {}:
-        if jobReport_dictionary.has_key('resource'):
-            resource_dictionary = jobReport_dictionary['resource']
-            if resource_dictionary.has_key('executor'):
-                executor_dictionary = resource_dictionary['executor']
-                for format in executor_dictionary.keys(): # "RAWtoESD", ..
-                    if executor_dictionary[format].has_key('cpuTime'):
-                        try:
-                            totalCPUTime += executor_dictionary[format]['cpuTime']
-                        except:
-                            pass
-                    else:
-                        tolog("Format %s has no such key: cpuTime" % (format))
-            else:
-                tolog("No such key: executor")
-        else:
-            tolog("No such key: resource")
+   jobReport_dictionary = getJobReport(workDir)
+   if jobReport_dictionary != {}:
+      if jobReport_dictionary.has_key('resource'):
+         resource_dictionary = jobReport_dictionary['resource']
+         if resource_dictionary.has_key('executor'):
+            executor_dictionary = resource_dictionary['executor']
+            for format in executor_dictionary.keys(): # "RAWtoESD", ..
+               if executor_dictionary[format].has_key('cpuTime'):
+                  try:
+                     totalCPUTime += executor_dictionary[format]['cpuTime']
+                  except:
+                     pass
+               else:
+                  logger.warning("Format %s has no such key: cpuTime",format)
+         else:
+            logger.warning("No such key: executor")
+      else:
+         logger.warning("No such key: resource")
 
-    conversionFactor = 1.0
-    cpuCU = "s"
+   conversionFactor = 1.0
+   cpuCU = "s"
 
-    return cpuCU, totalCPUTime, conversionFactor
+   return cpuCU, totalCPUTime, conversionFactor
 
