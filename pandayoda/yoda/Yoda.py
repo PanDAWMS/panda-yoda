@@ -21,12 +21,11 @@ logger = logging.getLogger(__name__)
 # main Yoda class
 class Yoda(threading.Thread):
    class HelperThread(threading.Thread):
-      def __init__(self, logger, helperFunc, **kwds):
+      def __init__(self, helperFunc, **kwds):
          super(Yoda.HelperThread,self).__init__()
-         self.__log = logger
          self.__func = helperFunc
          self._stop = threading.Event()
-         self.__log.debug("HelperThread initialized.")
+         logger.debug("HelperThread initialized.")
 
       def stop(self):
          self._stop.set()
@@ -45,19 +44,24 @@ class Yoda(threading.Thread):
                   exec_time = time.time()
                time.sleep(1)
          except:
-            self.__log.debug("Exception: HelperThread failed: %s" % traceback.format_exc())
+            logger.exception("HelperThread failed")
 
 
    # constructor
-   def __init__(self, globalWorkingDir, localWorkingDir, inputJobFile,
+   def __init__(self, globalWorkingDir, 
+                localWorkingDir,
+                inputJobFile,
+                inputJobEventsFile,
                 pilotJob=None, 
-                outputDir=None, dumpEventOutputs=False,):
+                outputDir=None, 
+                dumpEventOutputs=False):
       # call Thread constructor
       super(Yoda,self).__init__()
       
       self.globalWorkingDir   = globalWorkingDir
       self.localWorkingDir    = localWorkingDir
       self.inputJobFile       = inputJobFile
+      self.inputJobEventsFile = inputJobEventsFile
       self.currentDir         = None
       
       # database backend
@@ -150,36 +154,18 @@ class Yoda(threading.Thread):
          return False,errMsg
 
 
-   # load job
-   def loadJob(self):
-      try:
-         # load job
-         tmpFile = open(os.path.join(self.globalWorkingDir, 'HPCJob.json'))
-         #self.job = pickle.load(tmpFile)
-         self.job = json.load(tmpFile)
-         tmpFile.close()
-         return True,self.job
-      except:
-         logger.exception("Exception in Rank %s",self.rank)
-         errtype,errvalue = sys.exc_info()[:2]
-         errMsg = 'failed to load job with {0}:{1}'.format(errtype.__name__,errvalue)
-         return False,errMsg
-
-
    # load jobs
    def loadJobs(self):
       try:
          # load jobs
-         tmpFile = open(os.path.join(self.globalWorkingDir, 'HPCJobs.json'))
+         tmpFile = open(os.path.join(self.globalWorkingDir, self.inputJobFile))
          #self.job = pickle.load(tmpFile)
          self.jobs = json.load(tmpFile)
          tmpFile.close()
-         return True,self.jobs
       except:
-         logger.exception("Exception in Rank %s",self.rank)
-         errtype,errvalue = sys.exc_info()[:2]
-         errMsg = 'failed to load job with {0}:{1}'.format(errtype.__name__,errvalue)
-         return False,errMsg
+         logger.exception("Rank %s: exception while loading input fob file: %s",
+                           self.rank,self.inputJobFile)
+         raise
 
 
    # init job ranks
@@ -194,7 +180,8 @@ class Yoda(threading.Thread):
                if self.cores < 1:
                   self.cores = 10
             except:
-               logger.debug("Rank %s: failed to get core count",self.rank, traceback.format_exc())
+               logger.exception("Rank %s: failed to get core count",self.rank)
+               raise
             
             if 'neededRanks' not in job.keys():
                job['neededRanks'] = 1
@@ -225,10 +212,8 @@ class Yoda(threading.Thread):
          logger.debug("Rank %s: Jobs in full rank queue(one job is long enough to take the full rank) %s, total needed ranks %s",self.rank, self.jobRanks, self.totalJobRanks)
          return True,self.jobRanks
       except:
-         logger.exception("Exception in Rank %s",self.rank)
-         errtype,errvalue = sys.exc_info()[:2]
-         errMsg = 'failed to load job with {0}:{1}'.format(errtype.__name__,errvalue)
-         return False,errMsg
+         logger.exception("Rank %s failed to initialize jobs",self.rank)
+         raise
 
 
    def createEventTable(self):
@@ -281,7 +266,7 @@ class Yoda(threading.Thread):
    def makeJobsEventTable(self):
       try:
          # load event ranges
-         tmpFile = open(os.path.join(self.globalWorkingDir, 'JobsEventRanges.json'))
+         tmpFile = open(os.path.join(self.globalWorkingDir, self.inputJobEventsFile))
          eventRangeList = json.load(tmpFile)
          tmpFile.close()
          # setup database
@@ -291,28 +276,26 @@ class Yoda(threading.Thread):
              self.runningJobsEventRanges[jobId] = {}
              self.finishedJobsEventRanges[jobId] = []
              self.stagedOutJobsEventRanges[jobId] = []
-         return True,None
       except:
-         logger.exception("Exception in Rank %s",self.rank)
-         errtype,errvalue = sys.exc_info()[:2]
-         errMsg = 'failed to make event table with {0}:{1}'.format(errtype.__name__,errvalue)
-         return False,errMsg
+         logger.exception("Rank %s: failed to make job event table",self.rank)
+         raise
         
    def printEventStatus(self):
       try:
          for jobId in self.jobs:
             job = self.jobs[jobId]
             neededRanks = job['neededRanks']
-            readyEvents = len(self.readyJobsEventRanges[jobId]) if jobId in self.readyJobsEventRanges else 0
-            logger.debug("Rank %s: Job %s has %s events, needs %s ranks" % (self.rank, jobId, readyEvents, neededRanks))
+            if jobId in self.readyJobsEventRanges:
+               readyEvents = len(self.readyJobsEventRanges[jobId])
+            else:
+               readyEvents = 0
+            logger.debug("Rank %s: Job %s has %s events, needs %s ranks",self.rank, jobId, readyEvents, neededRanks)
          logger.debug("Rank %s: Job full rank queue: %s",self.rank, self.jobRanks)
          logger.debug("Rank %s: Job small piece queue: %s",self.rank, self.jobRanksSmallPiece)
-         return True, None
+         
       except:
-         logger.exception("Exception in Rank %s",self.rank)
-         errtype,errvalue = sys.exc_info()[:2]
-         errMsg = 'failed to make event table with {0}:{1}'.format(errtype.__name__,errvalue)
-         return False,errMsg
+         logger.exception("Rank %s: exception printing event status",self.rank)
+         raise
 
    # inject more events
    def injectEvents(self):
@@ -441,6 +424,7 @@ class Yoda(threading.Thread):
          ##### instead, pilot will download more events then expected
          self.rescheduleJobRanks()
          jobId, job = self.getJobScheduler(params)
+         job['jobID'] = jobId
 
       res = {'StatusCode':0,
             'job': job}
@@ -767,9 +751,8 @@ class Yoda(threading.Thread):
       logger.debug('finish Droids')
       # make message
       res = {'StatusCode':0, 'State': 'finished'}
-      logger.debug('res={0}'.format(str(res)))
+      logger.debug('res=%s',res)
       self.comm.sendMessage(res)
-      #self.comm.disconnect()
 
    def collectMetrics(self, ranks):
       metrics = {}
@@ -887,39 +870,29 @@ class Yoda(threading.Thread):
    def run(self):
       # get logger
       logger.info('Starting Yoda Thread')
+
       # load job
-      logger.info('loading job')
-      tmpStat,tmpOut = self.loadJobs()
-      logger.info("loading jobs: (status: %s, output: %s)" %(tmpStat, tmpOut))
-      if not tmpStat:
-         logger.error(tmpOut)
-         raise Exception(tmpOut)
+      logger.info('loading jobs')
+      self.loadJobs()
 
       logger.info("init job ranks")
-      tmpStat,tmpOut = self.initJobRanks()
-      logger.info("initJobRanks: (status: %s, output: %s)" %(tmpStat, tmpOut))
-      if not tmpStat:
-         logger.error(tmpOut)
-         raise Exception(tmpOut)
+      self.initJobRanks()
 
       # make event table
       logger.info('making JobsEventTable')
-      tmpStat,tmpOut = self.makeJobsEventTable()
-      if not tmpStat:
-         logger.error(tmpOut)
-         raise Exception(tmpOut)
+      self.makeJobsEventTable()
 
       # print event status
       logger.info('print event status')
-      tmpStat,tmpOut = self.printEventStatus()
+      self.printEventStatus()
 
       logger.info('Initialize Helper thread')
-      helperThread = Yoda.HelperThread(logger, self.helperFunction)
+      helperThread = Yoda.HelperThread(self.helperFunction)
       helperThread.start()
 
       # main loop
       logger.info('main loop')
-      time_dupmJobMetrics = time.time()
+      time_dumpJobMetrics = time.time()
       while self.comm.activeRanks():
          #self.injectEvents()
          # get request
@@ -937,16 +910,13 @@ class Yoda(threading.Thread):
             try:
                apply(methodObj,[params])
             except:
-               logger.debug("Failed to run function %s: %s",method, traceback.format_exc())
+               logger.exception("Failed to run function %s(%s)",method,params)
          else:
-             logger.error('unknown method={0} was requested from rank={1} '.format(method,
-                                                                                   self.comm.getRequesterRank()))
+             logger.error('unknown method=%s was requested from rank=%s ',
+                           method,self.comm.getRequesterRank())
       helperThread.stop()
       self.flushMessages()
-      #self.updateFailedEventRanges()
-      self.updateEventRangesToDB(force=True)
-      self.dumpJobMetrics()
-      self.dumpJobsStartTime()
+      self.helperFunction()
       # final dump
       #logger.info('final dumping')
       #self.db.dumpUpdates(True)
@@ -974,11 +944,12 @@ class Yoda(threading.Thread):
              methodObj = getattr(self,method)
              apply(methodObj,[params])
          else:
-             logger.error('unknown method={0} was requested from rank={1} '.format(method, self.comm.getRequesterRank()))
+             logger.error('unknown method=%s was requested from rank=%s ',
+                           method, self.comm.getRequesterRank())
 
 
    def stopYoda(self, signum=None, frame=None):
-      logger.info('stopYoda signal %s received' % signum)
+      logger.info('stopYoda signal %s received',signum)
       #signal.signal(signum, self.originSigHandler[signum])
       # make message
       res = {'StatusCode':0, 'State': 'signal', 'signum': signum}
