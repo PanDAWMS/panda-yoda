@@ -11,7 +11,6 @@ import pickle
 import signal
 import threading
 import traceback
-from os.path import abspath as os.path.abspath, join as os.path.join
 
 import pUtil
 from objectstoreSiteMover import objectstoreSiteMover
@@ -21,7 +20,7 @@ from ThreadPool import ThreadPool
 logger = logging.getLogger(__name__)
 
 class DroidStager(threading.Thread):
-   def __init__(self, globalWorkingDir, localWorkingDir, outputs=None, job=None, esJobManager=None, outputDir=None, rank=None, logger=None):
+   def __init__(self, globalWorkingDir, localWorkingDir, outputs=None, job=None, esJobManager=None, outputDir=None, rank=None):
       threading.Thread.__init__(self)
       self.__globalWorkingDir = globalWorkingDir
       self.__localWorkingDir = localWorkingDir
