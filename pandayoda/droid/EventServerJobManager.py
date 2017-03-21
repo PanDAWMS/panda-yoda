@@ -348,7 +348,7 @@ class EventServerJobManager():
       else:
          self.__child_pid = child_pid
          logger.debug("Rank %s: Initialize helper thread",self.__rank)
-         self.__helperThread = EventServerJobManager.HelperThread(logger, self.helperFunc)
+         self.__helperThread = EventServerJobManager.HelperThread(self.helperFunc)
          self.__helperThread.start()
          return 0
          
@@ -797,7 +797,7 @@ class EventServerJobManager():
 
       signal_block.unblock_sig(signal.SIGTERM)
 
-# Taken from pilot.FileHandling
+# These fuctions taken from pilot.FileHandling
 
 def getCPUTimes(workDir):
    """ Extract and add up the total CPU times from the job report """
@@ -832,3 +832,49 @@ def getCPUTimes(workDir):
 
    return cpuCU, totalCPUTime, conversionFactor
 
+def getJobReportFileName(workDir):
+    """ Return the name of the jobReport, full path """
+
+    return os.path.join(workDir, "jobReport.json")
+
+# WARNING: EXPERIMENT SPECIFIC AND ALSO DEFINED IN ERRORDIAGNOSIS
+def getJobReport(workDir):
+    """ Get the jobReport.json dictionary """
+    # Note: always return at least an empty dictionary
+
+    dictionary = {}
+    filename = getJobReportFileName(workDir)
+    if os.path.exists(filename):
+        # the jobReport file exists, read it back (with unicode to utf-8 conversion)
+        dictionary = getJSONDictionary(filename)
+        if not dictionary: # getJSONDictionary() can return None
+            dictionary = {}
+    else:
+        logger.warning("!!WARNING!!1111!! File %s does not exist" % (filename))
+
+    return dictionary
+
+def getJSONDictionary(filename):
+   """ Read a dictionary with unicode to utf-8 conversion """
+
+   dictionary = None
+   from json import load
+   f = openFile(filename, 'r')
+   if f:
+      try:
+         dictionary = load(f)
+      except Exception, e:
+         logger.warning("!!WARNING!!2222!! Failed to load json dictionary: %s" % (e))
+      else:
+         f.close()
+
+         # Try to convert the dictionary from unicode to utf-8
+         if dictionary != {}:
+            try:
+               dictionary = convert(dictionary)
+            except Exception, e:
+               logger.exception("!!WARNING!!2996!! Failed to convert dictionary from unicode to utf-8: %s, %s" % (dictionary, e))
+         else:
+            logger.warning("!!WARNING!!2995!! Load function returned empty JSON dictionary: %s" % (filename))
+
+    return dictionary
