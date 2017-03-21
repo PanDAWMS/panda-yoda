@@ -13,7 +13,9 @@ logger = logging.getLogger(__name__)
 
 def yoda_droid(globalWorkingDir,localWorkingDir = None,
                outputDir = None,dumpEventOutputs = False, 
-               inputJobFile = 'HPCJobs.json'):
+               inputJobFile = 'HPCJobs.json',
+               inputJobEventsFile = 'JobsEventRanges.json',
+               loop_timeout = 300):
 
    if localWorkingDir is None:
       localWorkingDir = globalWorkingDir
@@ -34,6 +36,7 @@ def yoda_droid(globalWorkingDir,localWorkingDir = None,
       logger.info("OutputDir:           %s",outputDir)
       logger.info("DumpEventOutputs:    %s",str(dumpEventOutputs))
       logger.info("inputJobFile:        %s",str(inputJobFile))
+      logger.info("inputJobEventsFile:  %s",str(inputJobEventsFile))
 
 
 
@@ -50,8 +53,8 @@ def yoda_droid(globalWorkingDir,localWorkingDir = None,
    if mpirank==0:
       try:
          yoda = Yoda.Yoda(globalWorkingDir, localWorkingDir, 
-                           outputDir=outputDir, dumpEventOutputs=dumpEventOutputs,
-                           inputJobFile=inputJobFile)
+                          inputJobFile,inputJobEventsFile,
+                          None,outputDir,dumpEventOutputs)
          yoda.start()
          
          droid = Droid.Droid(globalWorkingDir, localWorkingDir, outputDir=outputDir)
@@ -60,7 +63,7 @@ def yoda_droid(globalWorkingDir,localWorkingDir = None,
          while yoda.isAlive() and droid.isAlive():
             logger.info("Rank %s: Yoda isAlive %s",mpirank, yoda.isAlive())
             logger.info("Rank %s: Droid isAlive %s",mpirank, droid.isAlive())
-            time.sleep(300)
+            time.sleep(loop_timeout)
             
          logger.info("Rank %s: Yoda and Droid finished",mpirank)
       except:
@@ -73,7 +76,7 @@ def yoda_droid(globalWorkingDir,localWorkingDir = None,
          droid.start()
          
          while droid.isAlive():
-            droid.join(timeout=300)
+            droid.join(timeout=loop_timeout)
             logger.info("Rank %s: Droid isAlive %s",mpirank, droid.isAlive())
          logger.info("Rank %s: Droid finished",mpirank)
       except:
@@ -89,11 +92,13 @@ def main():
    oparser.add_argument('-g','--globalWorkingDir', dest="globalWorkingDir", help="Global share working directory",required=True)
    oparser.add_argument('-l','--localWorkingDir', dest="localWorkingDir", default=None, help="Local working directory. if it's not set, it will use global working directory")
    oparser.add_argument('-o','--outputDir', dest="outputDir", default=None, help="Copy output files to this directory")
-   oparser.add_argument('-i','--inputJobFile', dest="inputJobFile", default='HPCJobs.json', help="Copy output files to this directory")
+   oparser.add_argument('-i','--inputJobFile', dest="inputJobFile", default='HPCJobs.json', help="File containing the job definitions")
+   oparser.add_argument('-j','--inputJobEventsFile', dest="inputJobEventsFile", default='JobsEventRanges.json', help="File containing the job event ranges to process.")
    oparser.add_argument('-d','--dumpEventOutputs', dest='dumpEventOutputs', default=False, action='store_true', help="Dump event output info to xml")
    oparser.add_argument('--debug', dest='debug', default=False, action='store_true', help="Set Logger to DEBUG")
    oparser.add_argument('--error', dest='error', default=False, action='store_true', help="Set Logger to ERROR")
    oparser.add_argument('--warning', dest='warning', default=False, action='store_true', help="Set Logger to ERROR")
+   oparser.add_argument('--loop-timeout', dest='loop_timeout', type=int,default=300, help="How often to run the loop checking that Yoda/Droid still alive.")
    args = oparser.parse_args()
 
    if args.debug and not args.error and not args.warning:
@@ -111,8 +116,11 @@ def main():
 
 
 
+
    yoda_droid(args.globalWorkingDir,args.localWorkingDir,
-              args.outputDir,args.dumpEventOutputs,args.inputJobFile)
+              args.outputDir,args.dumpEventOutputs,
+              args.inputJobFile,args.inputJobEventsFile,
+              args.loop_timeout)
 
 
 if __name__ == "__main__":
