@@ -20,12 +20,10 @@ class Receiver:
    def __init__(self):
       self.comm = MPI.COMM_WORLD
       self.stat = MPI.Status()
-      self.nRank = self.comm.Get_rank()
+      self.__rank = self.comm.Get_rank()
+      self.nRank = self.__rank
       self.totalRanks = self.comm.Get_size()
       self.selectSource = MPI.ANY_SOURCE
-      self.nonMPIMode = False
-      if self.nRank == 1:
-         self.nonMPIMode = True
 
       # for message in rank 0
       self.hasMessage = False
@@ -35,7 +33,7 @@ class Receiver:
 
    # get rank of itself
    def getRank(self):
-      return self.comm.Get_rank() if self.comm else self.nRank
+      return self.__rank
 
 
    # receive request
@@ -70,9 +68,8 @@ class Receiver:
             data = json.loads(reqData)
             return True,data['method'],data['params']
          except:
-            errtype,errvalue = sys.exc_info()[:2]
-            errMsg = 'failed to got proper request with: %s' % traceback.format_exc()
-            return False,errMsg,None
+            logger.exception('Rank %s: exception while receiving queue message',self.__rank)
+            raise
       else:
          try:
             # get the request
@@ -82,9 +79,8 @@ class Receiver:
             data = json.loads(reqData)
             return True,data['method'],data['params']
          except:
-            errtype,errvalue = sys.exc_info()[:2]
-            errMsg = 'failed to got proper request with: %s' % traceback.format_exc()
-            return False,errMsg,None
+            logger.exception('Rank %s: exception while receiving MPI message',self.__rank)
+            raise
 
 
    # return response 
@@ -96,9 +92,8 @@ class Receiver:
             self.sendQueue.put(data)
             return True,None
          except:
-            errtype,errvalue = sys.exc_info()[:2]
-            errMsg = 'failed to retrun response with: %s' % traceback.format_exc()
-            return False,errMsg,None
+            logger.exception('Rank %s: exception while sending queue message',self.__rank)
+            raise
       else:
          try:
             #data = urllib.urlencode(rData)
@@ -106,9 +101,8 @@ class Receiver:
             self.comm.send(data,dest=self.stat.Get_source())
             return True,None
          except:
-            errtype,errvalue = sys.exc_info()[:2]
-            errMsg = 'failed to retrun response with: %s' % traceback.format_exc()
-            return False,errMsg,None
+            logger.exception('Rank %s: exception while sending MPI message',self.__rank)
+            raise
 
 
    # get rank of the requester
@@ -139,9 +133,8 @@ class Receiver:
          self.sendQueue.put(data)
          return True,None
       except:
-         errtype,errvalue = sys.exc_info()[:2]
-         errMsg = 'failed to retrun response with: %s' % traceback.format_exc()
-         return False,errMsg,None
+            logger.exception('Rank %s: exception while sending MPI message',self.__rank)
+            raise
 
 
    def disconnect(self):
@@ -149,9 +142,8 @@ class Receiver:
          self.comm.Disconnect()
          return True,None
       except:
-         errtype,errvalue = sys.exc_info()[:2]
-         errMsg = 'failed to disconnect with: %s' % traceback.format_exc()
-         return False,errMsg
+            logger.exception('Rank %s: exception during MPI disconnect',self.__rank)
+            raise
 
 
 # class to send requests
@@ -159,11 +151,8 @@ class Requester:
    # constructor
    def __init__(self):
       self.comm = MPI.COMM_WORLD
-      self.rank = MPI.COMM_WORLD.Get_rank()
+      self.__rank = MPI.COMM_WORLD.Get_rank()
       self.nRank = MPI.COMM_WORLD.Get_size()
-      self.nonMPIMode = False
-      if self.nRank == 0:
-         self.nonMPIMode = True
 
       # for message in rank 0
       self.hasMessage = False
@@ -172,9 +161,7 @@ class Requester:
 
    # get rank of itself
    def getRank(self):
-      if self.nonMPIMode:
-         return 0
-      return self.rank
+      return self.__rank
 
 
    # send request
@@ -184,14 +171,14 @@ class Requester:
          data = {'method':method,
                  'params':params}
          reqData = json.dumps(data)
-         if self.getRank() == 0:
+         if self.__rank == 0:
              self.sendQueue.put(reqData)
          else:
              # send a request ro rank0
              self.comm.send(reqData,dest=0)
 
          while True:
-            if self.getRank() == 0:
+            if self.__rank == 0:
                ansData = self.recvQueue.get(True, timeout=1000)
             else:
                # wait for the answer from Rank 0
@@ -213,13 +200,12 @@ class Requester:
                else:
                   break
             except:
-               logger.debug("Failed to handle signal message: %s",traceback.format_exc())
-               break
+               logger.exception("Rank %s: Failed to handle signal message",self.__rank)
+               raise
          return True,answer
       except:
-         errtype,errvalue = sys.exc_info()[:2]
-         errMsg = 'failed to send the request with mode %s: %s' % (self.nonMPIMode, traceback.format_exc())
-         return False,errMsg
+         logger.exception('Rank %s: failed to send the request',self.__rank)
+         raise
             
         
    def waitMessage(self):
@@ -237,9 +223,8 @@ class Requester:
          answer = json.loads(ansData)
          return True,answer
       except:
-         errtype,errvalue = sys.exc_info()[:2]
-         errMsg = 'failed to receive msg with: %s' % traceback.format_exc()
-         return False,errMsg
+         logger.exception('Rank %s: failed to receive message',self.__rank)
+         raise
 
 
    def disconnect(self):
@@ -248,6 +233,5 @@ class Requester:
             self.comm.Disconnect()
          return True,None
       except:
-         errtype,errvalue = sys.exc_info()[:2]
-         errMsg = 'failed to disconnect with: %s' % traceback.format_exc()
-         return False,errMsg
+         logger.exception('Rank %s: failed to MPI disconnect',self.__rank)
+         raise
