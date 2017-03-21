@@ -13,8 +13,10 @@ import threading
 import traceback
 from Queue import Queue
 from mpi4py import MPI
+from pandayoda.droid import DroidStager
 from pandayoda.yoda import Interaction,Database,signal_block
 from EventServerJobManager import EventServerJobManager
+from pandayoda import localcmd
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +97,7 @@ class Droid(threading.Thread):
       global logger
       logger.info(' Droid.setup()')
       try:
-         self.__jobId = job.get("JobId", None)
+         self.__jobId = job.get("jobId", None)
          self.__startTimeOneJobDroid = time.time()
          self.__cpuTimeOneJobDroid = os.times()
          self.__poolFileCatalog = job.get('PoolFileCatalog', None)
@@ -109,18 +111,21 @@ class Droid(threading.Thread):
          self.__ATHENA_PROC_NUMBER = int(job.get('ATHENA_PROC_NUMBER', 1))
          if self.__ATHENA_PROC_NUMBER < 1:
             raise Exception('ATHENA_PROC_NUMBER = ' + str(self.__ATHENA_PROC_NUMBER) + ' must be at least 1 to make sense.')
-         job["AthenaMPCmd"] = "export ATHENA_PROC_NUMBER=" + str(self.__ATHENA_PROC_NUMBER) + "; " + job["AthenaMPCmd"]
+         #job["AthenaMPCmd"] = "export ATHENA_PROC_NUMBER=" + str(self.__ATHENA_PROC_NUMBER) + "; " + job["AthenaMPCmd"]
+         job['AthenaMPCmd'] = localcmd.getLocalCmd(job)
          self.__jobWorkingDir = job.get('GlobalWorkingDir', None)
-         if self.__jobWorkingDir:
-            self.__jobWorkingDir = os.path.join(self.__jobWorkingDir, 'rank_%s' % self.__rank)
-            if not os.path.exists(self.__jobWorkingDir):
-               os.makedirs(self.__jobWorkingDir)
-            os.chdir(self.__jobWorkingDir)
-            logFile = os.path.join(self.__jobWorkingDir, 'Droid.log')
-            logging.basicConfig(filename=logFile, level=logging.DEBUG)
-            logger = Logger.Logger()
+         #if self.__jobWorkingDir:
+         #   self.__jobWorkingDir = os.path.join(self.__jobWorkingDir, 'rank_%s' % self.__rank)
+         #   if not os.path.exists(self.__jobWorkingDir):
+         #      os.makedirs(self.__jobWorkingDir)
+         #   os.chdir(self.__jobWorkingDir)
+         #   logFile = os.path.join(self.__jobWorkingDir, 'Droid.log')
+         #   logging.basicConfig(filename=logFile, level=logging.DEBUG)
+         #   logger = Logger.Logger()
 
-         if self.__copyInputFiles and self.__inputFiles is not None and self.__poolFileCatalog is not None:
+         if (self.__copyInputFiles and 
+                  self.__inputFiles is not None and 
+                  self.__poolFileCatalog is not None):
             for inputFile in self.__inputFiles:
                shutil.copy(inputFile, './')
 
@@ -133,7 +138,7 @@ class Droid(threading.Thread):
                   for line in pfc_in:
                      pfc_out.write(line.replace('HPCWORKINGDIR', os.getcwd()))
                
-            job["AthenaMPCmd"] = job["AthenaMPCmd"].replace('HPCWORKINGDIR', os.getcwd())
+            #job["AthenaMPCmd"] = job["AthenaMPCmd"].replace('HPCWORKINGDIR', os.getcwd())
 
          self.__esJobManager = EventServerJobManager(self.__rank, self.__ATHENA_PROC_NUMBER, workingDir=self.__jobWorkingDir)
          status, output = self.__esJobManager.preSetup(self.__preSetup)
@@ -148,7 +153,10 @@ class Droid(threading.Thread):
          # self.__esJobManager.initMessageThread(socketname='EventService_EventRanges', context='local')
          # self.__esJobManager.initTokenExtractorProcess(job["TokenExtractCmd"])
          # self.__esJobManager.initAthenaMPProcess(job["AthenaMPCmd"])
-         ret = self.__esJobManager.init(socketname='EventService_EventRanges', context='local', athenaMPCmd=job["AthenaMPCmd"], tokenExtractorCmd=job["TokenExtractCmd"])
+         ret = self.__esJobManager.init(socketname='EventService_EventRanges', 
+                                        context='local',
+                                        athenaMPCmd=job["AthenaMPCmd"],
+                                        tokenExtractorCmd=job.get("TokenExtractCmd",None))
          return True, None
       except:
          logger.exception("Rank %s: Failed to setup job",self.__rank)
@@ -171,8 +179,8 @@ class Droid(threading.Thread):
    def startStagerThread(self, job):
       logger.debug("Rank %s: initStagerThread: workdir: %s",self.__rank, os.getcwd())
       try:
-         from pandayoda.yodaexe.DroidStager import DroidStager
-         self.__stagerThread = DroidStager(self.__globalWorkingDir, self.__localWorkingDir, outputs=self.__outputs, job=job, esJobManager=self.__esJobManager, outputDir=self.__outputDir, rank=self.__rank, logger=logger)
+         
+         self.__stagerThread = DroidStager.DroidStager(self.__globalWorkingDir, self.__localWorkingDir, outputs=self.__outputs, job=job, esJobManager=self.__esJobManager, outputDir=self.__outputDir, rank=self.__rank)
          self.__stagerThread.start()
          return 0, None
       except:
