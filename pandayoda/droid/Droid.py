@@ -11,6 +11,7 @@ import pickle
 import signal
 import threading
 import traceback
+import multiprocessing
 from Queue import Queue
 from mpi4py import MPI
 from pandayoda.droid import DroidStager
@@ -46,7 +47,9 @@ class Droid(threading.Thread):
       self.__copyInputFiles = None
       self.__preSetup = None
       self.__postRun = None
-      self.__ATHENA_PROC_NUMBER = 1
+      self.__ATHENA_PROC_NUMBER = multiprocessing.cpu_count()
+      if self.__rank == 0:
+         self.__ATHENA_PROC_NUMBER -= 1 # reserve a core for Yoda
       self.__firstGetEventRanges = True
       self.__outputDir = outputDir
 
@@ -70,7 +73,7 @@ class Droid(threading.Thread):
    def initWorkingDir(self):
       # Create separate working directory for each rank
       curdir = os.path.abspath (self.__localWorkingDir)
-      wkdirname = "rank_%s" % str(self.__rank)
+      wkdirname = "rank_%05i" % self.__rank
       wkdir  = os.path.abspath (os.path.join(curdir,wkdirname))
       if not os.path.exists(wkdir):
           os.makedirs (wkdir)
@@ -95,7 +98,7 @@ class Droid(threading.Thread):
 
    def setup(self, job):
       global logger
-      logger.info(' Droid.setup()')
+      logger.debug(' Droid.setup()')
       try:
          self.__jobId = job.get("jobId", None)
          self.__startTimeOneJobDroid = time.time()
@@ -108,20 +111,9 @@ class Droid(threading.Thread):
 
          self.__yodaToOS = job.get('yodaToOS', False)
 
-         self.__ATHENA_PROC_NUMBER = int(job.get('ATHENA_PROC_NUMBER', 1))
-         if self.__ATHENA_PROC_NUMBER < 1:
-            raise Exception('ATHENA_PROC_NUMBER = ' + str(self.__ATHENA_PROC_NUMBER) + ' must be at least 1 to make sense.')
-         #job["AthenaMPCmd"] = "export ATHENA_PROC_NUMBER=" + str(self.__ATHENA_PROC_NUMBER) + "; " + job["AthenaMPCmd"]
+         # build local job
          job['AthenaMPCmd'] = localcmd.getLocalCmd(job)
          self.__jobWorkingDir = job.get('GlobalWorkingDir', None)
-         #if self.__jobWorkingDir:
-         #   self.__jobWorkingDir = os.path.join(self.__jobWorkingDir, 'rank_%s' % self.__rank)
-         #   if not os.path.exists(self.__jobWorkingDir):
-         #      os.makedirs(self.__jobWorkingDir)
-         #   os.chdir(self.__jobWorkingDir)
-         #   logFile = os.path.join(self.__jobWorkingDir, 'Droid.log')
-         #   logging.basicConfig(filename=logFile, level=logging.DEBUG)
-         #   logger = Logger.Logger()
 
          if (self.__copyInputFiles and 
                   self.__inputFiles is not None and 
@@ -137,13 +129,11 @@ class Droid(threading.Thread):
                with open(pfc_name_back, 'rt') as pfc_in:
                   for line in pfc_in:
                      pfc_out.write(line.replace('HPCWORKINGDIR', os.getcwd()))
-               
-            #job["AthenaMPCmd"] = job["AthenaMPCmd"].replace('HPCWORKINGDIR', os.getcwd())
 
          self.__esJobManager = EventServerJobManager(self.__rank, self.__ATHENA_PROC_NUMBER, workingDir=self.__jobWorkingDir)
          status, output = self.__esJobManager.preSetup(self.__preSetup)
          if status != 0:
-            return False, output
+            raise Exception('Rank %s: EventServerJobManager preSetup failed with status: %s and output: %s',self__rank,status,output)
 
          status, output = self.startStagerThread(job)
          if status != 0:
@@ -157,7 +147,7 @@ class Droid(threading.Thread):
                                         context='local',
                                         athenaMPCmd=job["AthenaMPCmd"],
                                         tokenExtractorCmd=job.get("TokenExtractCmd",None))
-         return True, None
+         
       except:
          logger.exception("Rank %s: Failed to setup job",self.__rank)
          if self.__esJobManager is not None:
@@ -169,12 +159,15 @@ class Droid(threading.Thread):
       logger.debug("Rank %s: getJob(request: %s)",self.__rank, request)
       status, output = self.__comm.sendRequest('getJob',request)
       logger.debug("Rank %s: (status: %s, output: %s)",self.__rank, status, output)
-      if status:
-         statusCode = output["StatusCode"]
-         job = output["job"]
-         if statusCode == 0 and job:
-            return True, job
-      return False, None
+      if not status:
+         raise Exception('no job retrieved')
+
+      statusCode = output["StatusCode"]
+      if statusCode != 0:
+         raise Exception('getJob returned non-zero status code: ' +str(statusCode))
+
+      job = output["job"]
+      return job
 
    def startStagerThread(self, job):
       logger.debug("Rank %s: initStagerThread: workdir: %s",self.__rank, os.getcwd())
@@ -402,18 +395,15 @@ class Droid(threading.Thread):
 
    def runOneJob(self):
       logger.info("Droid Starts to get job")
-      status, job = self.getJob()
-      logger.info("Rank %s: getJob(%s)",self.__rank, job)
-      if not status or not job:
-         logger.debug("Rank %s: Failed to get job",self.__rank)
-         # self.failedJob()
-         return -1
-      status, output = self.setup(job)
-      logger.info("Rank %s: setup job(status:%s, output:%s)",self.__rank, status, output)
-      if not status:
-         logger.debug("Rank %s: Failed to setup job(%s)",self.__rank, output)
-         self.failedJob()
-         return -1
+      job = self.getJob()
+      logger.debug('Droid received a job: %s',job)
+      if job is None:
+         logger.info('Rank %s: no jobs remainig Droid will exit',self.__rank)
+         self.__stop = True
+         return 0
+      
+      logger.debug('Droid is setting up job')
+      self.setup(job)
 
       # main loop
       failedNum = 0
@@ -456,9 +446,13 @@ class Droid(threading.Thread):
             logger.info("Rank %s: os.times: %s",self.__rank, os.times())
             heartbeatTime = time.time()
 
+      logger.debug('Rank %s: running end of loop heartbeat',self.__rank)
       self.heartbeat()
+      logger.debug('Rank %s: running end of loop esJobManager flushMessages',self.__rank)
       self.__esJobManager.flushMessages()
+      logger.debug('Rank %s: running end of loop stopStagerThread',self.__rank)
       self.stopStagerThread()
+      logger.debug('Rank %s: running end of loop updateOutputs',self.__rank)
       self.updateOutputs()
 
       logger.info("Rank %s: post exec job",self.__rank)
@@ -471,17 +465,11 @@ class Droid(threading.Thread):
 
    def preCheck(self):
       if not os.access('/tmp', os.W_OK):
-         logger.info("Rank %s: PreCheck /tmp is readonly",self.__rank)
-         status, output = commands.getstatusoutput("ll /|grep tmp")
-         logger.info("Rank %s: tmp dir: %s",self.__rank, output)
-         return 1
-      return 0
+         raise Exception("Rank %s: PreCheck /tmp is readonly",self.__rank)
 
    def run(self):
       logger.info("Rank %s: Droid starts on %s",self.__rank, self.__hostname)
-      if self.preCheck():
-         logger.info("Rank %s: Droid failed preCheck, exit",self.__rank)
-         return 1
+      self.preCheck()
 
       while not self.__stop:
          logger.info("Rank %s: Droid starts to run one job",self.__rank)
@@ -492,7 +480,7 @@ class Droid(threading.Thread):
                logger.warning("Rank %s: Droid fails to run one job: ret - %s",self.__rank, ret)
                break
          except:
-            logger.exception("Rank %s: Droid throws exception when running one job: %s",self.__rank)
+            logger.exception("Rank %s: Droid throws exception when running one job",self.__rank)
             break
          os.chdir(self.__globalWorkingDir)
          logger.info("Rank %s: Droid finishes to run one job",self.__rank)
