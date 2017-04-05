@@ -301,7 +301,7 @@ class EventServerJobManager():
    def initAthenaMPProcess(self, cmd):
       logger.debug("Rank %s: initAthenaMPProcess: %s, workdir %s ",self.__rank, cmd, os.getcwd())
       try:
-         self.__athenaMPProcess = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stdout, shell=True)
+         self.__athenaMPProcess = subprocess.Popen(cmd, stdout=open('AthenaMP_stdout.txt','w'), stderr=open('AthenaMP_stderr.txt','w'), shell=True)
          # self.__athenaMPProcess = subprocess.Popen(cmd, shell=True)
          if self.__athenaMPProcess.poll() is not None:
             logger.warning("Rank %s: Failed to initAthenaMPProcess, poll is not None: %s",self.__rank, self.__athenaMPProcess.poll())
@@ -323,7 +323,6 @@ class EventServerJobManager():
          while True:
             if self.isChildDead():
                logger.warning("Rank %s: Child One Process in ESJobManager is dead.",self.__rank)
-               self.terminateChild()
                break
             try:
                message = self.__messageInQueue.get(False)
@@ -344,7 +343,7 @@ class EventServerJobManager():
          self.terminateChild()
          logger.debug("Rank %s: Child terminated",self.__rank)
          # sys.exit(0)
-         os._exit(0)
+         #os._exit(0)
       else:
          self.__child_pid = child_pid
          logger.debug("Rank %s: Initialize helper thread",self.__rank)
@@ -461,6 +460,7 @@ class EventServerJobManager():
          return True
       if self.__athenaMPProcess.poll() is not None:
          logger.debug("Rank %s: AthenaMP process dead: %s",self.__rank, self.__athenaMPProcess.poll())
+         
          return True
       if not self.__messageThread.is_alive():
          logger.debug("Rank %s: Yampl message thread isAlive: %s",self.__rank, self.__messageThread.is_alive())
@@ -859,7 +859,7 @@ def getJSONDictionary(filename):
 
    dictionary = None
    from json import load
-   f = openFile(filename, 'r')
+   f = open(filename, 'r')
    if f:
       try:
          dictionary = load(f)
@@ -877,4 +877,5 @@ def getJSONDictionary(filename):
          else:
             logger.warning("!!WARNING!!2995!! Load function returned empty JSON dictionary: %s" % (filename))
 
-    return dictionary
+   return dictionary
+

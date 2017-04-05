@@ -179,7 +179,10 @@ class Requester:
 
          while True:
             if self.__rank == 0:
-               ansData = self.recvQueue.get(True, timeout=1000)
+               try:
+                  ansData = self.recvQueue.get(True, timeout=1000)
+               except Queue.Empty:
+                  logger.debug('Rank %s: recvQueue is empty and timed out in 1000 seconds',self.__rank)
             else:
                # wait for the answer from Rank 0
                # while not self.comm.Iprobe(source=0):
@@ -211,7 +214,10 @@ class Requester:
    def waitMessage(self):
       try:
          if self.getRank() == 0:
-            ansData = self.recvQueue.get(True, timeout=0.0001)
+            try:
+               ansData = self.recvQueue.get(True, timeout=0.0001)
+            except Queue.Empty:
+               logger.debug('Rank %s: recvQueue empty',self__rank)
          else:
             # wait for message from Rank 0
             # if self.comm.Iprobe(source=0):

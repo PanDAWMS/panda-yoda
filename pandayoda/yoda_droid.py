@@ -42,7 +42,7 @@ def yoda_droid(globalWorkingDir,localWorkingDir = None,
 
    # Create separate working directory for each rank
    curdir = os.path.abspath(localWorkingDir)
-   wkdirname = "rank_%08i" % mpirank
+   wkdirname = "rank_%05i" % mpirank
    wkdir  = os.path.abspath(os.path.join(curdir,wkdirname))
    if not os.path.exists(wkdir):
       os.makedirs(wkdir)
@@ -102,17 +102,30 @@ def main():
    args = oparser.parse_args()
 
    if args.debug and not args.error and not args.warning:
+      # remove existing root handlers and reconfigure with DEBUG
+      for h in logging.root.handlers:
+         logging.root.removeHandler(h)
+      logging.basicConfig(level=logging.DEBUG,
+         format='%(asctime)s|%(process)s|%(levelname)s|%(name)s|%(message)s',
+         datefmt='%Y-%m-%d %H:%M:%S')
       logger.setLevel(logging.DEBUG)
    elif not args.debug and args.error and not args.warning:
+      # remove existing root handlers and reconfigure with ERROR
+      for h in logging.root.handlers:
+         logging.root.removeHandler(h)
+      logging.basicConfig(level=logging.ERROR,
+         format='%(asctime)s|%(process)s|%(levelname)s|%(name)s|%(message)s',
+         datefmt='%Y-%m-%d %H:%M:%S')
       logger.setLevel(logging.ERROR)
    elif not args.debug and not args.error and args.warning:
+      # remove existing root handlers and reconfigure with WARNING
+      for h in logging.root.handlers:
+         logging.root.removeHandler(h)
+      logging.basicConfig(level=logging.WARNING,
+         format='%(asctime)s|%(process)s|%(levelname)s|%(name)s|%(message)s',
+         datefmt='%Y-%m-%d %H:%M:%S')
       logger.setLevel(logging.WARNING)
-   elif not args.debug and not args.error and not args.warning:
-      logger.setLevel(logging.INFO)
-   else:
-      logger.error('cannot set more than one of --debug, --error, or --warning.')
-      oparser.print_help()
-      return
+   
 
 
 
