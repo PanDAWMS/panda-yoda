@@ -12,7 +12,6 @@ import signal
 import threading
 import traceback
 
-import pUtil
 from objectstoreSiteMover import objectstoreSiteMover
 from Mover import getInitialTracingReport
 from ThreadPool import ThreadPool
