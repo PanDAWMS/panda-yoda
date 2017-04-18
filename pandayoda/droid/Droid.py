@@ -113,6 +113,7 @@ class Droid(threading.Thread):
 
          # build local job
          job['AthenaMPCmd'] = localcmd.getLocalCmd(job)
+         logger.debug('AthenaMPCmd: %s',job['AthenaMPCmd'])
          self.__jobWorkingDir = job.get('GlobalWorkingDir', None)
 
          if (self.__copyInputFiles and 
