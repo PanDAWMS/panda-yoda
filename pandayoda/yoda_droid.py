@@ -11,11 +11,22 @@ from pandayoda.droid import Droid
 logger = logging.getLogger(__name__)
 
 
-def yoda_droid(globalWorkingDir,localWorkingDir = None,
-               outputDir = None,dumpEventOutputs = False, 
-               inputJobFile = 'HPCJobs.json',
-               inputJobEventsFile = 'JobsEventRanges.json',
-               loop_timeout = 300):
+def yoda_droid(globalWorkingDir,
+               localWorkingDir         = None,
+               outputDir               = None,
+               dumpEventOutputs        = False, 
+               jobSpecFile             = 'HPCJobs.json', 
+               eventRangesFile         = 'JobsEventRanges.json',
+               workerAttributesFile    = 'worker_attributes.json',
+               jobReportFile           = 'jobReport.json',
+               eventStatusDumpJsonFile = 'event_status.dump.json',
+               eventStatusDumpXmlFile  = '_event_status.dump',
+               jobRequestFile          = 'worker_requestjob.json',
+               eventRequestFile        = 'worker_requestevents.json',
+               updateEventsFile        = 'worker_updateevents.json',
+               xmlPoolCatalogFile      = 'PoolFileCatalog_H.xml',
+               loop_timeout            = 300,
+              ):
 
    if localWorkingDir is None:
       localWorkingDir = globalWorkingDir
@@ -31,12 +42,21 @@ def yoda_droid(globalWorkingDir,localWorkingDir = None,
       raise
 
    if mpirank == 0:
-      logger.info("GlobalWorkingDir:    %s",globalWorkingDir)
-      logger.info("LocalWorkingDir:     %s",localWorkingDir)
-      logger.info("OutputDir:           %s",outputDir)
-      logger.info("DumpEventOutputs:    %s",str(dumpEventOutputs))
-      logger.info("inputJobFile:        %s",str(inputJobFile))
-      logger.info("inputJobEventsFile:  %s",str(inputJobEventsFile))
+      logger.info("GlobalWorkingDir:            %s",globalWorkingDir)
+      logger.info("LocalWorkingDir:             %s",localWorkingDir)
+      logger.info("OutputDir:                   %s",outputDir)
+      logger.info("DumpEventOutputs:            %s",str(dumpEventOutputs))
+      logger.info("jobSpecFile:                 %s",str(jobSpecFile))
+      logger.info("eventRangesFile:             %s",str(eventRangesFile))
+      logger.info("workerAttributesFile:        %s",str(workerAttributesFile))
+      logger.info("jobReportFile:               %s",str(jobReportFile))
+      logger.info("eventStatusDumpJsonFile:     %s",str(eventStatusDumpJsonFile))
+      logger.info("eventStatusDumpXmlFile:      %s",str(eventStatusDumpXmlFile))
+      logger.info("jobRequestFile:              %s",str(jobRequestFile))
+      logger.info("eventRequestFile:            %s",str(eventRequestFile))
+      logger.info("updateEventsFile:            %s",str(updateEventsFile))
+      logger.info("xmlPoolCatalogFile:          %s",str(xmlPoolCatalogFile))
+      logger.info("loop_timeout:                %s",str(loop_timeout))
 
 
 
@@ -53,7 +73,7 @@ def yoda_droid(globalWorkingDir,localWorkingDir = None,
    if mpirank==0:
       try:
          yoda = Yoda.Yoda(globalWorkingDir, localWorkingDir, 
-                          inputJobFile,inputJobEventsFile,
+                          jobSpecFile,eventRangesFile,
                           None,outputDir,dumpEventOutputs)
          yoda.start()
          
@@ -92,9 +112,17 @@ def main():
    oparser.add_argument('-g','--globalWorkingDir', dest="globalWorkingDir", help="Global share working directory",required=True)
    oparser.add_argument('-l','--localWorkingDir', dest="localWorkingDir", default=None, help="Local working directory. if it's not set, it will use global working directory")
    oparser.add_argument('-o','--outputDir', dest="outputDir", default=None, help="Copy output files to this directory")
-   oparser.add_argument('-i','--inputJobFile', dest="inputJobFile", default='HPCJobs.json', help="File containing the job definitions")
-   oparser.add_argument('-j','--inputJobEventsFile', dest="inputJobEventsFile", default='JobsEventRanges.json', help="File containing the job event ranges to process.")
-   oparser.add_argument('-d','--dumpEventOutputs', dest='dumpEventOutputs', default=False, action='store_true', help="Dump event output info to xml")
+   oparser.add_argument('--jobSpecFile', dest="jobSpecFile", default='HPCJobs.json', help="File containing the job definitions, written by Harvester")
+   oparser.add_argument('--eventRangesFile', dest="eventRangesFile", default='JobsEventRanges.json', help="File containing the job event ranges to process, written by Harvester")
+   oparser.add_argument('--workerAttributesFile', dest='workerAttributesFile', default='worker_attributes.json', help="worker attributes")
+   oparser.add_argument('--jobReportFile', dest='jobReportFile', default='jobReport.json', help="job report")
+   oparser.add_argument('--eventStatusDumpJsonFile', dest='eventStatusDumpJsonFile', default='event_status.dump.json', help="event status dump file in json")
+   oparser.add_argument('--eventStatusDumpXmlFile', dest='eventStatusDumpXmlFile', default='_event_status.dump', help="event status dump file in xml")
+   oparser.add_argument('--jobRequestFile', dest='jobRequestFile', default='worker_requestjob.json', help="job request")
+   oparser.add_argument('--eventRequestFile', dest='eventRequestFile', default='worker_requestevents.json', help="event request")
+   oparser.add_argument('--updateEventsFile', dest='updateEventsFile', default='worker_updateevents.json', help="update events")
+   oparser.add_argument('--xmlPoolCatalogFile', dest='xmlPoolCatalogFile', default='PoolFileCatalog_H.xml', help="PFC for input files")
+   oparser.add_argument('--dumpEventOutputs', dest='dumpEventOutputs', default=False, action='store_true', help="Dump event output info to xml")
    oparser.add_argument('--debug', dest='debug', default=False, action='store_true', help="Set Logger to DEBUG")
    oparser.add_argument('--error', dest='error', default=False, action='store_true', help="Set Logger to ERROR")
    oparser.add_argument('--warning', dest='warning', default=False, action='store_true', help="Set Logger to ERROR")
@@ -130,9 +158,20 @@ def main():
 
 
 
-   yoda_droid(args.globalWorkingDir,args.localWorkingDir,
-              args.outputDir,args.dumpEventOutputs,
-              args.inputJobFile,args.inputJobEventsFile,
+   yoda_droid(args.globalWorkingDir,
+              args.localWorkingDir,
+              args.outputDir,
+              args.dumpEventOutputs,
+              args.jobSpecFile,
+              args.eventRangesFile,
+              args.workerAttributesFile,
+              args.jobReportFile,
+              args.eventStatusDumpJsonFile,
+              args.eventStatusDumpXmlFile,
+              args.jobRequestFile,
+              args.eventRequestFile,
+              args.updateEventsFile,
+              args.xmlPoolCatalogFile,
               args.loop_timeout)
 
 
