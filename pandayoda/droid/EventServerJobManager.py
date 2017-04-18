@@ -55,7 +55,7 @@ class EventServerJobManager():
                   break
                size, buf = self.__messageSrv.try_recv_raw()
                if size == -1:
-                  time.sleep(0.00001)
+                  time.sleep(1)
                else:
                   self.__messageQ.put(buf)
          except:
