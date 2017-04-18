@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class DroidStager(threading.Thread):
    def __init__(self, globalWorkingDir, localWorkingDir, outputs=None, job=None, esJobManager=None, outputDir=None, rank=None):
-      threading.Thread.__init__(self)
+      super(DroidStager,self).__init__()
       self.__globalWorkingDir = globalWorkingDir
       self.__localWorkingDir = localWorkingDir
       self.__currentDir = None
@@ -29,7 +29,7 @@ class DroidStager(threading.Thread):
       self.__esJobManager = esJobManager
       self.__stop = threading.Event()
       self.__isFinished = False
-      logger.info("Rank %s: Global working dir: %s" % (self.__rank, self.__globalWorkingDir))
+      logger.info("Rank %s: Global working dir: %s",self.__rank,self.__globalWorkingDir)
       os.environ['PilotHomeDir'] = os.path.dirname(self.__globalWorkingDir)
 
       self.__jobId = None
@@ -49,10 +49,10 @@ class DroidStager(threading.Thread):
          self.__yodaToZip = job.get('yodaToZip', False)
          self.__zipFileName = job.get('zipFileName', None)
          self.__zipEventRangesName = job.get('zipEventRangesName', None)
-         logger.debug("Rank %s: zip file %s" % (self.__rank, self.__zipFileName))
-         logger.debug("Rank %s: zip event range file %s" % (self.__rank, self.__zipEventRangesName))
+         logger.debug("Rank %s: zip file %s",self.__rank, self.__zipFileName)
+         logger.debug("Rank %s: zip event range file %s",self.__rank, self.__zipEventRangesName)
          if self.__zipFileName is None or self.__zipEventRangesName is None:
-            logger.debug("Rank %s: either zipFileName(%s) is None or zipEventRanagesName(%s) is None, will not use zip output" % (self.__rank, self.__zipFileName, self.__zipEventRangesName))
+            logger.debug("Rank %s: either zipFileName(%s) is None or zipEventRanagesName(%s) is None, will not use zip output",self.__rank, self.__zipFileName, self.__zipEventRangesName)
             self.__yodaToZip = False
          self.__copyOutputToGlobal =  job.get('copyOutputToGlobal', False)
 
@@ -68,11 +68,12 @@ class DroidStager(threading.Thread):
                self.__stageout_threads = int(job.get('stageout_threads', None))
             except:
                self.__stageout_threads = self.__cores/8
-            logger.debug("Rank %s: start threadpool with %s threads" % (self.__rank, self.__stageout_threads))
+            logger.debug("Rank %s: start threadpool with %s threads",self.__rank, self.__stageout_threads)
             self.__threadpool = ThreadPool(self.__stageout_threads)
 
       except:
-         logger.error("Failed to setup Droid stager: %s" % str(traceback.format_exc()))
+         logger.exception("Failed to setup Droid stager")
+         raise
 
    def copyOutput(self, output, outputs):
       if self.__outputDir:
@@ -85,7 +86,7 @@ class DroidStager(threading.Thread):
                os.rename(filename, new_file_name)
                is_copied = True
             except:
-               logger.debug("Rank %s: failed to move output %s to %s, %s" % (self.__rank, filename, new_file_name, str(traceback.format_exc())))
+               logger.exception("Rank %s: failed to move output %s to %s",self.__rank, filename, new_file_name)
                is_copied = False
             if not is_copied:
                shutil.copy(filename, new_file_name)
@@ -102,7 +103,7 @@ class DroidStager(threading.Thread):
                os.rename(filename, new_file_name)
                is_copied = True
             except:
-               logger.debug("Rank %s: failed to move output %s to %s, %s" % (self.__rank, filename, new_file_name, str(traceback.format_exc())))
+               logger.exception("Rank %s: failed to move output %s to %s, %s",self.__rank, filename, new_file_name)
                is_copied = False
             if not is_copied:
                shutil.copy(filename, new_file_name)
@@ -134,10 +135,10 @@ class DroidStager(threading.Thread):
                os.remove(filename)
                ret_outputs.append(surl)
             else:
-               logger.debug("Failed to stageout %s: %s %s" % (filename, ret_status, pilotErrorDiag))
+               logger.debug("Failed to stageout %s: %s %s",filename, ret_status, pilotErrorDiag)
                return ret_status, pilotErrorDiag
       except:
-         logger.warning("Rank %s: Droid throws exception when staging out: %s" % (self.__rank, traceback.format_exc()))
+         logger.exception("Rank %s: Droid throws exception when staging out")
          ret_status = -1
       return ret_status, ret_outputs
 
@@ -148,10 +149,10 @@ class DroidStager(threading.Thread):
          fd = os.open(lockfile_name, os.O_EXCL|os.O_CREAT)
       except OSError:
          # work dir is locked, so exit
-         logger.warning("Found lock file: %s (wait)" % (lockfile_name))
+         logger.warning("Found lock file: %s (wait)",lockfile_name)
          fd = None
       else:
-         logger.debug("Created lock file: %s" % (lockfile_name))
+         logger.debug("Created lock file: %s",lockfile_name)
       return fd, lockfile_name
 
    def releaseAtomicLockFile(self, fd, lockfile_name):
@@ -162,9 +163,9 @@ class DroidStager(threading.Thread):
          if "Bad file descriptor" in str(e):
             logger.warning("Lock file already released")
          else:
-            logger.warning("WARNING: Could not release lock file: %s" % str(e))
+            logger.exception("WARNING: Could not release lock file")
       else:
-         logger.warning("Released lock file: %s" % (lockfile_name))
+         logger.warning("Released lock file: %s",lockfile_name)
 
    def zipOutputs(self, eventRangeID, eventStatus, outputs):
       try:
@@ -178,7 +179,7 @@ class DroidStager(threading.Thread):
             else:
                os.remove(filename)
       except:
-         logger.warning("Rank %s: Droid throws exception when zipping out: %s" % (self.__rank, traceback.format_exc()))
+         logger.exception("Rank %s: Droid throws exception when zipping out",self.__rank)
          return -1, "Failed to zip outputs"
       else:
          handler = open(self.__zipEventRangesName, "a")
@@ -192,35 +193,35 @@ class DroidStager(threading.Thread):
       else:
          outputs = output.split(",")[:-3]
          if self.__yodaToZip:
-            logger.debug("Rank %s: start to zip outputs: %s" % (self.__rank, outputs))
+            logger.debug("Rank %s: start to zip outputs: %s",self.__rank, outputs)
             retStatus, retOutput = self.zipOutputs(eventRangeID, eventStatus, outputs)
             if retStatus != 0:
-               logger.error("Rank %s: failed to zip outputs %s: %s" % (self.__rank, outputs, retOutput))
+               logger.error("Rank %s: failed to zip outputs %s: %s",self.__rank, outputs, retOutput)
                request = {"jobId": self.__jobId, "eventRangeID": eventRangeID, 'eventStatus': eventStatus, "output": output}
             else:
-               logger.info("Rank %s: finished to zip outputs %s: %s" % (self.__rank, outputs, retOutput))
+               logger.info("Rank %s: finished to zip outputs %s: %s",self.__rank, outputs, retOutput)
                request = {"jobId": self.__jobId, "eventRangeID": eventRangeID, 'eventStatus': 'zipped', "output": retOutput}
          elif self.__yodaToOS:
-            logger.debug("Rank %s: start to stage out outputs to objectstore: %s" % (self.__rank, outputs))
+            logger.debug("Rank %s: start to stage out outputs to objectstore: %s",self.__rank, outputs)
             retStatus, retOutput = self.stageOutToOS(outputs)
             if retStatus != 0:
-               logger.error("Rank %s: failed to stagout outputs %s to objectstore: %s" % (self.__rank, outputs, retOutput))
+               logger.error("Rank %s: failed to stagout outputs %s to objectstore: %s",self.__rank, outputs, retOutput)
                if retries < 1:
                   self.stageOut(eventRangeID, eventStatus, output, retries=retries+1)
                   request = None
                else:
                   request = {"jobId": self.__jobId, "eventRangeID": eventRangeID, 'eventStatus': eventStatus, "output": output}
             else:
-               logger.info("Rank %s: finished to stageout outputs %s to objectstore: %s" % (self.__rank, outputs, retOutput))
+               logger.info("Rank %s: finished to stageout outputs %s to objectstore: %s",self.__rank, outputs, retOutput)
                request = {"jobId": self.__jobId, "eventRangeID": eventRangeID, 'eventStatus': 'stagedOut', "output": retOutput, 'objstoreID': self.__os_bucket_id}
          else:
-            logger.debug("Rank %s: start to copy outputs: %s" % (self.__rank, outputs))
+            logger.debug("Rank %s: start to copy outputs: %s",self.__rank, outputs)
             retStatus, retOutput = self.copyOutput(output, outputs)
             if retStatus != 0:
-               logger.error("Rank %s: failed to copy outputs %s: %s" % (self.__rank, outputs, retOutput))
+               logger.error("Rank %s: failed to copy outputs %s: %s",self.__rank, outputs, retOutput)
                request = {"jobId": self.__jobId, "eventRangeID": eventRangeID, 'eventStatus': eventStatus, "output": output}
             else:
-               logger.info("Rank %s: finished to copy outputs %s: %s" % (self.__rank, outputs, retOutput))
+               logger.info("Rank %s: finished to copy outputs %s: %s",self.__rank, outputs, retOutput)
                request = {"jobId": self.__jobId, "eventRangeID": eventRangeID, 'eventStatus': eventStatus, "output": retOutput}
       if request:
          self.__outputs.put(request)
@@ -237,9 +238,9 @@ class DroidStager(threading.Thread):
                eventRangeID, eventStatus, output = outputMsg
                self.stageOut(eventRangeID, eventStatus, output, retries=0)
             except:
-               logger.warning("Rank %s: error message: %s" % (self.__rank, traceback.format_exc()))
+               logger.exception("Rank %s: error message",self.__rank)
       except:
-         logger.warning("Rank %s: error message: %s" % (self.__rank, traceback.format_exc()))
+         logger.exception("Rank %s: error message: %s",self.__rank)
       finally:
          self.releaseAtomicLockFile(fd, lockfile)
 
@@ -254,7 +255,7 @@ class DroidStager(threading.Thread):
          try:
             outputs = self.__esJobManager.getOutputs()
             if outputs:
-               logger.debug("Rank %s: getOutputs: %s" % (self.__rank, outputs))
+               logger.debug("Rank %s: getOutputs: %s",self.__rank, outputs)
                if self.__yodaToZip:
                   self.bulkZipOutputs(outputs)
                else:
@@ -262,20 +263,20 @@ class DroidStager(threading.Thread):
                      try:
                         eventRangeID, eventStatus, output = outputMsg
                         if self.__threadpool:
-                           logger.debug("Rank %s: add event output to threadpool: %s" % (self.__rank, outputMsg))
+                           logger.debug("Rank %s: add event output to threadpool: %s",self.__rank, outputMsg)
                            self.__threadpool.add_task(self.stageOut, eventRangeID, eventStatus, output, retries=0)
                         else:
                            self.stageOut(eventRangeID, eventStatus, output, retries=0)
                      except:
-                        logger.warning("Rank %s: error message: %s" % (self.__rank, traceback.format_exc()))
+                        logger.exception("Rank %s: error message",self.__rank)
                         continue
          except:
-            logger.error("Rank %s: Stager Thread failed: %s" % (self.__rank, traceback.format_exc()))
+            logger.exception("Rank %s: Stager Thread failed",self.__rank)
          if self.__stop.isSet():
             if self.__threadpool:
-               logger.warning("Rank %s: wait threadpool to finish" % (self.__rank))
+               logger.warning("Rank %s: wait threadpool to finish",self.__rank)
                self.__threadpool.wait_completion()
-               logger.warning("Rank %s: threadpool finished" % (self.__rank))
+               logger.warning("Rank %s: threadpool finished",self.__rank)
             break
-         time.sleep(1)
+         time.sleep(10)
       self.__isFinished = True
