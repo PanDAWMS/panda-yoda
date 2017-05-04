@@ -1,6 +1,6 @@
-import os,sys,logging,threading,json,subprocess,SerialQueue
+import os,sys,logging,threading,subprocess
 from mpi4py import MPI
-import MessageTypes
+from pandayoda.common import MessageTypes,SerialQueue
 logger = logging.getLogger(__name__)
 
 class JobManager(threading.Thread):

@@ -1,7 +1,7 @@
-import logging,threading,SerialQueue,os,time
+import logging,threading,os,time
 from mpi4py import MPI
-import yoda_droid_messenger as ydmess
-import JobManager,JobComm,FileManager,YodaComm
+from pandayoda.common import yoda_droid_messenger as ydmess,SerialQueue
+from pandayoda.droid import JobManager,JobComm,FileManager,YodaComm
 logger = logging.getLogger(__name__)
 
 
