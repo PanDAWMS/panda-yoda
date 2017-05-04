@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 import argparse,logging,os,sys,time,Queue,importlib
 from mpi4py import MPI
-from pandayoda import Yoda,Droid
+from pandayoda.yoda import Yoda
+from pandayoda.droid import Droid
 logger = logging.getLogger(__name__)
 
 
