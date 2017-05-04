@@ -1,18 +1,11 @@
 #!/usr/bin/env python
-import argparse
-import logging
-import os
-import sys
-import time
-import traceback
+import argparse,logging,os,sys,time,Queue,importlib
 from mpi4py import MPI
-from pandayoda.yoda import Yoda
-from pandayoda.droid import Droid
+from pandayoda import Yoda,Droid
 logger = logging.getLogger(__name__)
 
 
-def yoda_droid(globalWorkingDir,
-               localWorkingDir         = None,
+def yoda_droid(jobWorkingDir,
                outputDir               = None,
                dumpEventOutputs        = False, 
                jobSpecFile             = 'HPCJobs.json', 
@@ -26,11 +19,11 @@ def yoda_droid(globalWorkingDir,
                updateEventsFile        = 'worker_updateevents.json',
                xmlPoolCatalogFile      = 'PoolFileCatalog_H.xml',
                loop_timeout            = 300,
+               config                  = 'yoda.cfg',
+               messenger_plugin        = 'shared_file_messenger',
               ):
 
-   if localWorkingDir is None:
-      localWorkingDir = globalWorkingDir
-
+   
    # get MPI world info
    try:
       comm = MPI.COMM_WORLD
@@ -42,8 +35,7 @@ def yoda_droid(globalWorkingDir,
       raise
 
    if mpirank == 0:
-      logger.info("GlobalWorkingDir:            %s",globalWorkingDir)
-      logger.info("LocalWorkingDir:             %s",localWorkingDir)
+      logger.info("JobWorkingDir:               %s",jobWorkingDir)
       logger.info("OutputDir:                   %s",outputDir)
       logger.info("DumpEventOutputs:            %s",str(dumpEventOutputs))
       logger.info("jobSpecFile:                 %s",str(jobSpecFile))
@@ -57,51 +49,63 @@ def yoda_droid(globalWorkingDir,
       logger.info("updateEventsFile:            %s",str(updateEventsFile))
       logger.info("xmlPoolCatalogFile:          %s",str(xmlPoolCatalogFile))
       logger.info("loop_timeout:                %s",str(loop_timeout))
-
+      logger.info("config:                      %s",str(config))
+      logger.info("messenger_plugin:            %s",str(messenger_plugin))
 
 
    # Create separate working directory for each rank
-   curdir = os.path.abspath(localWorkingDir)
+   os.chdir(jobWorkingDir)
+   curdir = os.path.abspath(jobWorkingDir)
    wkdirname = "rank_%05i" % mpirank
    wkdir  = os.path.abspath(os.path.join(curdir,wkdirname))
    if not os.path.exists(wkdir):
       os.makedirs(wkdir)
-   os.chdir(wkdir)
+   #os.chdir(wkdir)
 
-   logger.info("RANK %08i of %08i",mpirank,mpisize)
+   # create the messenger, which is a plugin
+   # try to import the module specified by the parameter 'messenger_plugin'
+   # if it is not in the PYTHONPATH this will fail
+   try:
+      messenger = importlib.import_module(messenger_plugin)
+   except ImportError:
+      logger.exception('Failed to import messenger_plugin: %s',messenger_plugin)
+      raise
+   # now seteup messenger
+   messenger.setup(config)
 
+   logger.info('Rank %08i of %08i',mpirank,mpisize)
+   logger.info('Rank %s: current working directory: %s',mpirank,wkdir)
+
+   yoda = None
+   # if you are rank 0, start the yoda thread
    if mpirank==0:
       try:
-         yoda = Yoda.Yoda(globalWorkingDir, localWorkingDir, 
-                          jobSpecFile,eventRangesFile,
-                          None,outputDir,dumpEventOutputs)
+         yoda = Yoda.Yoda(jobWorkingDir,
+                          messenger,
+                          outputDir)
          yoda.start()
-         
-         droid = Droid.Droid(globalWorkingDir, localWorkingDir, outputDir=outputDir)
-         droid.start()
+      except:
+         logger.exception('Rank %s: failed to start Yoda.',mpirank)
+         raise
+   # all ranks start Droid threads
+   try:
+      droid = Droid.Droid(jobWorkingDir,messenger,outputDir)
+      droid.start()
+   except:
+      logger.exception('Rank %s: failed to start Droid',mpirank)
+      raise
 
-         while yoda.isAlive() and droid.isAlive():
-            logger.info("Rank %s: Yoda isAlive %s",mpirank, yoda.isAlive())
-            logger.info("Rank %s: Droid isAlive %s",mpirank, droid.isAlive())
-            time.sleep(loop_timeout)
-            
-         logger.info("Rank %s: Yoda and Droid finished",mpirank)
-      except:
-         logger.exception("Rank %s: Yoda failed",mpirank)
-         raise
-     #os._exit(0)
-   else:
-      try:
-         droid = Droid.Droid(globalWorkingDir, localWorkingDir, outputDir=outputDir)
-         droid.start()
-         
-         while droid.isAlive():
-            droid.join(timeout=loop_timeout)
-            logger.info("Rank %s: Droid isAlive %s",mpirank, droid.isAlive())
-         logger.info("Rank %s: Droid finished",mpirank)
-      except:
-         logger.exception("Rank %s: Droid failed",mpirank)
-         raise
+   # loop until droid and/or yoda exit
+   while True:
+      logger.debug('in loop')
+      time.sleep(loop_timeout)
+      if not droid.isAlive():
+         logger.info('Rank %s: droid has finished',mpirank)
+         break
+      if yoda:
+         if not yoda.isAlive():
+            logger.info('Rank %s: yoda has finished',mpirank)
+            break
    
 def main():
    logging.basicConfig(level=logging.INFO,
@@ -109,8 +113,7 @@ def main():
          datefmt='%Y-%m-%d %H:%M:%S')
    logging.info('Start yoda_droid')
    oparser = argparse.ArgumentParser()
-   oparser.add_argument('-g','--globalWorkingDir', dest="globalWorkingDir", help="Global share working directory",required=True)
-   oparser.add_argument('-l','--localWorkingDir', dest="localWorkingDir", default=None, help="Local working directory. if it's not set, it will use global working directory")
+   oparser.add_argument('-l','--jobWorkingDir', dest="jobWorkingDir", default=None, help="Job's working directory.",required=True)
    oparser.add_argument('-o','--outputDir', dest="outputDir", default=None, help="Copy output files to this directory")
    oparser.add_argument('--jobSpecFile', dest="jobSpecFile", default='HPCJobs.json', help="File containing the job definitions, written by Harvester")
    oparser.add_argument('--eventRangesFile', dest="eventRangesFile", default='JobsEventRanges.json', help="File containing the job event ranges to process, written by Harvester")
@@ -127,6 +130,7 @@ def main():
    oparser.add_argument('--error', dest='error', default=False, action='store_true', help="Set Logger to ERROR")
    oparser.add_argument('--warning', dest='warning', default=False, action='store_true', help="Set Logger to ERROR")
    oparser.add_argument('--loop-timeout', dest='loop_timeout', type=int,default=300, help="How often to run the loop checking that Yoda/Droid still alive.")
+   oparser.add_argument('--yoda-config', dest='yoda_config', help="The Yoda Config file where some configuration information is set.",default='yoda.cfg')
    args = oparser.parse_args()
 
    if args.debug and not args.error and not args.warning:
@@ -158,8 +162,8 @@ def main():
 
 
 
-   yoda_droid(args.globalWorkingDir,
-              args.localWorkingDir,
+   yoda_droid(
+              args.jobWorkingDir,
               args.outputDir,
               args.dumpEventOutputs,
               args.jobSpecFile,
@@ -172,7 +176,8 @@ def main():
               args.eventRequestFile,
               args.updateEventsFile,
               args.xmlPoolCatalogFile,
-              args.loop_timeout)
+              args.loop_timeout,
+              args.yoda_config)
 
 
 if __name__ == "__main__":
