@@ -53,8 +53,7 @@ class Yoda(threading.Thread):
                 inputJobFile,
                 inputJobEventsFile,
                 pilotJob=None, 
-                outputDir=None, 
-                dumpEventOutputs=False):
+                outputDir=None):
       # call Thread constructor
       super(Yoda,self).__init__()
       
