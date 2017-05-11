@@ -6,13 +6,15 @@ logger = logging.getLogger(__name__)
 class FileManager(threading.Thread):
    ''' FileManager: this thread accepts output from the JobComm to process AthenaMP event output files which need to be moved to local storage areas. '''
    def __init__(self,queues,
-                output_file_path):
+                output_file_path,
+                loopTimeout = 30):
       ''' 
         queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send 
                      messages to other Droid components about errors, etc.
         outputFilePath: Where event files will be copied
         inputSerialQueueTimeout: A positive number of seconds to block when retrieving 
-                     a message from the inputSerialQueue.'''
+                     a message from the inputSerialQueue.
+        loopTimeout: A positive number of seconds to block between loop executions.'''
       # call base class init function
       super(FileManager,self).__init__()
 
@@ -22,6 +24,9 @@ class FileManager(threading.Thread):
 
       # this is where event files will be copied
       self.output_file_path      = output_file_path
+
+      # the timeout duration when no message was received from AthenaMP
+      self.loopTimeout           = loopTimeout
 
       # get current rank
       self.rank                  = MPI.COMM_WORLD.Get_rank()
@@ -43,7 +48,7 @@ class FileManager(threading.Thread):
       while not self.exit.isSet():
          try:
             # this thread has nothing else to do so it can block on the message queue
-            message = self.queues['FileManager'].get()
+            message = self.queues['FileManager'].get(timeout=self.loopTimeout)
          except SerialQueue.Empty:
             pass
          else:
@@ -55,7 +60,7 @@ class FileManager(threading.Thread):
                          }
             '''
 
-            if message['type'] == MessageTypes.OUTPUT_EVENT_FILE:
+            if message['type'] == MessageTypes.OUTPUT_FILE:
                if os.path.exists(message['filename']) and os.path.exists(self.output_file_path):
                   logger.debug('%s copying %s to %s',message['filename'],self.prelog,self.output_file_path)
                   shutil.copy(message['filename'],self.output_file_path + '/')
@@ -66,6 +71,8 @@ class FileManager(threading.Thread):
 
             else:
                logger.error('%s message type is incorrect: %s ',message['type'])
+
+      logger.info('%s FileManager exiting',self.prelog)
 
 # testing this thread
 if __name__ == '__main__':
@@ -90,7 +97,7 @@ if __name__ == '__main__':
       if not fm.isAlive(): break
 
       msg = {
-         'type':MessageTypes.OUTPUT_EVENT_FILE,
+         'type':MessageTypes.OUTPUT_FILE,
          'filename':'/build1/tsulaia/20.3.7.5/run-es/athenaMP-workers-AtlasG4Tf-sim/worker_1/myHITS.pool.root_000.Range-6',
          'eventrangeid':'ID:Range-6',
          'cpu':'CPU:1',

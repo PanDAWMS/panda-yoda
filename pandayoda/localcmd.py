@@ -9,6 +9,8 @@ def getLocalCmd(job):
    cmd += getLocalEnv(job)
    cmd += ';' + getTrfSetup(job)
    cmd += ';' + getTrfCmd(job)
+
+   return cmd
    
 def getTrfSetup(job):
    swrelease=job['swRelease'].split('-')[1]
@@ -19,36 +21,35 @@ def getTrfSetup(job):
    if not os.path.exists(swbase):
       raise Exception('software area does not exist: HPC_SW_INSTALL_AREA = %s'%swbase)
    
-   if   swrelease.startswith('21'):
-      appdir = "%s/%s/AtlasSetup" %(swbase,'.'.join(x for x in swrelease.split('.')[0:2]))
-   elif swrelease.startswith('19'):
-      appdir = '%s/%s/%s/AtlasSetup' % (swbase,'x86_64-slc6-gcc47-opt',swrelease)
-
-   asetup_cmd = 'source ' + appdir + '/scripts/asetup.sh'
-   post_asetup_cmd = ''
-
-   asetup_options = ''
+   atlaslocalrootbase_script = os.path.join(swbase,'setup_atlaslocalrootbase.sh')
+   if os.path.exists(atlaslocalrootbase_script):
+      raise Exception(' ATLASLocalRootBase setup script %s does not exist' % atlaslocalrootbase_script)
+   
+   cmd += 'source ' + atlaslocalrootbase_script
+   
+   cmd += ';source $AtlasSetup/scripts/asetup.sh'
+   
    if 'homepackage' in job:
       x = job['homepackage'].split('/')
       package = x[0]
       full_release = x[1]
 
-      asetup_options += ' ' + package + ',' + full_release
+      cmd += ' ' + package + ',' + full_release
 
    if full_release.startswith('19'):
-      asetup_options += ' --cmtextratags=ATLAS,useDBRelease'
+      cmd += ' --cmtextratags=ATLAS,useDBRelease'
    elif full_release.startswith('21'):
       swreleasebase = os.path.join(swbase,swrelease.split('.')[0:2])
-      asetup_options += ' --releasesarea=%s' % swreleasebase
-      asetup_options += ' --cmakearea=%s/sw/lcg/contrib/CMake' % swreleasebase
-      asetup_options += ' --gcclocation=%s/sw/lcg/releases/gcc/4.9.3/x86_64-slc6' % swreleasebase
-      post_asetup_cmd += '; DBBASEPATH=/global/cscratch1/sd/parton/atlas/repo/sw/database/DBRelease/current'
-      #asetup_options += '; export CORAL_DBLOOKUP_PATH=$DBBASEPATH/XMLConfig'
-      #asetup_options += '; export CORAL_AUTH_PATH=$DBBASEPATH/XMLConfig'
-      post_asetup_cmd += '; export DATAPATH=$DBBASEPATH:$DATAPATH'
-      post_asetup_cmd += ';export FRONTIER_SERVER="(serverurl=http://atlasfrontier-ai.cern.ch:8000/atlr)(serverurl=http://lcgft-atlas.gridpp.rl.ac.uk:3128/frontierATLAS)(proxyurl=http://pc1806.nersc.gov:3128)"'
+      cmd += ' --releasesarea=%s' % swreleasebase
+      #cmd += ' --cmakearea=%s/sw/lcg/contrib/CMake' % swreleasebase
+      #cmd += ' --gcclocation=%s/sw/lcg/releases/gcc/4.9.3/x86_64-slc6' % swreleasebase
+      cmd += '; DBBASEPATH=$/database/DBRelease/current'
+      asetup_options += '; export CORAL_DBLOOKUP_PATH=$DBBASEPATH/XMLConfig'
+      asetup_options += '; export CORAL_AUTH_PATH=$DBBASEPATH/XMLConfig'
+      cmd += '; export DATAPATH=$DBBASEPATH:$DATAPATH'
+      #cmd += ';export FRONTIER_SERVER="(serverurl=http://atlasfrontier-ai.cern.ch:8000/atlr)(serverurl=http://lcgft-atlas.gridpp.rl.ac.uk:3128/frontierATLAS)(proxyurl=http://pc1806.nersc.gov:3128)"'
 
-   cmd = asetup_cmd + asetup_options + post_asetup_cmd
+   
    return cmd
 
 # build TRF Command
@@ -70,11 +71,10 @@ def getLocalEnv(job):
 
    env_cmd = ''
 
-   env_cmd += ';export PANDA_RESOURCE=NERSC_Edison_2'
+   env_cmd += 'export PANDA_RESOURCE=NERSC_Edison_2'
    if 'taskID' in job and 'jobID' in job:
       env_cmd += ';export FRONTIER_ID="[%s_%s]"' % (job['jobID'],job['taskID'])
       env_cmd += ';export CMSSW_VERSION=$FRONTIER_ID'
-   env_cmd += ';export CMSSW_VERSION=$FRONTIER_ID'
    env_cmd += ';export CMSSW_VERSION=$FRONTIER_ID'
    if 'processingType' in job:
       env_cmd += ';export RUCIO_APPID=%s' % job['processingType']

@@ -23,9 +23,12 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
    '''
 
    ATHENA_READY_FOR_EVENTS = 'Ready for events'
+   NO_MORE_EVENTS          = 'No more events'
+   ATHENAMP_FAILED_PARSE   = 'ERR_ATHENAMP_PARSE'
 
    def __init__(self,queues,
-                loopTimeout      = 30):
+                loopTimeout         = 30,
+                yampl_socket_name   = 'EventService_EventRanges'):
       ''' 
         queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send 
                      messages to other Droid components about errors, etc.
@@ -38,6 +41,9 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
       # the timeout duration when no message was received from AthenaMP
       self.loopTimeout           = loopTimeout
+
+      # socket name used by AthenaMP to connect, needs to be the same between here and AthenaMP
+      self.yampl_socket_name     = yampl_socket_name
 
       # get current rank
       self.rank                  = MPI.COMM_WORLD.Get_rank()
@@ -57,7 +63,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
       # setup communicator
       logger.debug('%s start communicator',self.prelog)
-      comm = athena_communicator(prelog=self.prelog)
+      comm = athena_communicator(self.yampl_socket_name,prelog=self.prelog)
 
       while not self.exit.isSet():
          logger.debug('%s start loop',self.prelog)
@@ -69,29 +75,31 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
             # received a message, parse it
             if JobComm.ATHENA_READY_FOR_EVENTS in msg:
                # Athena is ready for events so ask Droid for an event range
-               msg = {'type':MessageTypes.SEND_NEW_EVENT_RANGE}
+               msg = {'type':MessageTypes.REQUEST_EVENT_RANGES}
                try:
                   self.queues['YodaComm'].put(msg)
                except SerialQueue.Full:
                   logger.warning('%s YodaComm queue is full',self.prelog)
                   continue
 
-               # get response from droid
+               # get response from YodaComm
                inputmsg = self.queues['JobComm'].get()
-               if MessageTypes.NEW_EVENT_RANGE not in inputmsg['type'] or 'eventrange' not in inputmsg:
-                  raise Exception('message from inputSerialQueue has incorrect format: ' + str(inputmsg))
+               if   inputmsg['type'] == MessageTypes.NEW_EVENT_RANGES:
+                  # event range is this format:
+                  # [{"eventRangeID": "8848710-3005316503-6391858827-3-10", "LFN":"EVNT.06402143._012906.pool.root.1", "lastEvent": 3, "startEvent": 3, "scope": "mc15_13TeV", "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"}]
+                  # in json format
+                  eventranges = inputmsg['eventranges']
+                  
+                  # send event ranges to AthenaMP
+                  comm.send(serializer.serialize(eventranges))
+               elif inputmsg['type'] == MessageTypes.NO_MORE_EVENT_RANGES:
+                  # no more event ranges left
+                  comm.send(JobComm.NO_MORE_EVENTS)
 
-
-               # event range is this format:
-               # [{"eventRangeID": "8848710-3005316503-6391858827-3-10", "LFN":"EVNT.06402143._012906.pool.root.1", "lastEvent": 3, "startEvent": 3, "scope": "mc15_13TeV", "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"}]
-               # in json format
-               eventrange = inputmsg['eventrange']
-               
-               # send event ranges to AthenaMP
-               comm.send(serializer.serialize(eventrange))
 
 
             elif msg.startswith('/'):
+               logger.debug('%s received output file',self.prelog)
                # Athena sent details of an output file
                # send the details to Droid
                parts = msg.split(',')
@@ -103,7 +111,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                   eventrangeid = parts[1]
                   cpu = parts[2]
                   wallclock = parts[3]
-                  msg = {'type':MessageTypes.OUTPUT_EVENT_FILE,
+                  msg = {'type':MessageTypes.OUTPUT_FILE,
                          'filename':outputfilename,
                          'eventrangeid':eventrangeid,
                          'cpu':cpu,
@@ -111,11 +119,15 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                          }
                   # send them to droid
                   try:
-                     self.queues['YodaComm'].put(msg)
+                     self.queues['FileManager'].put(msg)
                   except SerialQueue.Full:
-                     logger.warning('%s YodaComm is full, could not send output info.',self.prelog)
+                     logger.warning('%s FileManager is full, could not send output info.',self.prelog)
                else:
                   logger.error('%s received message from Athena that appears to be output file because it starts with "/" however when split by commas, it only has %i pieces when 4 are expected',self.prelog,len(parts))
+            elif msg.startswith(JobComm.ATHENAMP_FAILED_PARSE):
+               # Athena passed an error
+               logger.error('%s AthenaMP failed to parse the message: %s',self.prelog,msg)
+               pass
             elif msg.startswith('ERR'):
                # Athena passed an error
                logger.error('%s received error from AthenaMP: %s',self.prelog,msg)
@@ -126,11 +138,15 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
          else:
             # no message received so sleep
+            logger.debug('%s no yampl message from AthenaMP, sleeping.',self.prelog)
             time.sleep(self.loopTimeout)
+
+      logger.info('%s JobComm exiting',self.prelog)
 
 
 class athena_communicator:
-   def __init__(self,socketname='EventService',context='local',prelog=''):
+   ''' small class to handle yampl communication exception handling '''
+   def __init__(self,socketname='EventService_EventRanges',context='local',prelog=''):
 
       self.prelog = prelog
       
@@ -175,7 +191,7 @@ if __name__ == '__main__':
    jc = JobComm(queues,5)
 
    # setup communicator
-   socket = yampl.ClientSocket('EventService', 'local')
+   socket = yampl.ClientSocket('EventService_EventRanges', 'local')
 
    jc.start()
 

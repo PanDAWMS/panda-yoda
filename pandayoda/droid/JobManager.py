@@ -1,4 +1,4 @@
-import os,sys,logging,threading,subprocess
+import os,sys,logging,threading,subprocess,time
 from mpi4py import MPI
 from pandayoda.common import MessageTypes,SerialQueue
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ class JobManager(threading.Thread):
          for NEW_PANDA_JOB messages:
             {'type': NEW_PANDA_JOB,
              'job': {
-      "jobid":"3298217817",
+      "PandaID":"3298217817",
       "GUID": "BEA4C016-E37E-0841-A448-8D664E8CD570",
       "PandaID": 3298217817,
       "StatusCode": 0,
@@ -78,26 +78,30 @@ class JobManager(threading.Thread):
 
    
 
-   def __init__(self,queues,
+   def __init__(self,queues,config,
                 loopTimeout            = 30,
-                droidSubprocessStdout  = 'droid_job_r{rank}_jid{jobid}.stdout',
-                droidSubprocessStderr  = 'droid_job_r{rank}_jid{jobid}.stderr',
+                droidSubprocessStdout  = 'droid_job_r{rank}_jid{PandaID}.stdout',
+                droidSubprocessStderr  = 'droid_job_r{rank}_jid{PandaID}.stderr',
                 testing                = False):
       ''' 
          queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send 
                      messages to other Droid components about errors, etc.
+         config: The Yoda ConfigParser handle to get configuration information.
          loopTimeout: A positive number of seconds to wait between loop execution.
          droidSubprocessStdout: pipe subprocess stdout to this filename, this can 
-                     use python string format keys 'rank' and 'jobid' to insert the 
+                     use python string format keys 'rank' and 'PandaID' to insert the 
                      Droid rank number and the current panda job id.
          droidSubprocessStderr: pipe subprocess stderr to this filename, this can 
-                     use python string format keys 'rank' and 'jobid' to insert the 
+                     use python string format keys 'rank' and 'PandaID' to insert the 
                      Droid rank number and the current panda job id.'''
       # call base class init function
       super(JobManager,self).__init__()
 
       # dictionary of queues for sending messages to Droid components
       self.queues                = queues
+
+      # ConfigParser handle for getting configuraiton information
+      self.config                = config
 
       # the timeout duration when attempting to retrieve an input message
       self.loopTimeout           = loopTimeout
@@ -172,7 +176,7 @@ class JobManager(threading.Thread):
                   logger.debug('%s no message received',self.prelog)
                else:
                   
-                  if message['type'] == MessageTypes.NEW_PANDA_JOB:
+                  if message['type'] == MessageTypes.NEW_JOB:
                      # received new panda job
                      new_job = message['job']
                      # set waiting flag to False since we received our new job
@@ -182,7 +186,9 @@ class JobManager(threading.Thread):
                      logger.debug('%s starting new subprocess',self.prelog)
                      jobproc = self.start_new_subprocess(new_job)
          
-
+      if jobproc is not None:
+         logger.info('%s killing job subprocess.',self.prelog)
+         jobproc.kill()
       logger.info('%s JobManager thread exiting',self.prelog)
 
 
@@ -190,7 +196,7 @@ class JobManager(threading.Thread):
       ''' send request to droid thread for more work, but check that a message has not already been sent '''
       # do not send new requests if one has already been sent
       if not self.waiting_for_panda_job:
-         message = {'type':MessageTypes.SEND_NEW_PANDA_JOB}
+         message = {'type':MessageTypes.REQUEST_JOB}
          try:
             self.queues['YodaComm'].put(message,timeout=30)
             self.waiting_for_panda_job = True
@@ -202,27 +208,60 @@ class JobManager(threading.Thread):
    def start_new_subprocess(self,new_job):
       ''' start the job subprocess, handling the command parsing and log file naming '''
       # parse filenames for the log output and check that they do not exist already
-      stdoutfile = self.droidSubprocessStdout.format(rank='%03i'%self.rank,jobid=new_job['jobid'])
+      stdoutfile = self.droidSubprocessStdout.format(rank='%03i'%self.rank,PandaID=new_job['PandaID'])
       if os.path.exists(stdoutfile):
          raise Exception('%s file already exists %s' % (self.prelog,stdoutfile))
-      stderrfile = self.droidSubprocessStderr.format(rank='%03i'%self.rank,jobid=new_job['jobid'])
+      stderrfile = self.droidSubprocessStderr.format(rank='%03i'%self.rank,PandaID=new_job['PandaID'])
       if os.path.exists(stderrfile):
          raise Exception('%s file already exists %s' % (self.prelog,stderrfile))
 
       # parse the job into a command
-      cmd = self.parse_job_command(new_job)
-      logger.debug('%s starting cmd: %s',self.prelog,cmd)
+      cmd = self.create_job_run_script(new_job)
+      logger.debug('%s starting run_script: %s',self.prelog,cmd)
       
-      jobproc = subprocess.Popen(cmd,shell=True,stdout=open(stdoutfile,'w'),stderr=open(stderrfile,'w'))
+      jobproc = subprocess.Popen(['/bin/bash',cmd],stdout=open(stdoutfile,'w'),stderr=open(stderrfile,'w'))
 
       return jobproc
 
-   def parse_job_command(self,new_job):
-      ''' parse the job description into a command for the subprocess '''
-      cmd = ''
-      cmd += new_job['transformation']
-      cmd += ' ' + new_job['jobPars']
-      return cmd
+   def create_job_run_script(self,new_job):
+      ''' using the template set in the configuration, create a script that 
+          will run the panda job with the appropriate environment '''
+      template_filename = self.config.get('JobManager','template')
+      if os.path.exists(template_filename):
+         template_file = open(template_filename)
+         template = template_file.read()
+         template_file.close()
+         package,release = new_job['homepackage'].split('/')
+         gcclocation = ''
+         if release.startswith('19'):
+            gcclocation  = '--gcclocation=$VO_ATLAS_SW_DIR/software/'
+            gcclocation += '$CMTCONFIG/'
+            gcclocation += '.'.join(release.split('.')[:-1])
+            gcclocation += '/gcc-alt-472/$CMTCONFIG'
+         #elif release.startswith('20'):
+         
+         script = template.format(transformation=new_job['transformation'],
+                                  jobPars=new_job['jobPars'],
+                                  cmtConfig=new_job['cmtConfig'],
+                                  release=release,
+                                  package=package,
+                                  processingType=new_job['processingType'],
+                                  pandaID=new_job['PandaID'],
+                                  taskID=new_job['taskID'],
+                                  gcclocation=gcclocation
+                                 )
+
+         script_filename = self.config.get('JobManager','run_script')
+
+         script_file = open(script_filename,'w')
+         script_file.write(script)
+         script_file.close()
+
+         return script_filename
+      else:
+         raise Exception('%s specified template does not exist: %s',self.prelog,template_filename)
+
+
 
 
 # testing this thread
@@ -256,13 +295,13 @@ if __name__ == '__main__':
          continue
       logger.info('msg = %s',str(msg))
 
-      if msg['type'] == MessageTypes.SEND_NEW_PANDA_JOB:
+      if msg['type'] == MessageTypes.REQUEST_JOB:
          logger.info('got message to send new job')
          reply = {
-            'type': MessageTypes.NEW_PANDA_JOB,
+            'type': MessageTypes.NEW_JOB,
             'job' :
                {
-      "jobid": str(n), #str(int(time.time())), #"3298217817",
+      "PandaID": str(n), #str(int(time.time())), #"3298217817",
       "GUID": "BEA4C016-E37E-0841-A448-8D664E8CD570",
       "PandaID": 3298217817,
       "StatusCode": 0,

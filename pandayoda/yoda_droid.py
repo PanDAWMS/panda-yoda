@@ -1,5 +1,6 @@
 #!/usr/bin/env python
-import argparse,logging,os,sys,time,Queue,importlib
+import argparse,logging,os,sys,time,importlib
+import ConfigParser
 from mpi4py import MPI
 from pandayoda.yoda import Yoda
 from pandayoda.droid import Droid
@@ -20,7 +21,7 @@ def yoda_droid(jobWorkingDir,
                updateEventsFile        = 'worker_updateevents.json',
                xmlPoolCatalogFile      = 'PoolFileCatalog_H.xml',
                loop_timeout            = 300,
-               config                  = 'yoda.cfg',
+               config_filename         = 'yoda.cfg',
                messenger_plugin        = 'shared_file_messenger',
               ):
 
@@ -50,8 +51,18 @@ def yoda_droid(jobWorkingDir,
       logger.info("updateEventsFile:            %s",str(updateEventsFile))
       logger.info("xmlPoolCatalogFile:          %s",str(xmlPoolCatalogFile))
       logger.info("loop_timeout:                %s",str(loop_timeout))
-      logger.info("config:                      %s",str(config))
+      logger.info("config_filename:             %s",str(config_filename))
       logger.info("messenger_plugin:            %s",str(messenger_plugin))
+
+
+   # parse configuration file
+   if os.path.exists(config_filename):
+      config = ConfigParser.ConfigParser()
+      config.read(configFile)
+   else:
+      logger.error('Rank %d: failed to parse config file: %s',mpirank,config_filename)
+      return
+
 
 
    # Create separate working directory for each rank
@@ -83,14 +94,15 @@ def yoda_droid(jobWorkingDir,
       try:
          yoda = Yoda.Yoda(jobWorkingDir,
                           messenger,
-                          outputDir)
+                          outputDir,
+                          config)
          yoda.start()
       except:
          logger.exception('Rank %s: failed to start Yoda.',mpirank)
          raise
    # all ranks start Droid threads
    try:
-      droid = Droid.Droid(jobWorkingDir,messenger,outputDir)
+      droid = Droid.Droid(jobWorkingDir,outputDir,config)
       droid.start()
    except:
       logger.exception('Rank %s: failed to start Droid',mpirank)
