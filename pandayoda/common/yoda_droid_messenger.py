@@ -1,32 +1,44 @@
 from mpi4py import MPI
 import os,logging,array
+from pandayoda.common import MessageTypes
 logger = logging.getLogger(__name__)
 ''' 
 This module should provide all the messaging functions for communication between Yoda & Droid.
 The current implementation uses MPI, but could easily be replaced with another form.
 '''
 
-YODA_RANK = 0
+# Yoda is always Rank 0
+YODA_RANK            = 0
 
-FROM_DROID = 1
-FROM_YODA = 2
+# Message tags
+FROM_DROID           = 1
+FROM_YODA            = 2
 
-REQUEST_JOB_MESSAGE = 'READY_FOR_JOB'
-NO_WORK_LEFT = 'NO_WORK_LEFT'
-
-NEW_JOB_TYPE = 'NEW_JOB'
 
 
 def send_job_request():
-   msg = {'type':REQUEST_JOB_MESSAGE}
+   msg = {'type':MessageTypes.REQUEST_JOB}
    return send_message(msg,dest=YODA_RANK,tag=FROM_DROID)
 
+def send_eventrange_request():
+   msg = {'type':MessageTypes.REQUEST_EVENT_RANGES}
+   return send_message(msg,dest=YODA_RANK,tag=FROM_DROID)
+
+
 def send_droid_new_job(job,droid_rank):
-   msg = {'type':NEW_JOB_TYPE,'job':job}
+   msg = {'type':MessageTypes.NEW_JOB,'job':job}
    return send_message(msg,dest=droid_rank,tag=FROM_YODA)
 
-def send_droid_no_work_left(droid_rank):
-   msg = {'type':NO_WORK_LEFT}
+def send_droid_new_eventranges(eventranges,droid_rank):
+   msg = {'type':MessageTypes.NEW_EVENT_RANGES,'eventranges':eventranges}
+   return send_message(msg,dest=droid_rank,tag=FROM_YODA)
+
+def send_droid_no_job_left(droid_rank):
+   msg = {'type':MessageTypes.NO_MORE_JOBS}
+   return send_message(msg,dest=droid_rank,tag=FROM_YODA)
+
+def send_droid_no_eventranges_left(droid_rank):
+   msg = {'type':MessageTypes.NO_MORE_EVENT_RANGES}
    return send_message(msg,dest=droid_rank,tag=FROM_YODA)
 
 def get_droid_message():
