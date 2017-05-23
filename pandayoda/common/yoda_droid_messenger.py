@@ -14,16 +14,25 @@ YODA_RANK            = 0
 FROM_DROID           = 1
 FROM_YODA            = 2
 
+TO_YODA_WORKMANAGER  = 3
+FROM_YODA_WORKMANAGER= 4
+
+
 
 
 def send_job_request():
    msg = {'type':MessageTypes.REQUEST_JOB}
-   return send_message(msg,dest=YODA_RANK,tag=FROM_DROID)
+   return send_message(msg,dest=YODA_RANK,tag=TO_YODA_WORKMANAGER)
 
-def send_eventrange_request():
+def recv_job():
+   return receive_message(YODA_RANK,FROM_YODA_WORKMANAGER)
+
+def send_eventranges_request():
    msg = {'type':MessageTypes.REQUEST_EVENT_RANGES}
-   return send_message(msg,dest=YODA_RANK,tag=FROM_DROID)
+   return send_message(msg,dest=YODA_RANK,tag=TO_YODA_WORKMANAGER)
 
+def recv_eventranges():
+   return receive_message(YODA_RANK,FROM_YODA_WORKMANAGER)
 
 def send_droid_new_job(job,droid_rank):
    msg = {'type':MessageTypes.NEW_JOB,'job':job}

@@ -1,6 +1,6 @@
 import os,sys,logging,threading,subprocess,time
 from mpi4py import MPI
-from pandayoda.common import MessageTypes,SerialQueue
+from pandayoda.common import MessageTypes,SerialQueue,yoda_droid_messenger as ydm
 logger = logging.getLogger(__name__)
 
 class JobManager(threading.Thread):
@@ -112,10 +112,6 @@ class JobManager(threading.Thread):
       # the prelog is just a string to attach before each log message
       self.prelog                = 'Rank %03i:' % self.rank
 
-      # this flag keeps track of whether or not the request for more work has
-      # been sent, to avoid sending it more than once
-      self.waiting_for_panda_job = False
-
       # subprocess STDOUT/STDERR will be piped to these files
       self.droidSubprocessStdout = droidSubprocessStdout
       self.droidSubprocessStderr = droidSubprocessStderr
@@ -131,7 +127,11 @@ class JobManager(threading.Thread):
    def run(self):
       ''' this is the main function run as a thread when the user calls jobManager_instance.start()'''
 
+      waiting_for_panda_job = False
+      # variable that holds currently running process (Popen object)
       jobproc = None
+
+      job_request = None
       while not self.exit.isSet():
          logger.debug('%s start loop',self.prelog)
          # The JobManager should block on the most urgent task
@@ -143,67 +143,68 @@ class JobManager(threading.Thread):
          # as soon as it is completed, it moves to reqeust more work.
 
 
+         # a job subprocess has been started previously
          if jobproc is not None:
-            # if jobproc is not None, a job subprocess has been started previously
             # check if job is still running
             procstatus = jobproc.poll()
+            
+            # subprocess is still running so wait for it to join
             if procstatus is None:
-               # subprocess is still running so wait for it to join
                logger.debug('%s wait for subprocess to join',self.prelog)
                time.sleep(self.loopTimeout)
+            # subprocess completed
             else:
-               # subprocess completed
                returncode = procstatus
                logger.info('%s subprocess finished with return code = %i',
                            self.prelog,returncode)
                # set jobproc to None so a new job is retrieved
                jobproc = None
+         # no subprocess started so we need to request a job.
          else:
-            # jobproc is None so we need to request a job.
+            
+            # if we haven't requested a job already, then do so
+            if job_request is None:
+               logger.debug('%s requesting new panda job',self.prelog)
+               # send a request to Yoda to send another job
+               job_request = ydm.send_job_request()
+               # wait until this message is received
+               job_request.wait()
+               
+               # can go ahead and request a reply from MPI
+               job_request = ydm.recv_job()
+            
+             
+            # test for requested job arrival
+            flag,msg = job_request.test()
+            # received a new job             
+            if flag:  
+               # check that the message type is correct
+               if msg['type'] != MessageTypes.NEW_JOB:
+                  logger.error('%s response from yoda does not have the expected type: %s',self.prelog,msg)
+                  job_request = None
+                  continue
 
-            if not self.waiting_for_panda_job:
-               # if we haven't requested a job already, then do so
-               logger.debug('%s request new panda job',self.prelog)
-               self.request_new_panda_job()
-            else:
-               # wait for requested job to arrive
-               try:
-                  # this retrieve acts as the loop execution frequency control
-                  logger.debug('%s get message',self.prelog)
-                  message = self.queues['JobManager'].get(timeout=self.loopTimeout)
-               except SerialQueue.Empty:
-                  # no messages on the queue, check status of running job
-                  logger.debug('%s no message received',self.prelog)
-               else:
+               # check that there is a job
+               if 'job' in msg:
+                  logger.debug('%s received new job %s',self.prelog,msg['job'])
+
+                  # send message to JobComm
+                  self.queues['JobComm'].put(msg)
                   
-                  if message['type'] == MessageTypes.NEW_JOB:
-                     # received new panda job
-                     new_job = message['job']
-                     # set waiting flag to False since we received our new job
-                     self.waiting_for_panda_job = False
-
-                     # start the new subprocess
-                     logger.debug('%s starting new subprocess',self.prelog)
-                     jobproc = self.start_new_subprocess(new_job)
+                  # start the new subprocess
+                  jobproc = self.start_new_subprocess(msg['job'])
+                  job_request = None
+               else:
+                  logger.error('%s no job found in yoda response: %s',self.prelog,msg)
+                  job_request = None
+            # did not receive job, so sleep
+            else:
+               time.sleep(self.loopTimeout)
          
       if jobproc is not None:
          logger.info('%s killing job subprocess.',self.prelog)
          jobproc.kill()
       logger.info('%s JobManager thread exiting',self.prelog)
-
-
-   def request_new_panda_job(self):
-      ''' send request to droid thread for more work, but check that a message has not already been sent '''
-      # do not send new requests if one has already been sent
-      if not self.waiting_for_panda_job:
-         message = {'type':MessageTypes.REQUEST_JOB}
-         try:
-            self.queues['YodaComm'].put(message,timeout=30)
-            self.waiting_for_panda_job = True
-         except SerialQueue.Full:
-            logger.warning('%s YodaComm queue is full',self.prelog)
-      else:
-         logger.debug('%s waiting for new panda job',self.prelog)
 
    def start_new_subprocess(self,new_job):
       ''' start the job subprocess, handling the command parsing and log file naming '''

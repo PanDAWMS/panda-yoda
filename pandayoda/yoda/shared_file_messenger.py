@@ -1,4 +1,5 @@
-import os,json,logging
+import os,json,logging,ConfigParser
+from pandayoda.common import exceptions
 logger = logging.getLogger(__name__)
 
 ''' 
@@ -143,43 +144,59 @@ The eventRangesFile format looks like this:
 '''
 
 
-jobSpecFile = None
-eventRangesFile = None
+# global to store the Harvester config
+harvesterConfig = None
+harConfSect = 'payload_interaction'
 
 def setup(config):
-   global jobSpecFile
-   global eventRangesFile
-   # use the local config file to setup the messenger
-   section = 'shared_file_messenger'
-   jobSpecFile = config.get(section,'jobSpecFile')
-   logger.info('jobSpecFile: %s',jobSpecFile)
-   # check that file exists
-   if not os.path.exists(jobSpecFile):
-      raise Exception('jobSpecFile, "%s", does not exist. cwd = %s' % (jobSpecFile,os.getcwd()))
-   eventRangesFile = config.get(section,'eventRangesFile')
-   logger.info('eventRangesFile: %s',eventRangesFile)
-   # check that file exists
-   if not os.path.exists(eventRangesFile):
-      raise Exception('eventRangesFile, "%s", does not exist. cwd = %s' % (eventRangesFile,os.getcwd()))
-   
+   global harvesterConfig,harConfSect
+
+   # get harvester config filename
+   harv_config_file = config.get(__name__,'harvester_config_file')
+
+   # parse harvester configuration file
+   if os.path.exists(harv_config_file):
+      harvesterConfig = ConfigParser.ConfigParser()
+      harvesterConfig.read(harv_config_file)
+   else:
+      raise Exception('Failed to parse config file: %s' % harv_config_file)
+
+def requestjobs():
+   global harvesterConfig,harConfSect
+   jobRequestFile = harvesterConfig.get(harConfSect,'jobRequestFile')
+   if not os.path.exists(jobRequestFile):
+      open(jobRequestFile,'w').write('jobRequestFile') 
+   else:
+      raise exceptions.MessengerJobAlreadyRequested()
+
+
 
 def get_pandajobs():
-   global jobSpecFile
-   try:
-      jobs = json.load(open(jobSpecFile))
-   except:
-      logger.exception('failed to parse jobSpecFile: %s',jobSpecFile)
-      raise
-   return jobs
+   global harvesterConfig,harConfSect
+   jobSpecFile = harvesterConfig.get(harConfSect,'jobSpecFile')
+   if os.path.exists(jobSpecFile):
+      try:
+         return json.load(open(jobSpecFile))
+      except:
+         logger.exception('failed to parse jobSpecFile: %s',jobSpecFile)
+         raise
+
+   else:
+      raise Exception('jobSpecFile does not exist: %s' % jobSpecFile)
 
 def get_eventranges():
-   global eventRangesFile
-   try:
-      ranges = json.load(open(eventRangesFile))
-   except:
-      logger.exception('failed to parse eventRangesFile: %s',eventRangesFile)
-      raise
-   return ranges
+   global harvesterConfig,harConfSect
+   eventRangesFile = harvesterConfig.get(harConfSect,'eventRangesFile')
+   if os.path.exists(eventRangesFile):
+      try:
+         return json.load(open(eventRangesFile))
+      except:
+         logger.exception('failed to parse eventRangesFile: %s',eventRangesFile)
+         raise
+
+   else:
+      raise Exception('eventRangesFile does not exist: %s' % eventRangesFile)
+
 
 
 
