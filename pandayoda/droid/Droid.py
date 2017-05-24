@@ -45,7 +45,6 @@ class Droid(threading.Thread):
       queues['JobManager']       = SerialQueue.SerialQueue()
       queues['JobComm']          = SerialQueue.SerialQueue()
       queues['FileManager']      = SerialQueue.SerialQueue()
-      queues['YodaComm']         = SerialQueue.SerialQueue()
       queues['Droid']            = SerialQueue.SerialQueue()
       
       # a dictionary of subthreads
@@ -63,9 +62,6 @@ class Droid(threading.Thread):
       subthreads['FileManager']  = FileManager.FileManager(queues,self.outputDir,loopTimeout=self.loopTimeout)
       subthreads['FileManager'].start()
 
-      # create yoda comm thread
-      subthreads['YodaComm']     = YodaComm.YodaComm(queues,self.outputDir,loopTimeout=self.loopTimeout)
-      subthreads['YodaComm'].start()
 
       # begin while loop to monitor subthreads
       while not self.exit.isSet():

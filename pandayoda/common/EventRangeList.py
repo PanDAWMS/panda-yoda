@@ -1,8 +1,10 @@
-
+import logging
+logger = logging.getLogger(__name__)
 import EventRange
 
 class NoMoreEventRanges(Exception): pass
 class RequestedMoreRangesThanAvailable(Exception): pass
+class EventRangeIdNotFound(Exception): pass
 
 class EventRangeList(object):
    def __init__(self,eventranges = None):
@@ -39,10 +41,15 @@ class EventRangeList(object):
          self.append(EventRange.EventRange(eventrange))
 
    def mark_completed(self,eventRangeID):
-      for eventrange in self.eventranges:
+      for i in xrange(len(self.eventranges)):
+         eventrange = self.eventranges[i]
          if eventrange.id == eventRangeID:
+            logger.debug('removing job index %d',i)
             eventrange.state = EventRange.EventRange.COMPLETED
-            break
+            self.indices_of_completed_ranges.append(i)
+            self.indices_of_assigned_ranges.remove(i)
+            return
+      raise EventRangeIdNotFound('eventRangeID %s not found' % eventRangeID)
 
    def get_next(self,number_of_ranges=1):
       ''' method for retrieving number_of_ranges worth of event ranges,
@@ -50,7 +57,7 @@ class EventRangeList(object):
       '''
       if self.next_ready >= len(self.eventranges):
          raise NoMoreEventRanges(' next_ready = %d; len(eventranges) = %d' % (self.next_ready,len(self.eventranges)))
-      if self.next_ready + number_of_ranges >= len(self.eventranges):
+      if self.next_ready + number_of_ranges > len(self.eventranges):
          raise RequestedMoreRangesThanAvailable
       output = []
       for i  in range(self.next_ready,self.next_ready+number_of_ranges):
@@ -142,25 +149,25 @@ if __name__ == '__main__':
          "startEvent": 3, 
          "scope": "mc15_13TeV", 
          "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"},
-        {"eventRangeID": "8848710-3005316503-6391858827-3-10", 
+        {"eventRangeID": "8848710-3005316503-6391858827-4-10", 
          "LFN":"EVNT.06402143._012906.pool.root.1", 
          "lastEvent": 4, 
          "startEvent": 4, 
          "scope": "mc15_13TeV", 
          "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"},
-        {"eventRangeID": "8848710-3005316503-6391858827-3-10", 
+        {"eventRangeID": "8848710-3005316503-6391858827-5-10", 
          "LFN":"EVNT.06402143._012906.pool.root.1", 
          "lastEvent": 5, 
          "startEvent": 5, 
          "scope": "mc15_13TeV", 
          "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"},
-        {"eventRangeID": "8848710-3005316503-6391858827-3-10", 
+        {"eventRangeID": "8848710-3005316503-6391858827-6-10", 
          "LFN":"EVNT.06402143._012906.pool.root.1", 
          "lastEvent": 6, 
          "startEvent": 6, 
          "scope": "mc15_13TeV", 
          "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"},
-        {"eventRangeID": "8848710-3005316503-6391858827-3-10", 
+        {"eventRangeID": "8848710-3005316503-6391858827-7-10", 
          "LFN":"EVNT.06402143._012906.pool.root.1", 
          "lastEvent": 7, 
          "startEvent": 7, 
@@ -173,12 +180,21 @@ if __name__ == '__main__':
 
    logger.info('n-ready: %d  n-processing: %d',erl.number_ready(),erl.number_processing())
 
-   er = erl.get_next()
-   logger.info('er = %s',er)
+   ers = erl.get_next()
+   logger.info('ers = %s',ers)
+
+   logger.info('n-ready: %d  n-processing: %d',erl.number_ready(),erl.number_processing())
+   erl.mark_completed(ers[0]['eventRangeID'])
 
    logger.info('n-ready: %d  n-processing: %d',erl.number_ready(),erl.number_processing())
 
-   er = erl.get_next(2)
+   ers = erl.get_next(2)
+   logger.info('ers = %s',ers)
+
+   logger.info('n-ready: %d  n-processing: %d',erl.number_ready(),erl.number_processing())
+
+   for er in ers:
+      erl.mark_completed(er['eventRangeID'])
 
    logger.info('n-ready: %d  n-processing: %d',erl.number_ready(),erl.number_processing())
 

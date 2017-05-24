@@ -199,6 +199,7 @@ class JobManager(threading.Thread):
                   job_request = None
             # did not receive job, so sleep
             else:
+               logger.debug('%s no job yet received, sleeping %d ',self.prelog,self.loopTimeout)
                time.sleep(self.loopTimeout)
          
       if jobproc is not None:
@@ -271,15 +272,22 @@ if __name__ == '__main__':
          format='%(asctime)s|%(process)s|%(levelname)s|%(name)s|%(message)s',
          datefmt='%Y-%m-%d %H:%M:%S')
    logging.info('Start test of JobManager')
-   import time
-   #import argparse
-   #oparser = argparse.ArgumentParser()
-   #oparser.add_argument('-l','--jobWorkingDir', dest="jobWorkingDir", default=None, help="Job's working directory.",required=True)
-   #args = oparser.parse_args()
+   import time,argparse,ConfigParser
+   oparser = argparse.ArgumentParser()
+   oparser.add_argument('-y','--yoda-config', dest='yoda_config', help="The Yoda Config file where some configuration information is set.",default='yoda.cfg')
+   oparser.add_argument('-w','--jobWorkingDir',dest='jobWorkingDir',help='Where to run the job',required=True)
 
-   queues = {'YodaComm':SerialQueue.SerialQueue(),'JobManager':SerialQueue.SerialQueue()}
+   args = oparser.parse_args()
 
-   jm = JobManager(queues,5)
+
+   os.chdir(args.jobWorkingDir)
+
+   config = ConfigParser.ConfigParser()
+   config.read(args.yoda_config)
+
+   queues = {'JobComm':SerialQueue.SerialQueue(),'JobManager':SerialQueue.SerialQueue()}
+
+   jm = JobManager(queues,config,5)
 
    jm.start()
    n = 0
@@ -288,23 +296,18 @@ if __name__ == '__main__':
       if not jm.isAlive(): break
       n+= 1
 
-      logger.info('get message')
-      try:
-         msg = queues['YodaComm'].get(timeout=5)
-      except SerialQueue.Empty:
-         logger.info('queue empty')
-         continue
+      logger.info('Yoda receiving job request from JobManager')
+      status = MPI.Status()
+      request = ydm.recv_job_request()
+      msg = request.wait(status=status)
       logger.info('msg = %s',str(msg))
 
       if msg['type'] == MessageTypes.REQUEST_JOB:
-         logger.info('got message to send new job')
-         reply = {
-            'type': MessageTypes.NEW_JOB,
-            'job' :
-               {
+         logger.info('Yoda received request for new job')
+         job = {
       "PandaID": str(n), #str(int(time.time())), #"3298217817",
       "GUID": "BEA4C016-E37E-0841-A448-8D664E8CD570",
-      "PandaID": 3298217817,
+      #"PandaID": 3298217817,
       "StatusCode": 0,
       "attemptNr": 3,
       "checksum": "ad:363a57ab",
@@ -355,11 +358,10 @@ if __name__ == '__main__':
       "taskID": 10919503,
       "transferType": "NULL",
       "transformation": "Sim_tf.py"
-             }
          }
 
-      logger.info('send message')
-      queues['JobManager'].put(reply)
+      logger.info('Yoda sending new job message')
+      ydm.send_droid_new_job(job,status.Get_source())
 
 
 

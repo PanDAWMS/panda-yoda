@@ -19,31 +19,41 @@ FROM_YODA_WORKMANAGER= 4
 
 
 
-
+# droid sends job request to yoda
 def send_job_request():
    msg = {'type':MessageTypes.REQUEST_JOB}
    return send_message(msg,dest=YODA_RANK,tag=TO_YODA_WORKMANAGER)
 
-def recv_job():
-   return receive_message(YODA_RANK,FROM_YODA_WORKMANAGER)
+# yoda receives job request from droid
+def recv_job_request():
+   return receive_message(MPI.ANY_SOURCE,tag=TO_YODA_WORKMANAGER)
 
+# droid sends event ranges request to yoda
 def send_eventranges_request():
    msg = {'type':MessageTypes.REQUEST_EVENT_RANGES}
    return send_message(msg,dest=YODA_RANK,tag=TO_YODA_WORKMANAGER)
 
+# yoda receives event ranges request from droid
 def recv_eventranges_request():
    return receive_message(MPI.ANY_SOURCE,tag=TO_YODA_WORKMANAGER)
 
-def recv_eventranges():
-   return receive_message(YODA_RANK,FROM_YODA_WORKMANAGER)
-
+# yoda sends new job to droid
 def send_droid_new_job(job,droid_rank):
    msg = {'type':MessageTypes.NEW_JOB,'job':job}
    return send_message(msg,dest=droid_rank,tag=FROM_YODA_WORKMANAGER)
 
+# droid receieves new job from yoda
+def recv_job():
+   return receive_message(YODA_RANK,FROM_YODA_WORKMANAGER)
+
+# yoda sends new event ranges to droid
 def send_droid_new_eventranges(eventranges,droid_rank):
    msg = {'type':MessageTypes.NEW_EVENT_RANGES,'eventranges':eventranges}
    return send_message(msg,dest=droid_rank,tag=FROM_YODA_WORKMANAGER)
+
+# droid receives new event ranges from yoda
+def recv_eventranges():
+   return receive_message(YODA_RANK,FROM_YODA_WORKMANAGER)
 
 def send_droid_no_job_left(droid_rank):
    msg = {'type':MessageTypes.NO_MORE_JOBS}

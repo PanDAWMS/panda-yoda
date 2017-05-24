@@ -36,7 +36,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
    def __init__(self,queues,
                 loopTimeout               = 30,
                 yampl_socket_name         = 'EventService_EventRanges',
-                get_more_events_threshold = 3):
+                get_more_events_threshold = 0):
       ''' 
         queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send 
                      messages to other Droid components about errors, etc.
@@ -60,7 +60,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       self.rank                        = MPI.COMM_WORLD.Get_rank()
 
       # the prelog is just a string to attach before each log message
-      self.prelog                      = 'Rank %03i:' % self.rank
+      self.prelog                      = '%s| Rank %03i:' % (self.__class__.__name__,self.rank)
 
       # this is used to trigger the thread exit
       self.exit = threading.Event()
@@ -73,7 +73,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       ''' this is the function run as a subthread when the user runs jobComm_instance.start() '''
 
       # setup communicator
-      logger.debug('%s start communicator',self.prelog)
+      logger.debug('%s start yampl communicator',self.prelog)
       comm = athena_communicator(self.yampl_socket_name,prelog=self.prelog)
 
       # dictionary of job definitions sent by the JobManager key-ed by PandaID
@@ -90,7 +90,9 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       # if it is set to None, a new message will be requested
       athenamp_msg = None
 
-
+      # this variable holds the current EventRangeRetriever thread object
+      # when it is being used, otherwise it is set to None
+      eventRangeRetriever = None
 
       while not self.exit.isSet():
          logger.debug('%s start loop: n-ready: %d n-processing: %d',
@@ -98,69 +100,98 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
          
          # check to see there is a job definition
          try:
-            logger.debug('%s check for job definition',self.prelog)
+            logger.debug('%s check for job definition from JobManager',self.prelog)
             qmsg = self.queues['JobComm'].get(block=False)
             if qmsg['type'] == MessageTypes.NEW_JOB:
-               logger.debug('%s got new job definition',self.prelog)
+               logger.debug('%s got new job definition from JobManager',self.prelog)
                if 'job' in qmsg:
                   job_defs[qmsg['job']['PandaID']] = qmsg['job']
                else:
-                  logger.error('%s Received message of NEW_JOB tyep but no job in message: %s',self.prelog,qmsg)
+                  logger.error('%s Received message of NEW_JOB type but no job in message: %s',self.prelog,qmsg)
             else:
                logger.error('%s Received message of unknown type: %s',self.prelog,qmsg)
          except SerialQueue.Empty:
-            logger.debug('%s no jobs on JobComm queue',self.prelog)
+            logger.debug('%s no jobs from JobManager',self.prelog)
 
          # if there has been no job definition sent yet, then sleep
          if len(job_defs) == 0:
-            logger.debug('no job definition, sleeping %d',self.loopTimeout)
+            logger.debug('%s no job definitions, sleeping %d',self.prelog,self.loopTimeout)
             time.sleep(self.loopTimeout)
             continue
 
          # check to get event ranges
-         if eventranges.number_ready() < self.get_more_events_threshold:
-            try:
-               eventranges += self.get_eventranges()
-            except FailedToParseYodaMessage:
-               raise
-            except NoEventRangeDefined:
-               raise
-            except NoMoreEventsToProcess:
-               logger.info('%s Yoda says no more events to process.',self.prelog)
-               waiting_to_exit = True
+         if eventranges.number_ready() <= self.get_more_events_threshold:
+            # create an EventRangeRetriever thread if needed
+            if eventRangeRetriever is None:
+               logger.debug('%s creating EventRangeRetriever thread, will monitor.',self.prelog)
+               eventRangeRetriever = EventRangeRetriever()
+               eventRangeRetriever.start()
+
+            # check if thread has completed, then check for queued message
+            if not eventRangeRetriever.isAlive():
+               logger.debug('%s EventRangeRetriever has completed',self.prelog)
+               try:
+                  msg = eventRangeRetriever.queue.get(block=False)
+               except SerialQueue.Empty:
+                  logger.error('%s EventRangeRetriever queue was empty after completion.',self.prelog)
+               # parse message
+               logger.debug('%s received msg from EventRangeRetriever: %s',self.prelog,msg)
+               if msg['type'] == MessageTypes.NEW_EVENT_RANGES:
+                  logger.debug('%s received new event ranges, adding them to the local list',self.prelog)
+                  eventranges += EventRangeList.EventRangeList(msg['eventranges'])
+               elif msg['type'] == EventRangeRetriever.NoMoreEventRangesToProcess:
+                  logger.debug('%s received message from Yoda that there are no more event ranges, so signaling to exit when all work is done.',self.prelog)
+                  waiting_to_exit = True
+               elif msg['type'] == EventRangeRetriever.MalformedMessageFromYoda:
+                  logger.error('%s received malformed message from yoda: %s',self.prelog,msg['msg'])
+               elif msg['type'] == EventRangeRetriever.FailedToParseYodaMessage:
+                  logger.error('%s received message from yoda but could not parse it: %s',self.prelog,msg['msg'])
+
+               # reset thread variable so another can be started
+               eventRangeRetriever = None
+            else:
+               logger.debug('%s EventRangeRetriever is still running, will check next loop',self.prelog)
+
          
          # check if we should exit
          if waiting_to_exit and eventranges.number_processing() <= 0:
+            if eventRangeRetriever is not None and eventRangeRetriever.isAlive(): 
+               eventRangeRetriever.stop()
             self.stop()
             continue
 
          # receive a message from AthenaMP if we are not already processing one
          if athenamp_msg is None:
+            logger.debug('%s getting new message from AthenaMP',self.prelog)
             athenamp_msg = comm.recv()
          
          # received a message, parse it
          if len(athenamp_msg) > 0:
-            logger.debug('%s received message: %s',self.prelog,athenamp_msg)
+            logger.debug('%s received message from AthenaMP: %s',self.prelog,athenamp_msg)
             if JobComm.ATHENA_READY_FOR_EVENTS in athenamp_msg:
                # Athena is ready for events so ask Yoda for an event range
-               logger.debug('%s received ready for events',self.prelog)
+               logger.debug('%s received %s',self.prelog,athenamp_msg)
                
                # get the next event ranges to be processed
                try:
                   local_eventranges = eventranges.get_next()
+                  logger.debug('%s have %d new event ranges to send to AthenaMP',self.prelog,len(local_eventranges))
                # no more event ranges available
                except EventRangeList.NoMoreEventRanges:
+                  logger.debug('%s there are no more event ranges to process',self.prelog)
                   # if the waiting_to_exit flag is set, then tell the AthenaMP worker there are no more events
                   if waiting_to_exit:
                      comm.send(JobComm.NO_MORE_EVENTS)
                   # otherwise continue the loop so more events will be requested
                   else:
+                     time.sleep(1)
                      continue
                # something wrong with the index in the EventRangeList index
                except EventRangeList.RequestedMoreRangesThanAvailable:
+                  logger.error('%s requested more event ranges than available',self.prelog)
                   continue
 
-               logger.debug('%s sending eventranges in response: %s',self.prelog,local_eventranges)
+               logger.debug('%s sending eventranges to AthenaMP: %s',self.prelog,local_eventranges)
                # send AthenaMP the new event ranges
                comm.send(serializer.serialize(local_eventranges))
                # reset the message so a new one will be recieved
@@ -168,7 +199,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
             elif len(athenamp_msg.split(',')) == 4:
                # Athena sent details of an output file
-               logger.debug('%s received output file',self.prelog)
+               logger.debug('%s received output file from AthenaMP',self.prelog)
                
                # parse message
                parts = athenamp_msg.split(',')
@@ -190,10 +221,11 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                   try:
                      self.queues['FileManager'].put(msg)
                   except SerialQueue.Full:
-                     logger.warning('%s FileManager is full, could not send output info.',self.prelog)
+                     logger.warning('%s FileManager queue is full, could not send output info.',self.prelog)
                      continue # this will try again since we didn't reset the message to None
                   
                   # set event range to completed:
+                  logger.debug('%s mark event range id %s as completed',self.prelog,eventrangeid)
                   eventranges.mark_completed(eventrangeid)                    
                else:
                   logger.error('%s received message from Athena that appears to be output file because it starts with "/" however when split by commas, it only has %i pieces when 4 are expected',self.prelog,len(parts))
@@ -226,34 +258,73 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
       logger.info('%s JobComm exiting',self.prelog)
 
-   def get_eventranges(self):
+class EventRangeRetriever(threading.Thread):
+   ''' This simple thread is run by JobComm to request new event ranges from Yoda/WorkManager '''
+
+   MalformedMessageFromYoda      = 'MalformedMessageFromYoda'
+   NoMoreEventRangesToProcess    = 'NoMoreEventRangesToProcess'
+   FailedToParseYodaMessage      = 'FailedToParseYodaMessage'
+
+   def __init__(self,loopTimeout = 5):
+      super(EventRangeRetriever,self).__init__()
+
+      # queue which this thread uses to return information to JobComm
+      self.queue = SerialQueue.SerialQueue()
+
+      # get current rank
+      self.rank                        = MPI.COMM_WORLD.Get_rank()
+
+      # the prelog is just a string to attach before each log message
+      self.prelog                      = '%s| Rank %03i:' % (self.__class__.__name__,self.rank)
+
+      # this is used to trigger the thread exit
+      self.exit                        = threading.Event()
+
+      # loopTimeout decided loop sleep times
+      self.loopTimeout                 = loopTimeout
+
+   def stop(self):
+      ''' this function can be called by outside threads to cause the JobManager thread to exit'''
+      self.exit.set()
+
+   def run(self):
       logger.debug('%s requesting event ranges',self.prelog)
       # ask Yoda to send event ranges
       request = ydm.send_eventranges_request()
       # wait for yoda to receive message
       request.wait()
+      
 
       # get response from Yoda
       logger.debug('%s waiting for eventranges from Yoda',self.prelog)
       request = ydm.recv_eventranges()
       # wait for yoda to respond
-      yoda_msg = request.wait()
+      msg_received,yoda_msg = request.test()
+      while not msg_received:
+         if self.exit.isSet(): return
+         time.sleep(5)
+         msg_received,yoda_msg = request.test()
 
       logger.debug('%s received message from yoda %s',self.prelog,yoda_msg)
 
       if yoda_msg['type'] == MessageTypes.NEW_EVENT_RANGES:
          
          if 'eventranges' in yoda_msg:
-            return EventRangeList.EventRangeList(yoda_msg['eventranges'])
-            #comm.send(serializer.serialize(yoda_msg['eventranges']))
+            self.queue.put(yoda_msg)
+            return
          else:
-            raise NoEventRangeDefined('%s no event ranges in message %s' %(self.prelog,yoda_msg))
+            logger.debug('%s Malformed Message From Yoda: %s',self.prelog,yoda_msg)
+            self.queue.put({'type':self.MalformedMessageFromYoda,'msg': yoda_msg})
+            return
       elif yoda_msg['type'] == MessageTypes.NO_MORE_EVENT_RANGES:
          # no more event ranges left
          logger.debug('%s no more events from yoda %s',self.prelog,yoda_msg)
-         raise NoMoreEventsToProcess
+         self.queue.put({'type':self.NoMoreEventRangesToProcess,'msg':yoda_msg})
+         return
       else:
-         raise FailedToParseYodaMessage('%s incorrect message type in yoda message %s' % (self.prelog,yoda_msg))
+         logger.debug('%s failed to parse Yoda message: %s',self.prelog,yoda_msg)
+         self.queue.put({'type':self.FailedToParseYodaMessage,'msg':yoda_msg})
+         return
       
 
 class athena_communicator:
@@ -289,7 +360,7 @@ class athena_communicator:
 # testing this thread
 if __name__ == '__main__':
    logging.basicConfig(level=logging.DEBUG,
-         format='%(asctime)s|%(process)s|%(levelname)s|%(name)s|%(message)s',
+         format='%(asctime)s|%(process)s|%(thread)s|%(levelname)s|%(name)s|%(funcName)s|%(message)s',
          datefmt='%Y-%m-%d %H:%M:%S')
    logging.info('Start test of JobComm')
    import time
@@ -357,10 +428,6 @@ if __name__ == '__main__':
       "transformation": "Sim_tf.py"
    }
 
-   # put job message on queue
-   msg = {'type':MessageTypes.NEW_JOB,'job':job_def}
-   queues['JobComm'].put(msg)
-
    eventranges = [
       {
          "GUID": "BEA4C016-E37E-0841-A448-8D664E8CD570",
@@ -427,8 +494,7 @@ if __name__ == '__main__':
          "startEvent": 8
       }
    ]
-   eventrange_index = 0
-
+   
    jc = JobComm(queues,5)
 
    # setup communicator
@@ -436,65 +502,91 @@ if __name__ == '__main__':
 
    jc.start()
 
-   i = 0
 
-   while True:
-      logger.info('start loop')
-      if not jc.isAlive(): break
+   ######
+   ## Test event range request and receive
+   ############
 
-
-      if i == 0:
-         logger.info('send message "Ready for Events"')
-         socket.send_raw(JobComm.ATHENA_READY_FOR_EVENTS)
-
-         # use mpi to wait for event range request
-         logger.info('get MPI message from JobComm')
-         req = ydm.recv_eventranges_request()
-         status = MPI.Status()
-         msg = req.wait(status=status)
-         logger.info('received MPI message from JobComm: %s',msg)
-
-         if msg['type'] != MessageTypes.REQUEST_EVENT_RANGES:
-            raise Exception
-         # send event ranges in response and wait for send to complete
-         logger.info('sending event range')
-         ydm.send_droid_new_eventranges(eventranges,status.Get_source()).wait()
-
-         # receive event range on yampl
-         size,msg = socket.try_recv_raw()
-         while size == -1:
-            size,msg = socket.try_recv_raw()
-            time.sleep(1)
-         msg = serializer.deserialize(msg)
-         logger.info('JobComm sent AthenaMP worker this event range: %s',msg)
-
-         i += 1
-      elif i == 1:
-         logger.info('send message for output file')
-         msg = "%s,ID:%s,CPU:1,WALL:1" % (eventranges[eventrange_index]['LFN'].replace('EVNT','HITS'),eventranges[eventrange_index]['eventRangeID'])
-         socket.send_raw(msg)
-         eventrange_index += 1
-
-         logger.info(' wait for message from file manager')
-         msg = queues['FileManager'].get()
-         logger.info('received message from JobComm: %s',msg)
-
-         i = 0
+   # acting like JobManager   
+   # put job message on queue
+   msg = {'type':MessageTypes.NEW_JOB,'job':job_def}
+   queues['JobComm'].put(msg)
 
 
-      logger.info('get message')
+   # acting like AthenaMP
+   # wait for JobComm to start yampl server or else messages will be missed.
+   time.sleep(2)
+   # send the Ready for Events as many times as we have event ranges
+   logger.info('AthenaMP workers sending %d messages "Ready for Events"',len(eventranges))
+   for i in range(len(eventranges)):
+      socket.send_raw(JobComm.ATHENA_READY_FOR_EVENTS)
+
+   
+   # acting like Yoda/WorkManager
+   
+   # use mpi to wait for event range request
+   logger.info('wait for MPI mesage from JobComm sent to Yoda/WorkManager')
+   req = ydm.recv_eventranges_request()
+   status = MPI.Status()
+   msg = req.wait(status=status)
+   logger.info('received MPI message from JobComm: %s',msg)
+
+   if msg['type'] != MessageTypes.REQUEST_EVENT_RANGES:
+      raise Exception
+   # send event ranges in response and wait for send to complete
+   logger.info('Yoda/WorkManager is sending event ranges to JobComm')
+   ydm.send_droid_new_eventranges(eventranges,status.Get_source()).wait()
+
+   # acting like AthenaMP
+   
+   # receive event range on yampl
+   size,msg = socket.try_recv_raw()
+   while size == -1:
       size,msg = socket.try_recv_raw()
-      if size != -1:
-         logger.info('received message: %s',msg)
-         msg = serializer.deserialize(msg)
-      else:
-         time.sleep(5)
+      time.sleep(1)
+   msg = serializer.deserialize(msg)
+   logger.info('AthenaMP worker received event range: %s',msg)
 
 
 
+   ######
+   ## Test output file messages
+   ############
+   for eventrange_index in range(len(eventranges)):
+
+      # acting like AthenaMP
+      logger.info('sending AthenaMP worker message for output file')
+      msg = "%s,%s,CPU:1,WALL:1" % (eventranges[eventrange_index]['LFN'].replace('EVNT','HITS'),eventranges[eventrange_index]['eventRangeID'])
+      socket.send_raw(msg)
+      eventrange_index += 1
+
+      # acting like FileManager
+      logger.info('FileManager is waiting for file output message from JobComm')
+      msg = queues['FileManager'].get()
+      logger.info('FileManager received message from JobComm: %s',msg)
+
+   
+   ######
+   ## Test sending JobComm NO_MORE_EVENTRANGES Message
+   ############
+
+   # acting like yoda
+
+   # use mpi to wait for event range request
+   logger.info('wait for MPI mesage from JobComm sent to Yoda/WorkManager')
+   req = ydm.recv_eventranges_request()
+   status = MPI.Status()
+   msg = req.wait(status=status)
+   logger.info('received MPI message from JobComm: %s',msg)
+
+   if msg['type'] != MessageTypes.REQUEST_EVENT_RANGES:
+      raise Exception
+   # send event ranges in response and wait for send to complete
+   logger.info('Yoda/WorkManager is sending event ranges to JobComm')
+   ydm.send_droid_no_eventranges_left(status.Get_source()).wait()
 
 
-   jc.stop()
+   #jc.stop()
 
    jc.join()
 
