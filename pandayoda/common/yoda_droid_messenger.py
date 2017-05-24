@@ -31,24 +31,27 @@ def send_eventranges_request():
    msg = {'type':MessageTypes.REQUEST_EVENT_RANGES}
    return send_message(msg,dest=YODA_RANK,tag=TO_YODA_WORKMANAGER)
 
+def recv_eventranges_request():
+   return receive_message(MPI.ANY_SOURCE,tag=TO_YODA_WORKMANAGER)
+
 def recv_eventranges():
    return receive_message(YODA_RANK,FROM_YODA_WORKMANAGER)
 
 def send_droid_new_job(job,droid_rank):
    msg = {'type':MessageTypes.NEW_JOB,'job':job}
-   return send_message(msg,dest=droid_rank,tag=FROM_YODA)
+   return send_message(msg,dest=droid_rank,tag=FROM_YODA_WORKMANAGER)
 
 def send_droid_new_eventranges(eventranges,droid_rank):
    msg = {'type':MessageTypes.NEW_EVENT_RANGES,'eventranges':eventranges}
-   return send_message(msg,dest=droid_rank,tag=FROM_YODA)
+   return send_message(msg,dest=droid_rank,tag=FROM_YODA_WORKMANAGER)
 
 def send_droid_no_job_left(droid_rank):
    msg = {'type':MessageTypes.NO_MORE_JOBS}
-   return send_message(msg,dest=droid_rank,tag=FROM_YODA)
+   return send_message(msg,dest=droid_rank,tag=FROM_YODA_WORKMANAGER)
 
 def send_droid_no_eventranges_left(droid_rank):
    msg = {'type':MessageTypes.NO_MORE_EVENT_RANGES}
-   return send_message(msg,dest=droid_rank,tag=FROM_YODA)
+   return send_message(msg,dest=droid_rank,tag=FROM_YODA_WORKMANAGER)
 
 def get_droid_message():
    return receive_message(MPI.ANY_SOURCE,FROM_DROID)
@@ -80,7 +83,10 @@ def receive_message(source=MPI.ANY_SOURCE,tag=None):
               through a blocking call, Request.wait(), and and a non-blocking call, Request.test(). '''
    # using MPI_Recv
    try:
-      return MPI.COMM_WORLD.irecv(source=source,tag=tag)
+      if tag is not None:
+         return MPI.COMM_WORLD.irecv(source=source,tag=tag)
+      else:
+         return MPI.COMM_WORLD.irecv(source=source)
    except:
       logger.exception('Rank %05i: exception received while trying to receive a message.',MPI.COMM_WORLD.Get_rank())
       raise

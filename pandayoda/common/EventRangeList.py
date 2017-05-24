@@ -38,6 +38,12 @@ class EventRangeList(object):
       for eventrange in list_of_eventrange_dicts:
          self.append(EventRange.EventRange(eventrange))
 
+   def mark_completed(self,eventRangeID):
+      for eventrange in self.eventranges:
+         if eventrange.id == eventRangeID:
+            eventrange.state = EventRange.EventRange.COMPLETED
+            break
+
    def get_next(self,number_of_ranges=1):
       ''' method for retrieving number_of_ranges worth of event ranges,
           which will be marked as 'assigned'

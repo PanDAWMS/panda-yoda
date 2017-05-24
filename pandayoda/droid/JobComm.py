@@ -93,12 +93,15 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
 
       while not self.exit.isSet():
-         logger.debug('%s start loop',self.prelog)
+         logger.debug('%s start loop: n-ready: %d n-processing: %d',
+            self.prelog,eventranges.number_ready(),eventranges.number_processing())
          
          # check to see there is a job definition
          try:
+            logger.debug('%s check for job definition',self.prelog)
             qmsg = self.queues['JobComm'].get(block=False)
             if qmsg['type'] == MessageTypes.NEW_JOB:
+               logger.debug('%s got new job definition',self.prelog)
                if 'job' in qmsg:
                   job_defs[qmsg['job']['PandaID']] = qmsg['job']
                else:
@@ -157,19 +160,20 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                except EventRangeList.RequestedMoreRangesThanAvailable:
                   continue
 
+               logger.debug('%s sending eventranges in response: %s',self.prelog,local_eventranges)
                # send AthenaMP the new event ranges
                comm.send(serializer.serialize(local_eventranges))
                # reset the message so a new one will be recieved
                athenamp_msg = None
 
-            elif athenamp_msg.startswith('/'):
+            elif len(athenamp_msg.split(',')) == 4:
                # Athena sent details of an output file
                logger.debug('%s received output file',self.prelog)
                
                # parse message
                parts = athenamp_msg.split(',')
                # there should be four parts:
-               # "/build1/tsulaia/20.3.7.5/run-es/athenaMP-workers-AtlasG4Tf-sim/worker_1/myHITS.pool.root_000.Range-6,ID:Range-6,CPU:1,WALL:1"
+               # "myHITS.pool.root_000.Range-6,ID:Range-6,CPU:1,WALL:1"
                if len(parts) == 4:
                   # parse the parts
                   outputfilename = parts[0]
@@ -188,6 +192,9 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                   except SerialQueue.Full:
                      logger.warning('%s FileManager is full, could not send output info.',self.prelog)
                      continue # this will try again since we didn't reset the message to None
+                  
+                  # set event range to completed:
+                  eventranges.mark_completed(eventrangeid)                    
                else:
                   logger.error('%s received message from Athena that appears to be output file because it starts with "/" however when split by commas, it only has %i pieces when 4 are expected',self.prelog,len(parts))
                
@@ -205,7 +212,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                athenamp_msg = None
                continue
             else:
-               raise Exception('%s received mangled message from Athena: %s',self.prelog,athenamp_msg)
+               raise Exception('%s received mangled message from Athena: %s' % (self.prelog,athenamp_msg))
 
 
          else:
@@ -220,15 +227,17 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       logger.info('%s JobComm exiting',self.prelog)
 
    def get_eventranges(self):
+      logger.debug('%s requesting event ranges',self.prelog)
       # ask Yoda to send event ranges
       request = ydm.send_eventranges_request()
       # wait for yoda to receive message
       request.wait()
 
       # get response from Yoda
+      logger.debug('%s waiting for eventranges from Yoda',self.prelog)
       request = ydm.recv_eventranges()
       # wait for yoda to respond
-      flag,yoda_msg = request.wait()
+      yoda_msg = request.wait()
 
       logger.debug('%s received message from yoda %s',self.prelog,yoda_msg)
 
@@ -418,6 +427,7 @@ if __name__ == '__main__':
          "startEvent": 8
       }
    ]
+   eventrange_index = 0
 
    jc = JobComm(queues,5)
 
@@ -438,20 +448,38 @@ if __name__ == '__main__':
          socket.send_raw(JobComm.ATHENA_READY_FOR_EVENTS)
 
          # use mpi to wait for event range request
-         req = ydm.receive_message()
+         logger.info('get MPI message from JobComm')
+         req = ydm.recv_eventranges_request()
          status = MPI.Status()
-         flag,msg = req.wait(status=status)
+         msg = req.wait(status=status)
+         logger.info('received MPI message from JobComm: %s',msg)
 
          if msg['type'] != MessageTypes.REQUEST_EVENT_RANGES:
             raise Exception
          # send event ranges in response and wait for send to complete
+         logger.info('sending event range')
          ydm.send_droid_new_eventranges(eventranges,status.Get_source()).wait()
 
+         # receive event range on yampl
+         size,msg = socket.try_recv_raw()
+         while size == -1:
+            size,msg = socket.try_recv_raw()
+            time.sleep(1)
+         msg = serializer.deserialize(msg)
+         logger.info('JobComm sent AthenaMP worker this event range: %s',msg)
 
+         i += 1
       elif i == 1:
          logger.info('send message for output file')
-         msg = "/build1/tsulaia/20.3.7.5/run-es/athenaMP-workers-AtlasG4Tf-sim/worker_1/myHITS.pool.root_000.Range-6,ID:Range-6,CPU:1,WALL:1"
+         msg = "%s,ID:%s,CPU:1,WALL:1" % (eventranges[eventrange_index]['LFN'].replace('EVNT','HITS'),eventranges[eventrange_index]['eventRangeID'])
          socket.send_raw(msg)
+         eventrange_index += 1
+
+         logger.info(' wait for message from file manager')
+         msg = queues['FileManager'].get()
+         logger.info('received message from JobComm: %s',msg)
+
+         i = 0
 
 
       logger.info('get message')
