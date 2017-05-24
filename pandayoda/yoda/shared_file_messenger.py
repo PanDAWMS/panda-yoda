@@ -1,4 +1,4 @@
-import os,json,logging,ConfigParser
+import os,json,logging,ConfigParser,time
 from pandayoda.common import exceptions
 logger = logging.getLogger(__name__)
 
@@ -147,55 +147,111 @@ The eventRangesFile format looks like this:
 # global to store the Harvester config
 harvesterConfig = None
 harConfSect = 'payload_interaction'
+request_polling_time = 5
 
 def setup(config):
-   global harvesterConfig,harConfSect
+   global harvesterConfig
 
-   # get harvester config filename
-   harv_config_file = config.get(__name__,'harvester_config_file')
+   if harvesterConfig is None:
+      logger.debug('loading harvester configuration file')
+      # get harvester config filename
+      harv_config_file = config.get(__name__,'harvester_config_file')
 
-   # parse harvester configuration file
-   if os.path.exists(harv_config_file):
-      harvesterConfig = ConfigParser.ConfigParser()
-      harvesterConfig.read(harv_config_file)
+      # parse harvester configuration file
+      if os.path.exists(harv_config_file):
+         harvesterConfig = ConfigParser.ConfigParser()
+         harvesterConfig.read(harv_config_file)
+      else:
+         raise Exception('Failed to parse config file: %s' % harv_config_file)
    else:
-      raise Exception('Failed to parse config file: %s' % harv_config_file)
+      logger.debug('harvester configuration already loaded')
+
 
 def requestjobs():
    global harvesterConfig,harConfSect
+   
+   if harvesterConfig is None:
+      logger.error('must first run setup before requestjobs')
+      return
+
    jobRequestFile = harvesterConfig.get(harConfSect,'jobRequestFile')
    if not os.path.exists(jobRequestFile):
-      open(jobRequestFile,'w').write('jobRequestFile') 
+      open(jobRequestFile,'w').write('jobRequestFile')
    else:
       raise exceptions.MessengerJobAlreadyRequested()
 
 
-
+# this function should return a job description or nothing
 def get_pandajobs():
-   global harvesterConfig,harConfSect
+   global harvesterConfig,harConfSect,request_polling_time
+   
+   if harvesterConfig is None:
+      logger.error('must first run setup before get_pandajobs')
+      return
+
+   # the file in which job descriptions would be stored
    jobSpecFile = harvesterConfig.get(harConfSect,'jobSpecFile')
+   # first check to see if a file already exists.
    if os.path.exists(jobSpecFile):
       try:
          return json.load(open(jobSpecFile))
       except:
          logger.exception('failed to parse jobSpecFile: %s',jobSpecFile)
          raise
-
+   # if the file does not exist, request one
    else:
-      raise Exception('jobSpecFile does not exist: %s' % jobSpecFile)
+      requestjobs()
+      # now wait for the file to show up
+      while not os.path.exists(jobSpecFile):
+         time.sleep(request_polling_time)
+      # now parse job file
+      try:
+         return json.load(open(jobSpecFile))
+      except:
+         logger.exception('failed to parse jobSpecFile: %s',jobSpecFile)
+         raise
+
+
+def requesteventranges():
+   global harvesterConfig,harConfSect
+   
+   if harvesterConfig is None:
+      logger.error('must first run setup before requesteventranges')
+      return
+
+   eventRequestFile = harvesterConfig.get(harConfSect,'eventRequestFile')
+   if not os.path.exists(eventRequestFile):
+      open(eventRequestFile,'w').write('eventRequestFile') 
+   else:
+      raise exceptions.MessengerEventRangesAlreadyRequested()
 
 def get_eventranges():
-   global harvesterConfig,harConfSect
+   global harvesterConfig,harConfSect,request_polling_time
+   if harvesterConfig is None:
+      logger.error('must first run setup before get_eventranges')
+      return
+
    eventRangesFile = harvesterConfig.get(harConfSect,'eventRangesFile')
+   # first check to see if a file already exists.
    if os.path.exists(eventRangesFile):
       try:
          return json.load(open(eventRangesFile))
       except:
          logger.exception('failed to parse eventRangesFile: %s',eventRangesFile)
          raise
-
+   # if the file does not exist, request one
    else:
-      raise Exception('eventRangesFile does not exist: %s' % eventRangesFile)
+      requesteventranges()
+      # now wait for the file to show up
+      while not os.path.exists(eventRangesFile):
+         time.sleep(request_polling_time)
+      # now parse job file
+      try:
+         return json.load(open(eventRangesFile))
+      except:
+         logger.exception('failed to parse eventRangesFile: %s',eventRangesFile)
+         raise
+
 
 
 

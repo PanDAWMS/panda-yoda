@@ -76,8 +76,8 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       logger.debug('%s start yampl communicator',self.prelog)
       comm = athena_communicator(self.yampl_socket_name,prelog=self.prelog)
 
-      # dictionary of job definitions sent by the JobManager key-ed by PandaID
-      job_defs = {}
+      # current panda job that AthenaMP is configured to run
+      current_job = None
 
       # EventRangeList obj
       eventranges = EventRangeList.EventRangeList()
@@ -105,7 +105,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
             if qmsg['type'] == MessageTypes.NEW_JOB:
                logger.debug('%s got new job definition from JobManager',self.prelog)
                if 'job' in qmsg:
-                  job_defs[qmsg['job']['PandaID']] = qmsg['job']
+                  current_job = qmsg['job']
                else:
                   logger.error('%s Received message of NEW_JOB type but no job in message: %s',self.prelog,qmsg)
             else:
@@ -114,7 +114,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
             logger.debug('%s no jobs from JobManager',self.prelog)
 
          # if there has been no job definition sent yet, then sleep
-         if len(job_defs) == 0:
+         if current_job is None:
             logger.debug('%s no job definitions, sleeping %d',self.prelog,self.loopTimeout)
             time.sleep(self.loopTimeout)
             continue

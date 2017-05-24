@@ -64,7 +64,7 @@ def send_droid_no_eventranges_left(droid_rank):
    return send_message(msg,dest=droid_rank,tag=FROM_YODA_WORKMANAGER)
 
 def get_droid_message():
-   return receive_message(MPI.ANY_SOURCE,FROM_DROID)
+   return receive_message(MPI.ANY_SOURCE,TO_YODA_WORKMANAGER)
 
 
 

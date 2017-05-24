@@ -1,5 +1,6 @@
-import os,sys,threading,logging
-from pandayoda.common import MessageTypes,SerialQueue,yoda_droid_messenger as ydm
+import os,sys,threading,logging,importlib
+from pandayoda.common import MessageTypes,SerialQueue,EventRangeList
+from pandayoda.common import yoda_droid_messenger as ydm
 logger = logging.getLogger(__name__)
 
 class WorkManager(threading.Thread):
@@ -20,13 +21,172 @@ class WorkManager(threading.Thread):
       self.queues                = queues
 
       # configuration of Yoda
-      self.config          = config
+      self.config                = config
 
       # the timeout duration 
       self.loopTimeout           = loopTimeout
 
       # this is used to trigger the thread exit
-      self.exit = threading.Event()
+      self.exit                  = threading.Event()
+
+   def stop(self):
+      ''' this function can be called by outside threads to cause the JobManager thread to exit'''
+      self.exit.set()
+
+
+   def run(self):
+      ''' this function is executed as the subthread. '''
+
+      # create these instance variables here so they are not created in the parent thread, saves memory
+
+      # this is a place holder for the GetJobRequest object
+      job_request = None
+      # this is a place holder for the GetEventRangesRequest object
+      eventrange_request = None
+      # list of all jobs received from Harvester key-ed by panda id
+      pandajobs = {}
+      # list of all event ranges key-ed by panda id
+      eventranges = {}
+      # flag to indicate the need for a job request
+      need_job_request = True
+      # flag to indicate the need for event ranges
+      need_event_ranges = True
+
+
+      while not self.exit.isSet():
+         logger.debug('start loop')
+
+         # if we need a job request, request one
+         if need_job_request:
+            logger.debug('getting job from Harvester')
+            # if job_request has not been created, create it
+            if job_request is None:
+               job_request = GetJob(self.config)
+               job_request.start()
+            
+            # if job request has completed, check output via queue
+            if not job_request.isAlive():
+               logger.debug('job request has completed')
+               try:
+                  msg = job_request.queue.get(block=False)
+               except SerialQueue.Empty:
+                  logger.error('job request queue is empty')
+               logger.debug('received message from get job request: %s',msg)
+               if msg['type'] == MessageTypes.NEW_JOB:
+                  logger.debug('received new job')
+                  for jobid,job in msg['jobs'].iteritems():
+                     pandajobs[jobid] = job
+                  need_job_request = False
+                  job_request = None
+               else:
+                  logger.error('message type from job request unrecognized.')
+                  job_request = None
+
+            else:
+               logger.debug('get job request is still running, will check next loop')
+         else:
+            logger.debug('do not need to request job')
+
+         # if we need an event range request, request one
+         if need_event_ranges:
+            logger.debug('getting event ranges from Harvester')
+            # if job_request has not been created, create it
+            if eventrange_request is None:
+               eventrange_request = GetEventRanges(self.config)
+               eventrange_request.start()
+            
+            # if job request has completed, check output via queue
+            if not eventrange_request.isAlive():
+               logger.debug('event range request has completed')
+               try:
+                  msg = eventrange_request.queue.get(block=False)
+               except SerialQueue.Empty:
+                  logger.error('event range request queue is empty')
+               logger.debug('received message from get event range request: %s',msg)
+               if msg['type'] == MessageTypes.NEW_EVENT_RANGES:
+                  logger.debug('received new event range')
+                  for jobid,list_of_eventranges in msg['eventranges']:
+                     if jobid in eventranges:
+                        eventranges[jobid] += EventRangeList.EventRangeList(list_of_eventranges)
+                     else:
+                        eventranges[jobid] = EventRangeList.EventRangeList(list_of_eventranges)
+                  need_eventranges_request = False
+               else:
+                  logger.error('message type from event range request unrecognized.')
+            else:
+               logger.debug('get event range request is still running, will check next loop')
+         else:
+            logger.debug('do not need to request event ranges')
+
+
+         # if there is work to hand out, check for messages from droid ranks
+         if len(pandajobs) > 0 and len(eventranges) > 0:
+            logger.debug('checking for droid messages')
+            # check for in coming message from droids
+            request = ydm.get_droid_message()
+            # test for a message
+            status = MPI.Status()
+            msg_received,droid_msg = request.test(status=status)
+            if msg_received:
+               source_rank = status.Get_source()
+               logger.debug('received message from droid rank %d: %s',source_rank,droid_msg)
+
+               if droid_msg['type'] == MessageTypes.REQUEST_JOB:
+                  logger.debug('received request for new job')
+
+               elif droid_msg['type'] == MessageTypes.REQUEST_EVENT_RANGES:
+                  logger.debug('received request for new event ranges')
+
+
+
+
+
+
+
+
+class GetJob(HarvesterRequest):
+   ''' This is a request thread to get a jobs from Harvester '''
+   def run(self):
+      ''' overriding base class function '''
+
+      # get the messenger for communicating with Harvester
+      messenger = self.get_messenger()
+      messenger.setup(self.config)
+
+      # get panda jobs from Harvester
+      pandajobs = messgenger.get_pandajobs()
+
+      self.queue.put({'type':MessageTypes.NEW_JOB,'jobs':pandajobs})
+
+
+
+class GetEventRanges(HarvesterRequest):
+   ''' This is a request thread to get a event ranges from Harvester '''
+   def run(self):
+      ''' overriding base class function '''
+
+      # get the messenger for communicating with Harvester
+      messenger = self.get_messenger()
+      messenger.setup(self.config)
+
+      # get panda jobs from Harvester
+      eventranges = messgenger.get_eventranges()
+
+      self.queue.put({'type':MessageTypes.NEW_EVENT_RANGES,'eventranges':eventranges})
+
+class HarvesterRequest(threading.Thread):
+   ''' This thread is spawned to request something from Harvester '''
+   def __init__(self,config):
+      super(GetJobRequest,self).__init__()
+
+      # here is a queue to return messages to the calling function
+      self.queue  = SerialQueue.SerialQueue()
+
+      # keep the configuration info
+      self.config = config
+
+      # here is a way to stop the thread
+      self.exit   = threading.Event()
 
    def stop(self):
       ''' this function can be called by outside threads to cause the WorkManager thread to exit'''
@@ -34,60 +194,20 @@ class WorkManager(threading.Thread):
 
    def run(self):
       ''' this function is executed as the subthread. '''
+      logger.error('need to impliment this function in derived class')
 
-      # create these instance variables here so they are not created in the parent thread, saves memory
-      self.job_list = []
-      self.event_per_job = {}
-      self.eventranges = []
-      self.eventranges_todo = []
-      self.eventranges_done = []
 
-      self.pending_msgs = []
+   def get_messenger(self):
+      # get the name of the plugin from the config file
+      messenger_plugin_name = self.config.get(self.__class__.__name__,self.config_messenger_plugin_setting)
 
-      while not self.exit.isSet():
-         logger.debug('start loop')
-
-         # first check that there is work to be done
-         if self.have_work():
-            # have work so just wait for droid to request work
-            # wait for message from droid ranks
-            try:
-               msg = self.queues['WorkManager'].get(timeout=self.loopTimeout)
-            except SerialQueue.Empty:
-               logger.debug('no message on WorkManager queue')
-            else:
-               logger.debug('received message from WorkManager queue: %s',msg)
-
-               # act on message
-               if msg['type'] == MessageTypes.REQUEST_JOB:
-                  
-                  # check currently have job
-                  self.get_job()
-                  
-
-                  # reply with job
-                  reply = {'type':MessageTypes.NEW_JOB,'job':job,'source_rank':msg['source_rank']}
-                  self.queues['DroidComm'].put(reply)
-
-         else:
-            # send message to harvester to send work
-            self.get_work()
-
-   def have_work(self):
-      return False
-
-   def get_work(self):
-
-      self.get_job()
-
-      self.get_eventranges()
-
-   def get_job(self):
-
-      for job in job_list:
-         if job['PandaID'] in self.eventranges_todo:
-            if len(self.eventranges_todo[job['PandaID']]) > 
-
+      # try to import the module specified in the config
+      # if it is not in the PYTHONPATH this will fail
+      try:
+         return importlib.import_module(messenger_plugin_name)
+      except ImportError:
+         logger.exception('Failed to import messenger_plugin: %s',messenger_plugin_name)
+         raise
 
 
 
