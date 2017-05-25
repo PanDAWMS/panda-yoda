@@ -124,7 +124,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
             # create an EventRangeRetriever thread if needed
             if eventRangeRetriever is None:
                logger.debug('%s creating EventRangeRetriever thread, will monitor.',self.prelog)
-               eventRangeRetriever = EventRangeRetriever()
+               eventRangeRetriever = EventRangeRetriever(current_job)
                eventRangeRetriever.start()
 
             # check if thread has completed, then check for queued message
@@ -265,8 +265,11 @@ class EventRangeRetriever(threading.Thread):
    NoMoreEventRangesToProcess    = 'NoMoreEventRangesToProcess'
    FailedToParseYodaMessage      = 'FailedToParseYodaMessage'
 
-   def __init__(self,loopTimeout = 5):
+   def __init__(self,job_def,loopTimeout = 5):
       super(EventRangeRetriever,self).__init__()
+
+      # current job description
+      self.job_def                     = job_def
 
       # queue which this thread uses to return information to JobComm
       self.queue = SerialQueue.SerialQueue()
@@ -290,7 +293,7 @@ class EventRangeRetriever(threading.Thread):
    def run(self):
       logger.debug('%s requesting event ranges',self.prelog)
       # ask Yoda to send event ranges
-      request = ydm.send_eventranges_request()
+      request = ydm.send_eventranges_request(self.job_def['PandaID'],self.job_def['taskID'])
       # wait for yoda to receive message
       request.wait()
       

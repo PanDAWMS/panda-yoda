@@ -38,17 +38,11 @@ class Yoda(threading.Thread):
 
       # create queues for subthreads to send messages out
       queues = {}
-      queues['HarvesterComm']    = SerialQueue.SerialQueue()
-      queues['DroidComm']        = SerialQueue.SerialQueue()
       queues['WorkManager']      = SerialQueue.SerialQueue()
       
       # a dictionary of subthreads
       subthreads = {}
       
-      # create harvester comm thread
-      subthreads['HarvesterComm']= HarvesterComm.HarvesterComm(queues,self.config,loopTimeout=self.loopTimeout)
-      subthreads['HarvesterComm'].start()
-
       # create droid comm thread
       subthreads['WorkManager']    = DroidComm.DroidComm(queues,loopTimeout=self.loopTimeout)
       subthreads['WorkManager'].start()
@@ -58,6 +52,35 @@ class Yoda(threading.Thread):
       while not self.exit.isSet():
          logger.debug('start loop')
          # check for message from Droids
+
+         # check the status of each subthread
+         keys = subthreads.keys()
+         for name in keys:
+            thread = subthreads[name]
+            # if the thread is not alive, throw an error
+            if not thread.isAlive():
+               logger.warning('%s is no longer running.',name)
+               del subthreads[name]
+            #else:
+               #logger.debug('%s %s is running.',self.prelog,name)
+
+         if len(subthreads) == 0:
+            logger.info('no subthreads remaining, exiting')
+            break
+         time.sleep(self.loopTimeout)
+      
+      # send the exit signal to all subthreads
+      logger.info('%s sending exit signal to subthreads',self.prelog)
+      for name,thread in subthreads.iteritems():
+         thread.stop()
+
+      # wait for sub threads to exit
+      logger.info('%s waiting for subthreads to join',self.prelog)
+      for name,thread in subthreads.iteritems():
+         thread.join()
+
+      logger.info('Yoda is exiting')
+
 
       
 

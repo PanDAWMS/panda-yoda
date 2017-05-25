@@ -40,24 +40,28 @@ class WorkManager(threading.Thread):
       # create these instance variables here so they are not created in the parent thread, saves memory
 
       # this is a place holder for the GetJobRequest object
-      job_request = None
+      job_request                = None
       # this is a place holder for the GetEventRangesRequest object
-      eventrange_request = None
+      eventrange_request         = None
       # list of all jobs received from Harvester key-ed by panda id
-      pandajobs = {}
+      pandajobs                  = {}
       # list of all event ranges key-ed by panda id
-      eventranges = {}
+      eventranges                = {}
       # flag to indicate the need for a job request
-      need_job_request = True
+      need_job_request           = True
       # flag to indicate the need for event ranges
-      need_event_ranges = True
+      need_event_ranges          = True
+      # flag to indicate there are no more jobs
+      no_more_jobs               = False
+      # flag to indicate there are no more event ranges
+      no_more_event_ranges       = False
 
 
       while not self.exit.isSet():
          logger.debug('start loop')
 
          # if we need a job request, request one
-         if need_job_request:
+         if need_job_request and not no_more_jobs:
             logger.debug('getting job from Harvester')
             # if job_request has not been created, create it
             if job_request is None:
@@ -73,11 +77,14 @@ class WorkManager(threading.Thread):
                   logger.error('job request queue is empty')
                logger.debug('received message from get job request: %s',msg)
                if msg['type'] == MessageTypes.NEW_JOB:
-                  logger.debug('received new job')
+                  logger.debug('received new job message')
                   for jobid,job in msg['jobs'].iteritems():
                      pandajobs[jobid] = job
                   need_job_request = False
                   job_request = None
+               elif msg['type'] == MessageTypes.NO_MORE_JOBS:
+                  logger.debug('receive no more jobs message')
+                  no_more_jobs = True
                else:
                   logger.error('message type from job request unrecognized.')
                   job_request = None
@@ -88,7 +95,7 @@ class WorkManager(threading.Thread):
             logger.debug('do not need to request job')
 
          # if we need an event range request, request one
-         if need_event_ranges:
+         if need_event_ranges and not no_more_event_ranges:
             logger.debug('getting event ranges from Harvester')
             # if job_request has not been created, create it
             if eventrange_request is None:
@@ -111,6 +118,9 @@ class WorkManager(threading.Thread):
                      else:
                         eventranges[jobid] = EventRangeList.EventRangeList(list_of_eventranges)
                   need_eventranges_request = False
+               elif msg['type'] == MessageTypes.NO_MORE_EVENT_RANGES:
+                  logger.debug('receive no more event ranges message')
+                  no_more_event_ranges = True
                else:
                   logger.error('message type from event range request unrecognized.')
             else:
@@ -134,8 +144,47 @@ class WorkManager(threading.Thread):
                if droid_msg['type'] == MessageTypes.REQUEST_JOB:
                   logger.debug('received request for new job')
 
+                  # check to see what events I have left to do and to which job they belong
+                  # then decide which job description to send the droid rank
+                  if len(pandajobs) == 1:
+                     jobid = pandajobs.keys()[0]
+                  else:
+                     jobid = self.get_jobid_with_minimum_ready(eventranges)
+
+                  # send job to Droid
+                  ydm.send_droid_new_job(pandajobs[jobid],source_rank)
+                  
+
+
                elif droid_msg['type'] == MessageTypes.REQUEST_EVENT_RANGES:
                   logger.debug('received request for new event ranges')
+
+                  # check the job definition which is already running on this droid rank
+                  # see if there are more events to be dolled out
+
+                  droid_jobid = droid_msg['PandaID']
+                  if eventranges[droid_jobid].number_ready() > 0:
+                     local_eventranges = eventranges[droid_jobid].get_next()
+
+                     # send event ranges to Droid
+                     ydm.send_droid_new_eventranges(local_eventranges,source_rank)
+
+      logger.info('WorkManager is exiting')
+
+
+   def get_jobid_with_minimum_ready(eventranges):
+      
+      # loop over event ranges, count the number of ready events
+      job_id = 0
+      job_nready = 999999
+      for pandaid,erl in eventranges.iteritems():
+         nready = erl.number_ready()
+         if nready > 0 and nready < job_nready:
+            job_id = pandaid
+            job_nready = nready
+
+      return job_id
+
 
 
 
@@ -154,9 +203,12 @@ class GetJob(HarvesterRequest):
       messenger.setup(self.config)
 
       # get panda jobs from Harvester
-      pandajobs = messgenger.get_pandajobs()
+      pandajobs = messenger.get_pandajobs()
 
-      self.queue.put({'type':MessageTypes.NEW_JOB,'jobs':pandajobs})
+      if len(pandajobs) == 0:
+         self.queue.put({'type':MessageTypes.NO_MORE_JOBS})
+      else:
+         self.queue.put({'type':MessageTypes.NEW_JOB,'jobs':pandajobs})
 
 
 
@@ -172,7 +224,10 @@ class GetEventRanges(HarvesterRequest):
       # get panda jobs from Harvester
       eventranges = messgenger.get_eventranges()
 
-      self.queue.put({'type':MessageTypes.NEW_EVENT_RANGES,'eventranges':eventranges})
+      if len(eventranges) == 0:
+         self.queue.put({'type':MessageTypes.NO_MORE_EVENT_RANGES})
+      else:
+         self.queue.put({'type':MessageTypes.NEW_EVENT_RANGES,'eventranges':eventranges})
 
 class HarvesterRequest(threading.Thread):
    ''' This thread is spawned to request something from Harvester '''

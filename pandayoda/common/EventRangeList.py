@@ -36,6 +36,10 @@ class EventRangeList(object):
       ''' provide the number of ranges still to be completed '''
       return len(self.eventranges) - len(self.indices_of_completed_ranges)
 
+   def number_assigned(self):
+      ''' provide the number of ranges assigned '''
+      return len(self.indices_of_assigned_ranges)
+
    def fill_from_list(self,list_of_eventrange_dicts):
       for eventrange in list_of_eventrange_dicts:
          self.append(EventRange.EventRange(eventrange))
@@ -48,6 +52,16 @@ class EventRangeList(object):
             eventrange.state = EventRange.EventRange.COMPLETED
             self.indices_of_completed_ranges.append(i)
             self.indices_of_assigned_ranges.remove(i)
+            return
+      raise EventRangeIdNotFound('eventRangeID %s not found' % eventRangeID)
+
+   def mark_assigned(self.eventRangeID):
+      for i in xrange(len(self.eventranges)):
+         eventrange = self.eventranges[i]
+         if eventrange.id == eventRangeID:
+            logger.debug('removing job index %d',i)
+            eventrange.state = EventRange.EventRange.ASSIGNED
+            self.indices_of_assigned_ranges.append(i)
             return
       raise EventRangeIdNotFound('eventRangeID %s not found' % eventRangeID)
 

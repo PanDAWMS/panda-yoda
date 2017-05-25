@@ -148,6 +148,7 @@ The eventRangesFile format looks like this:
 harvesterConfig = None
 harConfSect = 'payload_interaction'
 request_polling_time = 5
+request_poll_timeout = 360
 
 def setup(config):
    global harvesterConfig
@@ -183,7 +184,7 @@ def requestjobs():
 
 # this function should return a job description or nothing
 def get_pandajobs():
-   global harvesterConfig,harConfSect,request_polling_time
+   global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout
    
    if harvesterConfig is None:
       logger.error('must first run setup before get_pandajobs')
@@ -202,8 +203,15 @@ def get_pandajobs():
    else:
       requestjobs()
       # now wait for the file to show up
-      while not os.path.exists(jobSpecFile):
+      i = int(request_poll_timeout*1./request_polling_time)
+      while not os.path.exists(jobSpecFile) and i:
          time.sleep(request_polling_time)
+         i -= 1
+
+      # if the loop timed out, assume there are no more events left
+      if i == 0:
+         return {}
+      
       # now parse job file
       try:
          return json.load(open(jobSpecFile))
@@ -226,7 +234,7 @@ def requesteventranges():
       raise exceptions.MessengerEventRangesAlreadyRequested()
 
 def get_eventranges():
-   global harvesterConfig,harConfSect,request_polling_time
+   global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout
    if harvesterConfig is None:
       logger.error('must first run setup before get_eventranges')
       return
@@ -243,9 +251,16 @@ def get_eventranges():
    else:
       requesteventranges()
       # now wait for the file to show up
-      while not os.path.exists(eventRangesFile):
+      i = int(request_poll_timeout*1./request_polling_time)
+      while not os.path.exists(eventRangesFile) and i:
          time.sleep(request_polling_time)
-      # now parse job file
+         i -= 1
+      
+      # if the loop timed out, assume there are no more events left
+      if i == 0:
+         return {}
+
+      # parse file
       try:
          return json.load(open(eventRangesFile))
       except:
