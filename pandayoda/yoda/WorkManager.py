@@ -7,6 +7,7 @@ class WorkManager(threading.Thread):
    ''' Work Manager: this thread manages work going to the running Droids '''
 
    def __init__(self,queues,config
+                assign_eventsranges
                 loopTimeout      = 30):
       ''' 
         queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send 
@@ -55,6 +56,11 @@ class WorkManager(threading.Thread):
       no_more_jobs               = False
       # flag to indicate there are no more event ranges
       no_more_event_ranges       = False
+
+      # list of droid ranks waiting for job description, contains only the source_rank
+      droids_waiting_for_job = []
+      # list of droid ranks waiting for event ranges, contains only the source_rank
+      droids_waiting_for_event_ranges = []
 
 
       while not self.exit.isSet():
@@ -146,8 +152,14 @@ class WorkManager(threading.Thread):
 
                   # check to see what events I have left to do and to which job they belong
                   # then decide which job description to send the droid rank
+
+                  # if there is only one job, send it
                   if len(pandajobs) == 1:
                      jobid = pandajobs.keys()[0]
+                  # if there are no jobs, add this rank to the queue of jobs waiting for a new job
+                  elif len(pandajobs) == 0:
+                     droids_waiting_for_job.append(source_rank)
+                  # if there is more than one panda job, decide which job to send
                   else:
                      jobid = self.get_jobid_with_minimum_ready(eventranges)
 
@@ -162,6 +174,7 @@ class WorkManager(threading.Thread):
                   # check the job definition which is already running on this droid rank
                   # see if there are more events to be dolled out
 
+                  # the droid sent the current running panda id, determine if there are events left for this panda job
                   droid_jobid = droid_msg['PandaID']
                   if eventranges[droid_jobid].number_ready() > 0:
                      local_eventranges = eventranges[droid_jobid].get_next()

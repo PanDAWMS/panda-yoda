@@ -44,7 +44,7 @@ class Yoda(threading.Thread):
       subthreads = {}
       
       # create droid comm thread
-      subthreads['WorkManager']    = DroidComm.DroidComm(queues,loopTimeout=self.loopTimeout)
+      subthreads['WorkManager']  = DroidComm.DroidComm(queues,loopTimeout=self.loopTimeout)
       subthreads['WorkManager'].start()
 
 

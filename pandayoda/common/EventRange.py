@@ -32,6 +32,13 @@ class EventRange:
       if eventrange:
          self.fill_from_dict(eventrange)
 
+   def nevents(self):
+      ''' return the number of events in this range '''
+      if self.startEvent == -1 or self.lastEvent == -1:
+         return 0
+      
+      return self.lastEvent - self.startEvent + 1
+
    def fill_from_dict(self,eventrange):
       self.id           = eventrange['eventRangeID']
       self.lfn          = eventrange['LFN']
