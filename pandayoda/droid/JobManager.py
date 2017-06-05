@@ -146,6 +146,16 @@ class JobManager(threading.Thread):
       if self.rank == 0:
          logger.info('%s JobManager droidSubprocessStderr: %s',self.prelog,self.droidSubprocessStderr)
 
+
+      # get use_mock_athenamp
+      if self.config.has_option(config_section,'use_mock_athenamp'):
+         self.use_mock_athenamp = self.config.getboolean(config_section,'use_mock_athenamp')
+      else:
+         logger.error('%s must specify "use_mock_athenamp" in "%s" section of config file',self.prelog,config_section)
+         return
+      if self.rank == 0:
+         logger.info('%s JobManager use_mock_athenamp: %s',self.prelog,self.use_mock_athenamp)
+
       waiting_for_panda_job = False
       # variable that holds currently running process (Popen object)
       jobproc = None
@@ -268,8 +278,14 @@ class JobManager(threading.Thread):
             gcclocation += '.'.join(release.split('.')[:-1])
             gcclocation += '/gcc-alt-472/$CMTCONFIG'
          #elif release.startswith('20'):
+
+         # set transformation command
+         if self.use_mock_athenamp:
+            transformation = os.path.join(os.path.dirname(os.path.realpath(__file__)),'mock_athenamp.py')
+         else
+            transformation = new_job['transformation']
          
-         script = template.format(transformation=new_job['transformation'],
+         script = template.format(transformation=transformation,
                                   jobPars=new_job['jobPars'],
                                   cmtConfig=new_job['cmtConfig'],
                                   release=release,
