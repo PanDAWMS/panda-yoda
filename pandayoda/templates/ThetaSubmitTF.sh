@@ -2,7 +2,7 @@
 echo ThetaSubmitTF Start
 echo DATE=$(date)
 
-export ATHENA_PROC_NUMBER=32 # 64 AthenaMP workers per node
+export ATHENA_PROC_NUMBER=2 # 64 AthenaMP workers per node
 
 export HARVESTER_DIR=/projects/AtlasADSP/atlas/harvester
 export PILOT_DIR=/projects/AtlasADSP/atlas/pilot

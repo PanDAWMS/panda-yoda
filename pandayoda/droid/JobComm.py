@@ -12,6 +12,9 @@ except:
 
 from mpi4py import MPI
 
+
+config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
+
 class NoEventRangeDefined(Exception): pass
 class NoMoreEventsToProcess(Exception): pass
 class FailedToParseYodaMessage(Exception): pass
@@ -33,28 +36,20 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
    NO_MORE_EVENTS          = 'No more events'
    ATHENAMP_FAILED_PARSE   = 'ERR_ATHENAMP_PARSE'
 
-   def __init__(self,queues,
-                loopTimeout               = 30,
-                yampl_socket_name         = 'EventService_EventRanges',
-                get_more_events_threshold = 0):
+   def __init__(self,config,queues):
       ''' 
         queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send 
                      messages to other Droid components about errors, etc.
-        loopTimeout: A positive number of seconds to block between loop executions.'''
+        config: the ConfigParser handle for yoda
+        '''
       # call base class init function
       super(JobComm,self).__init__()
 
       # dictionary of queues for sending messages to Droid components
       self.queues                      = queues
 
-      # the timeout duration when no message was received from AthenaMP
-      self.loopTimeout                 = loopTimeout
-
-      # socket name used by AthenaMP to connect, needs to be the same between here and AthenaMP
-      self.yampl_socket_name           = yampl_socket_name
-
-      # threshold at which to request more events
-      self.get_more_events_threshold   = get_more_events_threshold
+      # configuration of Yoda
+      self.config                      = config
 
       # get current rank
       self.rank                        = MPI.COMM_WORLD.Get_rank()
@@ -72,9 +67,37 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
    def run(self):
       ''' this is the function run as a subthread when the user runs jobComm_instance.start() '''
 
+      # get loop_timeout
+      if self.config.has_option(config_section,'loop_timeout'):
+         loop_timeout = self.config.getfloat(config_section,'loop_timeout')
+      else:
+         logger.error('%s must specify "loop_timeout" in "%s" section of config file',self.prelog,config_section)
+         return
+      if self.rank == 0:
+         logger.info('%s JobComm loop_timeout: %d',self.prelog,loop_timeout)
+
+      # get yampl_socket_name
+      if self.config.has_option(config_section,'yampl_socket_name'):
+         yampl_socket_name = self.config.get(config_section,'yampl_socket_name')
+      else:
+         logger.error('%s must specify "yampl_socket_name" in "%s" section of config file',self.prelog,config_section)
+         return
+      if self.rank == 0:
+         logger.info('%s JobComm yampl_socket_name: %s',self.prelog,yampl_socket_name)
+
+      # get get_more_events_threshold
+      if self.config.has_option(config_section,'get_more_events_threshold'):
+         get_more_events_threshold = self.config.getint(config_section,'get_more_events_threshold')
+      else:
+         logger.error('%s must specify "get_more_events_threshold" in "%s" section of config file',self.prelog,config_section)
+         return
+      if self.rank == 0:
+         logger.info('%s JobComm get_more_events_threshold: %d',self.prelog,get_more_events_threshold)
+
+
       # setup communicator
       logger.debug('%s start yampl communicator',self.prelog)
-      comm = athena_communicator(self.yampl_socket_name,prelog=self.prelog)
+      comm = athena_communicator(yampl_socket_name,prelog=self.prelog)
 
       # current panda job that AthenaMP is configured to run
       current_job = None
@@ -115,12 +138,12 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
          # if there has been no job definition sent yet, then sleep
          if current_job is None:
-            logger.debug('%s no job definitions, sleeping %d',self.prelog,self.loopTimeout)
-            time.sleep(self.loopTimeout)
+            logger.debug('%s no job definitions, sleeping %d',self.prelog,loop_timeout)
+            time.sleep(loop_timeout)
             continue
 
          # check to get event ranges
-         if eventranges.number_ready() <= self.get_more_events_threshold:
+         if eventranges.number_ready() <= get_more_events_threshold:
             # create an EventRangeRetriever thread if needed
             if eventRangeRetriever is None:
                logger.debug('%s creating EventRangeRetriever thread, will monitor.',self.prelog)
@@ -208,14 +231,15 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                if len(parts) == 4:
                   # parse the parts
                   outputfilename = parts[0]
-                  eventrangeid = parts[1]
-                  cpu = parts[2]
-                  wallclock = parts[3]
+                  eventrangeid = parts[1].replace('ID:','')
+                  cpu = parts[2].replace('CPU:','')
+                  wallclock = parts[3].replace('WALL:','')
                   msg = {'type':MessageTypes.OUTPUT_FILE,
                          'filename':outputfilename,
                          'eventrangeid':eventrangeid,
                          'cpu':cpu,
-                         'wallclock':wallclock
+                         'wallclock':wallclock,
+                         'scope':current_job['scopeOut']
                          }
                   # send them to droid
                   try:
@@ -226,7 +250,14 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                   
                   # set event range to completed:
                   logger.debug('%s mark event range id %s as completed',self.prelog,eventrangeid)
-                  eventranges.mark_completed(eventrangeid)                    
+                  try:
+                     eventranges.mark_completed(eventrangeid)
+                  except:
+                     logger.error('%s failed to mark eventrangeid %s as completed',self.prelog,eventrangeid)
+                     logger.error('%s list of assigned: %s',self.prelog,eventranges.indices_of_assigned_ranges)
+                     logger.error('%s list of completed: %s',self.prelog,eventranges.indices_of_completed_ranges)
+                     self.stop()
+
                else:
                   logger.error('%s received message from Athena that appears to be output file because it starts with "/" however when split by commas, it only has %i pieces when 4 are expected',self.prelog,len(parts))
                
@@ -249,11 +280,11 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
          else:
             # no message received so sleep
-            logger.debug('%s no yampl message from AthenaMP, sleeping %d',self.prelog,self.loopTimeout)
+            logger.debug('%s no yampl message from AthenaMP, sleeping %d',self.prelog,loop_timeout)
             # reset message
             athenamp_msg = None
 
-            time.sleep(self.loopTimeout)
+            time.sleep(loop_timeout)
             continue
 
       logger.info('%s JobComm exiting',self.prelog)
@@ -265,7 +296,7 @@ class EventRangeRetriever(threading.Thread):
    NoMoreEventRangesToProcess    = 'NoMoreEventRangesToProcess'
    FailedToParseYodaMessage      = 'FailedToParseYodaMessage'
 
-   def __init__(self,job_def,loopTimeout = 5):
+   def __init__(self,job_def,loop_timeout = 5):
       super(EventRangeRetriever,self).__init__()
 
       # current job description
@@ -283,15 +314,19 @@ class EventRangeRetriever(threading.Thread):
       # this is used to trigger the thread exit
       self.exit                        = threading.Event()
 
-      # loopTimeout decided loop sleep times
-      self.loopTimeout                 = loopTimeout
+      # loop_timeout decided loop sleep times
+      self.loop_timeout                = loop_timeout
 
    def stop(self):
       ''' this function can be called by outside threads to cause the JobManager thread to exit'''
       self.exit.set()
 
    def run(self):
-      logger.debug('%s requesting event ranges',self.prelog)
+      if self.rank == 0:
+         logger.debug('%s config_section: %s',self.prelog,config_section)
+
+      if self.rank == 0:
+         logger.debug('%s requesting event ranges',self.prelog)
       # ask Yoda to send event ranges
       request = ydm.send_eventranges_request(self.job_def['PandaID'],self.job_def['taskID'])
       # wait for yoda to receive message

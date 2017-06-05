@@ -16,96 +16,95 @@ class EventRangeList(object):
                         EventRange.STATES list, with READY being at the end.
       '''
 
-      # internal list of EventRange objects
-      self.eventranges = []
-      # keep track of the next ready index
-      self.next_ready = 0
-
+      # internal list of EventRange objects key-ed by id
+      self.eventranges = {}
+      
       # internal list of indices of those ranges which have already been assigned to droid ranks
       # indices point back to self.eventranges
-      self.indices_of_assigned_ranges = []
-      self.indices_of_completed_ranges = []
+      self.ids_by_state = {}
+      for state in EventRange.EventRange.STATES:
+         self.ids_by_state[state] = []
+      
       if eventranges:
          self.fill_from_list(eventranges)
 
-   def number_ready(self):
-      ''' provide the number of ranges ready to be assigned '''
-      return len(self.eventranges) - len(self.indices_of_assigned_ranges) - len(self.indices_of_completed_ranges)
 
    def number_processing(self):
       ''' provide the number of ranges still to be completed '''
-      return len(self.eventranges) - len(self.indices_of_completed_ranges)
+      return len(self.eventranges) - self.number_completed()
 
    def number_assigned(self):
       ''' provide the number of ranges assigned '''
-      return len(self.indices_of_assigned_ranges)
+      return len(self.ids_by_state[EventRange.EventRange.ASSIGNED])
+
+   def number_completed(self):
+      ''' provide the number of ranges completed '''
+      return len(self.ids_by_state[EventRange.EventRange.COMPLETED])
+
+   def number_ready(self):
+      ''' provide the number of ranges completed '''
+      return len(self.ids_by_state[EventRange.EventRange.READY])
+
 
    def fill_from_list(self,list_of_eventrange_dicts):
       for eventrange in list_of_eventrange_dicts:
          self.append(EventRange.EventRange(eventrange))
 
-   def mark_completed(self,eventRangeID):
-      for i in xrange(len(self.eventranges)):
-         eventrange = self.eventranges[i]
-         if eventrange.id == eventRangeID:
-            logger.debug('removing job index %d',i)
-            eventrange.state = EventRange.EventRange.COMPLETED
-            self.indices_of_completed_ranges.append(i)
-            self.indices_of_assigned_ranges.remove(i)
-            return
-      raise EventRangeIdNotFound('eventRangeID %s not found' % eventRangeID)
+   def change_eventrange_state(self,eventRangeID,new_state):
+      if eventRangeID in self.eventranges:
+         logger.debug('changing id %s to %s',eventRangeID,new_state)
+         eventrange = self.eventranges[eventRangeID]
+         logger.debug('current state of id %s is %s',eventRangeID,eventrange.state)
+         self.ids_by_state[eventrange.state].remove(eventrange.id)
+         eventrange.state = new_state
+         self.ids_by_state[eventrange.state].append(eventrange.id)
+      else:
+         raise EventRangeIdNotFound('eventRangeID %s not found' % eventRangeID)
 
-   def mark_assigned(self.eventRangeID):
-      for i in xrange(len(self.eventranges)):
-         eventrange = self.eventranges[i]
-         if eventrange.id == eventRangeID:
-            logger.debug('removing job index %d',i)
-            eventrange.state = EventRange.EventRange.ASSIGNED
-            self.indices_of_assigned_ranges.append(i)
-            return
-      raise EventRangeIdNotFound('eventRangeID %s not found' % eventRangeID)
+   def mark_completed(self,eventRangeID):
+      logger.debug('marking eventRangeID %s as completed',eventRangeID)
+      self.change_eventrange_state(eventRangeID,EventRange.EventRange.COMPLETED)
+
+   def mark_assigned(self,eventRangeID):
+      logger.debug('marking eventRangeID %s as assigned',eventRangeID)
+      self.change_eventrange_state(eventRangeID,EventRange.EventRange.ASSIGNED)
 
    def get_next(self,number_of_ranges=1):
       ''' method for retrieving number_of_ranges worth of event ranges,
           which will be marked as 'assigned'
       '''
-      if self.next_ready >= len(self.eventranges):
-         raise NoMoreEventRanges(' next_ready = %d; len(eventranges) = %d' % (self.next_ready,len(self.eventranges)))
-      if self.next_ready + number_of_ranges > len(self.eventranges):
+      logger.debug('getting %d event ranges.',number_of_ranges)
+      if self.number_ready() <= 0:
+         raise NoMoreEventRanges(' number ready = %d; len(eventranges) = %d' % (self.number_ready(),len(self.eventranges)))
+      if self.number_ready() < number_of_ranges:
          raise RequestedMoreRangesThanAvailable
       output = []
-      for i  in range(self.next_ready,self.next_ready+number_of_ranges):
-         eventRange = self.eventranges[i]
-         eventRange.state = EventRange.EventRange.ASSIGNED
-         self.indices_of_assigned_ranges.append(i)
-         output.append(eventRange.get_dict())
-      self.next_ready += number_of_ranges
+      for i  in range(number_of_ranges):
+         # pop one id off the ready list
+         id = self.ids_by_state[EventRange.EventRange.READY].pop()
 
+         # add the dictionary from the event range for that id to the output
+         output.append(self.eventranges[id].get_dict())
+         self.eventranges[id].set_assigned()
+         self.ids_by_state[EventRange.EventRange.ASSIGNED].append(id)
+
+         logger.debug('marked id %s as assigned',id)
+      
       return output
 
    def __add__(self,other):
       if isinstance(other,EventRangeList):
          newone = EventRangeList()
-         
-         # combine range lists, ording by state
-         # get all ranges in ready state
-         ranges_by_state = {}
-         for state in EventRange.EventRange.STATES:
-            # get all EventRange objects from self in this state
-            ranges_by_state[state] = [x for x in self.eventranges if x.state == state]
-            # add all EventRange objects from other in this state
-            ranges_by_state[state] += [x for x in other.eventranges if x.state == state]
 
-         # use order of EventRange.EventRange.STATES to organize the new list
+         # combine range lists
+         for eventrangeid,eventrange in self.iteritems():
+            newone.append(eventrange)
+         for eventrangeid,eventrange in other.iteritems():
+            newone.append(eventrange)
+         
+         # combine the lists of ids_by_state
          for state in EventRange.EventRange.STATES:
-            # if this is the READY state, set the new index
-            if state == EventRange.EventRange.READY:
-               newone.ready_index = len(newone.eventranges)
-            elif state == EventRange.EventRange.ASSIGNED:
-               newone.indices_of_assigned_ranges += range(len(newone.eventranges),len(newone.eventranges)+len(ranges_by_state[state]))
-            elif state == EventRange.EventRange.COMPLETED:
-               newone.indices_of_completed_ranges += range(len(newone.eventranges),len(newone.eventranges)+len(ranges_by_state[state]))
-            newone.eventranges += ranges_by_state[state]
+            newone.ids_by_state[state] = self.ids_by_state[state] + other.ids_by_state[state]
 
          return newone
       else:
@@ -114,20 +113,30 @@ class EventRangeList(object):
 
    def append(self,eventRange):
       if isinstance(eventRange,EventRange.EventRange):
-         self.eventranges.append(eventRange)
+         self.eventranges[eventRange.id] = eventRange
+         self.ids_by_state[eventRange.state].append(eventRange.id)
       else:
          raise TypeError('object is not of type EventRange: %s' % type(eventRange).__name__)
 
 
-   def pop(self,key=None):
-      return self.eventranges.pop(key)
-   def remove(self,value):
-      self.remove(value)
+   def pop(self,key,default=None):
+      return self.eventranges.pop(key,default)
+   def iteritems(self):
+      return self.eventranges.iteritems()
+   def keys(self):
+      return self.eventranges.keys()
+   def values(self):
+      return self.eventranges.values()
+   def get(self,key,default=None):
+      return self.eventranges.get(key,default)
+   def has_key(self,key):
+      return self.eventranges.has_key(key)
+
    def __iter__(self,key):
       return iter(self.eventranges)
    def __len__(self):
       return len(self.eventranges)
-   def __getitem(self,key):
+   def __getitem__(self,key):
       return self.eventranges[key]
    def __setitem__(self,key,value):
       if isinstance(value,EventRange.EventRange):
@@ -136,6 +145,8 @@ class EventRangeList(object):
          raise TypeError('object is not of type EventRange: %s' % type(eventRange).__name__)
    def __delitem__(self,key):
       del self.eventranges[key]
+   def __contains__(self,key):
+      return self.eventranges.__contains__(key)
 
 
 # testing this thread

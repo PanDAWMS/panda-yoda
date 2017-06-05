@@ -1,7 +1,10 @@
-import os,sys,logging,threading,subprocess,time
+import os,sys,logging,threading,subprocess,time,shutil
 from mpi4py import MPI
 from pandayoda.common import MessageTypes,SerialQueue,yoda_droid_messenger as ydm
 logger = logging.getLogger(__name__)
+
+
+config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
 class JobManager(threading.Thread):
    ''' JobManager: This Thread will launch the ATLAS Transform and monitor it 
@@ -78,22 +81,13 @@ class JobManager(threading.Thread):
 
    
 
-   def __init__(self,queues,config,
-                loopTimeout            = 30,
-                droidSubprocessStdout  = 'droid_job_r{rank}_jid{PandaID}.stdout',
-                droidSubprocessStderr  = 'droid_job_r{rank}_jid{PandaID}.stderr',
-                testing                = False):
+   def __init__(self,config,queues,working_path):
       ''' 
-         queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send 
+        queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send 
                      messages to other Droid components about errors, etc.
-         config: The Yoda ConfigParser handle to get configuration information.
-         loopTimeout: A positive number of seconds to wait between loop execution.
-         droidSubprocessStdout: pipe subprocess stdout to this filename, this can 
-                     use python string format keys 'rank' and 'PandaID' to insert the 
-                     Droid rank number and the current panda job id.
-         droidSubprocessStderr: pipe subprocess stderr to this filename, this can 
-                     use python string format keys 'rank' and 'PandaID' to insert the 
-                     Droid rank number and the current panda job id.'''
+        config: the ConfigParser handle for yoda
+        working_path: the path where athena will execute
+        '''
       # call base class init function
       super(JobManager,self).__init__()
 
@@ -103,18 +97,14 @@ class JobManager(threading.Thread):
       # ConfigParser handle for getting configuraiton information
       self.config                = config
 
-      # the timeout duration when attempting to retrieve an input message
-      self.loopTimeout           = loopTimeout
+      # working path for athenaMP
+      self.working_path          = working_path
 
       # get current rank
       self.rank                  = MPI.COMM_WORLD.Get_rank()
 
       # the prelog is just a string to attach before each log message
       self.prelog                = 'Rank %03i:' % self.rank
-
-      # subprocess STDOUT/STDERR will be piped to these files
-      self.droidSubprocessStdout = droidSubprocessStdout
-      self.droidSubprocessStderr = droidSubprocessStderr
 
       # this is used to trigger the thread exit
       self.exit = threading.Event()
@@ -126,6 +116,35 @@ class JobManager(threading.Thread):
 
    def run(self):
       ''' this is the main function run as a thread when the user calls jobManager_instance.start()'''
+      if self.rank == 0:
+         logger.debug('%s config_section: %s',self.prelog,config_section)
+
+      # get loop_timeout
+      if self.config.has_option(config_section,'loop_timeout'):
+         loop_timeout = self.config.getfloat(config_section,'loop_timeout')
+      else:
+         logger.error('%s must specify "loop_timeout" in "%s" section of config file',self.prelog,config_section)
+         return
+      if self.rank == 0:
+         logger.info('%s JobManager loop_timeout: %d',self.prelog,loop_timeout)
+
+      # get droidSubprocessStdout
+      if self.config.has_option(config_section,'droidSubprocessStdout'):
+         self.droidSubprocessStdout = self.config.get(config_section,'droidSubprocessStdout')
+      else:
+         logger.error('%s must specify "droidSubprocessStdout" in "%s" section of config file',self.prelog,config_section)
+         return
+      if self.rank == 0:
+         logger.info('%s JobManager droidSubprocessStdout: %s',self.prelog,self.droidSubprocessStdout)
+
+      # get droidSubprocessStderr
+      if self.config.has_option(config_section,'droidSubprocessStderr'):
+         self.droidSubprocessStderr = self.config.get(config_section,'droidSubprocessStderr')
+      else:
+         logger.error('%s must specify "droidSubprocessStderr" in "%s" section of config file',self.prelog,config_section)
+         return
+      if self.rank == 0:
+         logger.info('%s JobManager droidSubprocessStderr: %s',self.prelog,self.droidSubprocessStderr)
 
       waiting_for_panda_job = False
       # variable that holds currently running process (Popen object)
@@ -151,7 +170,7 @@ class JobManager(threading.Thread):
             # subprocess is still running so wait for it to join
             if procstatus is None:
                logger.debug('%s wait for subprocess to join',self.prelog)
-               time.sleep(self.loopTimeout)
+               time.sleep(loop_timeout)
             # subprocess completed
             else:
                returncode = procstatus
@@ -190,42 +209,50 @@ class JobManager(threading.Thread):
 
                   # send message to JobComm
                   self.queues['JobComm'].put(msg)
+
+                  # copy input files to working_path
+                  for file in msg['job']['inFiles'].split(','):
+                     logger.debug('copying input file "%s" to working path %s',os.path.join(os.getcwd(),file),self.working_path)
+                     shutil.copy(os.path.join(os.getcwd(),file),self.working_path)
                   
                   # start the new subprocess
-                  jobproc = self.start_new_subprocess(msg['job'])
+                  jobproc = self.start_new_subprocess(msg['job'],self.working_path)
                   job_request = None
+
                else:
                   logger.error('%s no job found in yoda response: %s',self.prelog,msg)
                   job_request = None
             # did not receive job, so sleep
             else:
-               logger.debug('%s no job yet received, sleeping %d ',self.prelog,self.loopTimeout)
-               time.sleep(self.loopTimeout)
+               logger.debug('%s no job yet received, sleeping %d ',self.prelog,loop_timeout)
+               time.sleep(loop_timeout)
          
       if jobproc is not None:
          logger.info('%s killing job subprocess.',self.prelog)
          jobproc.kill()
       logger.info('%s JobManager thread exiting',self.prelog)
 
-   def start_new_subprocess(self,new_job):
+   def start_new_subprocess(self,new_job,working_path):
       ''' start the job subprocess, handling the command parsing and log file naming '''
       # parse filenames for the log output and check that they do not exist already
       stdoutfile = self.droidSubprocessStdout.format(rank='%03i'%self.rank,PandaID=new_job['PandaID'])
-      if os.path.exists(stdoutfile):
+      stdoutfile = os.path.join(working_path,stdoutfile)
+      if False: #os.path.exists(stdoutfile): # FIXME: for testing only, so remove later
          raise Exception('%s file already exists %s' % (self.prelog,stdoutfile))
       stderrfile = self.droidSubprocessStderr.format(rank='%03i'%self.rank,PandaID=new_job['PandaID'])
-      if os.path.exists(stderrfile):
+      stderrfile = os.path.join(working_path,stderrfile)
+      if False: #os.path.exists(stderrfile): # FIXME: for testing only, so remove later
          raise Exception('%s file already exists %s' % (self.prelog,stderrfile))
 
       # parse the job into a command
-      cmd = self.create_job_run_script(new_job)
+      cmd = self.create_job_run_script(new_job,working_path)
       logger.debug('%s starting run_script: %s',self.prelog,cmd)
       
-      jobproc = subprocess.Popen(['/bin/bash',cmd],stdout=open(stdoutfile,'w'),stderr=open(stderrfile,'w'))
+      jobproc = subprocess.Popen(['/bin/bash',cmd],stdout=open(stdoutfile,'w'),stderr=open(stderrfile,'w'),cwd=working_path)
 
       return jobproc
 
-   def create_job_run_script(self,new_job):
+   def create_job_run_script(self,new_job,working_path):
       ''' using the template set in the configuration, create a script that 
           will run the panda job with the appropriate environment '''
       template_filename = self.config.get('JobManager','template')
@@ -254,7 +281,7 @@ class JobManager(threading.Thread):
                                  )
 
          script_filename = self.config.get('JobManager','run_script')
-
+         script_filename = os.path.join(working_path,script_filename)
          script_file = open(script_filename,'w')
          script_file.write(script)
          script_file.close()

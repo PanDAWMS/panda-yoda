@@ -52,6 +52,12 @@ class EventRange:
               'startEvent':self.startEvent,'lastEvent':self.lastEvent,
               'GUID':self.GUID}
 
+   def set_assigned(self):
+      self.state = EventRange.ASSIGNED
+
+   def set_completed(self):
+      self.state = EventRange.COMPLETED
+
 # testing this thread
 if __name__ == '__main__':
    import logging,time

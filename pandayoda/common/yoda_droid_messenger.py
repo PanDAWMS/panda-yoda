@@ -17,6 +17,11 @@ FROM_YODA            = 2
 TO_YODA_WORKMANAGER  = 3
 FROM_YODA_WORKMANAGER= 4
 
+TO_DROID             = 5
+FROM_DROID           = 6
+
+TO_YODA              = 7
+FROM_YODA            = 8
 
 
 # droid sends job request to yoda
@@ -63,12 +68,24 @@ def send_droid_no_eventranges_left(droid_rank):
    msg = {'type':MessageTypes.NO_MORE_EVENT_RANGES}
    return send_message(msg,dest=droid_rank,tag=FROM_YODA_WORKMANAGER)
 
-def get_droid_message():
+
+def send_droid_exit(droid_rank):
+   msg = {'type':MessageTypes.DROID_EXIT}
+   return send_message(msg,dest=droid_rank,tag=TO_DROID)
+
+def recv_yoda_message():
+   return receive_message(YODA_RANK,TO_DROID)
+
+def send_droid_has_exited(msg):
+   msg = {'type':MessageTypes.DROID_HAS_EXITED,'message':msg}
+   return send_message(msg,dest=YODA_RANK,tag=FROM_DROID)
+
+
+def get_droid_message_for_yoda():
+   return receive_message(MPI.ANY_SOURCE,TO_YODA)
+
+def get_droid_message_for_workmanager():
    return receive_message(MPI.ANY_SOURCE,TO_YODA_WORKMANAGER)
-
-
-
-
 
 def send_message(data,dest=None,tag=None):
    ''' basic MPI_ISend but mpi4py handles the object tranlation for sending 
