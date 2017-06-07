@@ -34,8 +34,8 @@ def recv_job_request():
    return receive_message(MPI.ANY_SOURCE,tag=TO_YODA_WORKMANAGER)
 
 # droid sends event ranges request to yoda
-def send_eventranges_request(pandaid,taskid):
-   msg = {'type':MessageTypes.REQUEST_EVENT_RANGES,'PandaID':pandaid,'taskID':taskid}
+def send_eventranges_request(pandaid,taskid,athena_proc_number):
+   msg = {'type':MessageTypes.REQUEST_EVENT_RANGES,'PandaID':pandaid,'taskID':taskid,'workers':athena_proc_number}
    return send_message(msg,dest=YODA_RANK,tag=TO_YODA_WORKMANAGER)
 
 # yoda receives event ranges request from droid
@@ -79,6 +79,12 @@ def recv_yoda_message():
 def send_droid_has_exited(msg):
    msg = {'type':MessageTypes.DROID_HAS_EXITED,'message':msg}
    return send_message(msg,dest=YODA_RANK,tag=FROM_DROID)
+
+
+def send_droid_wallclock_expiring(droid_rank):
+   msg = {'type':MessageTypes.WALLCLOCK_EXPIRING}
+   return send_message(msg,dest=droid_rank,tag=TO_DROID)
+
 
 
 def get_droid_message_for_yoda():

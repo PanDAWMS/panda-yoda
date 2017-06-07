@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import os,sys,time,logging,multiprocessing
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,8 @@ class athena_communicator:
 
 
 def athenamp_worker():
+
+   logger.info('start athenamp_worker')
    
    comm = athena_communicator()
 
@@ -69,7 +72,7 @@ def athenamp_worker():
             continue
 
          # received event ranges, sleep for a bit and return the file 
-         time.sleep(30)
+         time.sleep(5)
 
          # return file info
          # "/build1/tsulaia/20.3.7.5/run-es/athenaMP-workers-AtlasG4Tf-sim/worker_1/myHITS.pool.root_000.Range-6,ID:Range-6,CPU:1,WALL:1"
@@ -90,9 +93,18 @@ def athenamp_worker():
 def athenamp():
    # get the number of workers that are suppose to be running
    workers = int(os.environ['ATHENA_PROC_NUMBER'])
+   logger.info('workers %d',workers)
 
-   p = multiprocessing.Pool(workers)
-   p.map(athenamp_worker)
+   procs = []
+   for i in range(workers):
+      p = multiprocessing.Process(target=athenamp_worker)
+      p.start()
+      procs.append(p)
+
+   for p in procs:
+      p.join()
+
+   logger.info('exiting')
 
 
 

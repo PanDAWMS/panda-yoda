@@ -171,6 +171,21 @@ class JobManager(threading.Thread):
          # should block on the joining of that subprocess so that
          # as soon as it is completed, it moves to reqeust more work.
 
+         
+         # check for message from droid
+         try:
+            msg = self.queues['JobManager'].get(block=False)
+            logger.debug('%s received msg: %s',self.prelog,msg)
+            if msg['type'] == MessageTypes.WALLCLOCK_EXPIRING:
+               logger.debug('%s received wallclock expiring message, exiting loop',self.prelog)
+               # set exit flag to exit loop
+               self.stop()
+               break
+         except SerialQueue.Empty:
+            logger.debug('%s no message on queue',self.prelog)
+         
+            
+
 
          # a job subprocess has been started previously
          if jobproc is not None:
@@ -281,8 +296,12 @@ class JobManager(threading.Thread):
 
          # set transformation command
          if self.use_mock_athenamp:
-            transformation = os.path.join(os.path.dirname(os.path.realpath(__file__)),'mock_athenamp.py')
-         else
+            import inspect
+            import pandayoda.droid.mock_athenamp
+            script = inspect.getfile(pandayoda.droid.mock_athenamp).replace('.pyc','.py')
+            #logger.info('script = %s',script)
+            transformation = script
+         else:
             transformation = new_job['transformation']
          
          script = template.format(transformation=transformation,
@@ -328,11 +347,18 @@ if __name__ == '__main__':
    config = ConfigParser.ConfigParser()
    config.read(args.yoda_config)
 
+   config.set('JobManager','use_mock_athenamp','true')
+
    queues = {'JobComm':SerialQueue.SerialQueue(),'JobManager':SerialQueue.SerialQueue()}
 
-   jm = JobManager(queues,config,5)
+   # create droid working path
+   droid_working_path = os.path.join(args.jobWorkingDir,'droid')
+   if not os.path.exists(droid_working_path):
+      os.makedirs(droid_working_path)
 
+   jm = JobManager(config,queues,droid_working_path)
    jm.start()
+
    n = 0
    while True:
       logger.info('start loop')
@@ -347,6 +373,15 @@ if __name__ == '__main__':
 
       if msg['type'] == MessageTypes.REQUEST_JOB:
          logger.info('Yoda received request for new job')
+
+         if n > 1: # already sent a job, test exit
+            ydm.send_droid_no_job_left(status.Get_source())
+            break
+
+         # create a dummy input file
+         inputfilename = 'EVNT.06402143._000615.pool.root.1'
+         if not os.path.exists(inputfilename):
+            os.system('echo "dummy_data" > ' + inputfilename)
          job = {
       "PandaID": str(n), #str(int(time.time())), #"3298217817",
       "GUID": "BEA4C016-E37E-0841-A448-8D664E8CD570",

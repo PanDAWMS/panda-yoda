@@ -6,9 +6,6 @@ export ATHENA_PROC_NUMBER=2 # 64 AthenaMP workers per node
 
 export HARVESTER_DIR=/projects/AtlasADSP/atlas/harvester
 export PILOT_DIR=/projects/AtlasADSP/atlas/pilot
-#export YODA_DIR=$HARVESTER_DIR/panda-yoda
-#export YAMPL_DIR=/projects/AtlasADSP/atlas/harvester/yampl/install/lib
-#export YAMPL_PY_DIR=/projects/AtlasADSP/atlas/harvester/python-yampl/build/lib.linux-x86_64-2.7
 
 export RUCIO_ACCOUNT=childers
 export RUCIO_APPID={processingType}
@@ -16,7 +13,7 @@ export FRONTIER_ID="[{taskID}_{pandaID}]"
 export CMSSW_VERSION=$FRONTIER_ID
 
 export X509_USER_PROXY=$HARVESTER_DIR/globus/$USER/myproxy
-#export X509_CERT_DIR=
+
 
 echo ATHENA_PROC_NUMBER:   $ATHENA_PROC_NUMBER
 echo HARVESTER_DIR:        $HARVESTER_DIR
@@ -29,6 +26,9 @@ echo X509_CERT_DIR:        $X509_CERT_DIR
 echo [$SECONDS] Setting up AtlasLocalRootBase
 source /projects/AtlasADSP/atlas/setup_atlaslocalrootbase.sh
 localSetupRucioClients
+
+# add this for mpi4py
+export PYTHONPATH=$PYTHONPATH:/projects/AtlasADSP/atlas/harvester/lib/python2.7/site-packages
 
 
 echo [$SECONDS] Setting up Atlas Software

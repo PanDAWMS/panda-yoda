@@ -81,7 +81,10 @@ class FileManager(threading.Thread):
                   logger.error('%s input filename does not exist: %s',self.prelog,message['filename'])
                elif not os.path.exists(self.yoda_working_path):
                   logger.error('%s output file path does not exist: %s',self.prelog,self.yoda_working_path)
-
+            elif message['type'] == MessageTypes.WALLCLOCK_EXPIRING:
+               logger.debug('%s received wallclock expiring message',self.prelog)
+               self.stop()
+               break
             else:
                logger.error('%s message type is incorrect: %s ',message['type'])
 

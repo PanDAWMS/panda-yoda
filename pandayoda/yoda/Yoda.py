@@ -64,9 +64,19 @@ class Yoda(threading.Thread):
          return
       logger.info('%s loop_timeout: %d',config_section,loop_timeout)
 
+      # read wallclock leadtime which sets how far from the end of 
+      # the wallclock yoda should initiate droids to exit
+      if self.config.has_option(config_section,'wallclock_expiring_leadtime'):
+         wallclock_expiring_leadtime = self.config.getfloat(config_section,'wallclock_expiring_leadtime')
+      else:
+         logger.error('must specify "wallclock_expiring_leadtime" in "%s" section of config file',config_section)
+         return
+      logger.info('%s wallclock_expiring_leadtime: %d',config_section,wallclock_expiring_leadtime)
+      # flag to keep track of whether we are inside teh wallclock expiring limit
+      inside_wallclock_leadtime = False
+
       # create queues for subthreads to send messages out
-      queues = {}
-      queues['WorkManager']      = SerialQueue.SerialQueue()
+      queues = {'WorkManager':SerialQueue.SerialQueue()}
       
       # a dictionary of subthreads
       subthreads = {}
@@ -81,15 +91,32 @@ class Yoda(threading.Thread):
       # start message loop
       while not self.exit.isSet():
          logger.debug('start loop')
+
+         # check for wallclock expiring
+         if self.wall_clock_limit > 0:
+            running_time = time.time() - self.start_time
+            timeleft = self.wall_clock_limit - running_time
+            if timeleft < wallclock_expiring_leadtime:
+               logger.debug('time left %d is less than the leadtime %d, triggering exit.',timeleft,wallclock_expiring_leadtime)
+               # set flag
+               inside_wallclock_leadtime = True
+               # time to send message to Droid ranks to exit
+               for ranknum in range(MPI.COMM_WORLD.Get_size()):
+                  ydm.send_droid_wallclock_expiring(ranknum).wait()
+         else:
+            logger.debug('no wallclock limit set, no exit will be triggered')
          
          # check for message from Droids
          if droid_msg_request is None:
+            logger.debug('requesting MPI message from droids')
             droid_msg_request = ydm.get_droid_message_for_yoda()
          # check if message has been received
-         if droid_msg_request:
+         else:
+            logger.debug('checking MPI request for message from droids')
             status = MPI.Status()
             msg_received,msg = droid_msg_request.test(status=status)
             if msg_received:
+               logger.debug('received MPI messsage %s',msg)
                if msg['type'] == MessageTypes.DROID_HAS_EXITED:
                   logger.debug(' droid rank %d has exited',status.Get_source())
                else:
@@ -97,10 +124,13 @@ class Yoda(threading.Thread):
 
                # reset message
                droid_msg_request = None
+            else:
+               logger.debug('waiting for MPI message')
 
 
 
          # check the status of each subthread
+         logger.debug('checking all threads still alive')
          keys = subthreads.keys()
          for name in keys:
             thread = subthreads[name]
@@ -118,8 +148,8 @@ class Yoda(threading.Thread):
       
       # send the exit signal to all droid ranks
       logger.info('sending exit signal to droid ranks')
-      for i in range(MPI.COMM_WORLD.Get_size()):
-         ydm.send_droid_exit(i)
+      for ranknum in range(MPI.COMM_WORLD.Get_size()):
+         ydm.send_droid_exit(ranknum).wait()
 
       # send the exit signal to all subthreads
       logger.info('sending exit signal to subthreads')

@@ -1,6 +1,6 @@
 import logging,threading,os,time
 from mpi4py import MPI
-from pandayoda.common import yoda_droid_messenger as ydm,SerialQueue
+from pandayoda.common import yoda_droid_messenger as ydm,SerialQueue,MessageTypes
 from pandayoda.droid import JobManager,JobComm,FileManager
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ class Droid(threading.Thread):
       super(Droid,self).__init__()
 
       # configuration of Yoda
-      self.config          = config
+      self.config                = config
 
       # get current rank
       self.rank                  = MPI.COMM_WORLD.Get_rank()
@@ -87,22 +87,45 @@ class Droid(threading.Thread):
 
          # check for exit message
          if yoda_recv is None:
-            logger.debug('%s requesting message from yoda',self.prelog)
+            logger.debug('%s requesting message via MPI',self.prelog)
             yoda_recv = ydm.recv_yoda_message()
          else:
-            logger.debug('%s testing for message from yoda',self.prelog)
-            msg_received,msg = yoda_recv.test()
+            logger.debug('%s testing for message via MPI',self.prelog)
+            try:
+               msg_received,msg = yoda_recv.test()
+            except:
+               logger.exception('%s error running test on MPI request: %s',self.prelog,yoda_recv)
+               logger.warning('%s trying to test mpi request again',self.prelog)
+               msg_received,msg = yoda_recv.test()
+               if msg_received and msg is None:
+                  logger.error('%s failed to retrieve message via MPI, reseting reqeust and continuing',self.prelog)
+                  yoda_recv = None
+                  continue
             if msg_received:
-               logger.debug('%s received message from yoda: %s',self.prelog,msg)
+               logger.debug('%s received MPI message: %s',self.prelog,msg)
                if msg['type'] == MessageTypes.DROID_EXIT:
                   logger.debug('%s received exit message signaling stop',self.prelog)
                   self.stop()
                   continue
+               if msg['type'] == MessageTypes.WALLCLOCK_EXPIRING:
+                  logger.debug('%s received wallclock expiring message',self.prelog)
+                  # set flag for stop
+                  self.stop()
+                  # if there are subthreads, tell them to exit
+                  for name,thread in subthreads.iteritems():
+                     if thread.isAlive():
+                        self.queues.put(msg)
+                  # wait for subthreads to exit
+                  for name,thread in subthreads.iteritems():
+                     thread.join()
+
                else:
                   logger.error('%s failed to parse message from Yoda: %s',self.prelog,msg)
 
                # reset message
                yoda_recv = None
+            else:
+               logger.debug('%s no messages via MPI',self.prelog)
 
 
          # check the status of each subthread

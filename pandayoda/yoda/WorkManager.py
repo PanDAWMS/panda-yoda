@@ -1,6 +1,6 @@
 import os,sys,threading,logging,importlib,time
 from mpi4py import MPI
-from pandayoda.common import MessageTypes,SerialQueue,EventRangeList
+from pandayoda.common import MessageTypes,SerialQueue,EventRangeList,exceptions
 from pandayoda.common import yoda_droid_messenger as ydm
 logger = logging.getLogger(__name__)
 
@@ -53,8 +53,6 @@ class WorkManager(threading.Thread):
       eventranges                = {}
       # flag to indicate the need for a job request
       need_job_request           = True
-      # flag to indicate the need for event ranges
-      need_event_ranges          = True
       # flag to indicate there are no more jobs
       no_more_jobs               = False
       # flag to indicate there are no more event ranges
@@ -109,7 +107,7 @@ class WorkManager(threading.Thread):
             logger.debug('do not need to request job')
 
          # if we need an event range request, request one
-         if need_event_ranges and not no_more_event_ranges:
+         if self.number_eventranges_ready(eventranges) <= 0 and not no_more_event_ranges:
             logger.debug('checking for event range')
 
             # if job_request has not been created, create it
@@ -122,14 +120,14 @@ class WorkManager(threading.Thread):
             if not eventrange_request.isAlive():
                logger.debug('event range request has completed')
                try:
-                  msg = eventrange_request.queue.get(block=False)
+                  eventrr_msg = eventrange_request.queue.get(block=False)
                except SerialQueue.Empty:
                   logger.error('event range request queue is empty')
                else:
-                  logger.debug('received message from get event range request: %s',msg)
-                  if msg['type'] == MessageTypes.NEW_EVENT_RANGES:
+                  logger.debug('received message from get event range request: %s',eventrr_msg)
+                  if eventrr_msg['type'] == MessageTypes.NEW_EVENT_RANGES:
                      logger.debug('received new event range')
-                     for jobid,list_of_eventranges in msg['eventranges'].iteritems():
+                     for jobid,list_of_eventranges in eventrr_msg['eventranges'].iteritems():
                         if jobid in eventranges:
                            eventranges[jobid] += EventRangeList.EventRangeList(list_of_eventranges)
                         else:
@@ -137,7 +135,7 @@ class WorkManager(threading.Thread):
                      
 
                      need_event_ranges = False
-                  elif msg['type'] == MessageTypes.NO_MORE_EVENT_RANGES:
+                  elif eventrr_msg['type'] == MessageTypes.NO_MORE_EVENT_RANGES:
                      logger.debug('receive no more event ranges message')
                      no_more_event_ranges = True
                   else:
@@ -151,75 +149,95 @@ class WorkManager(threading.Thread):
 
 
          # if there is work to hand out, check for messages from droid ranks
-         if len(pandajobs) > 0 and len(eventranges) > 0:
-            logger.debug('checking for droid messages')
-            # check for in coming message from droids
-            if droid_msg_request is None:
-               logger.debug('requesting new message from droid')
-               droid_msg_request = ydm.get_droid_message_for_workmanager()
-
-            if droid_msg_request:
-               logger.debug('checking request for message from droid')
-               # test for a message
-               status = MPI.Status()
-               msg_received,droid_msg = droid_msg_request.test(status=status)
-               if msg_received:
-                  source_rank = status.Get_source()
-                  logger.debug('received message from droid rank %d: %s',source_rank,droid_msg)
-
-                  if droid_msg['type'] == MessageTypes.REQUEST_JOB:
-                     logger.debug('received request for new job')
-
-                     # check to see what events I have left to do and to which job they belong
-                     # then decide which job description to send the droid rank
-
-                     # if there is only one job, send it
-                     if len(pandajobs) == 1:
-                        jobid = pandajobs.keys()[0]
-                     # if there are no jobs, add this rank to the queue of jobs waiting for a new job
-                     elif len(pandajobs) == 0:
-                        droids_waiting_for_job.append(source_rank)
-                     # if there is more than one panda job, decide which job to send
-                     else:
-                        jobid = self.get_jobid_with_minimum_ready(eventranges)
-
-                     # send job to Droid
-                     logger.debug('sending new job to droid rank %d',source_rank)
-                     ydm.send_droid_new_job(pandajobs[jobid],source_rank)
-                     
-
-
-                  elif droid_msg['type'] == MessageTypes.REQUEST_EVENT_RANGES:
-                     logger.debug('received request for new event ranges')
-
-                     # check the job definition which is already running on this droid rank
-                     # see if there are more events to be dolled out
-
-                     # the droid sent the current running panda id, determine if there are events left for this panda job
-                     droid_jobid = droid_msg['PandaID']
-                     if eventranges[droid_jobid].number_ready() > 0:
-                        local_eventranges = eventranges[droid_jobid].get_next()
-
-                        # send event ranges to Droid
-                        logger.debug('sending new event range to droid rank %d',source_rank)
-                        ydm.send_droid_new_eventranges(local_eventranges,source_rank)
-
-                  else:
-                     logger.error('Failed to parse message from droid rank %d: %s',source_rank,droid_msg)
-
-                  # reset message request
-                  droid_msg_request = None
-               else:
-                  logger.debug('waiting for message from droid')
-            else:
-               logger.debug('no messages from droid')
+         logger.debug('checking for droid messages')
+         # check for in coming message from droids
+         if droid_msg_request is None:
+            logger.debug('requesting new message from droid')
+            droid_msg_request = ydm.get_droid_message_for_workmanager()
          else:
-            logger.debug('no work to do so no need to get Droid messages')
+            logger.debug('checking request for message from droid')
+            # test for a message
+            status = MPI.Status()
+            msg_received,droid_msg = droid_msg_request.test(status=status)
+            if msg_received:
+               source_rank = status.Get_source()
+               logger.debug('received message from droid rank %d: %s',source_rank,droid_msg)
+
+               if droid_msg['type'] == MessageTypes.REQUEST_JOB:
+                  logger.debug('received request for new job')
+
+                  # check to see what events I have left to do and to which job they belong
+                  # then decide which job description to send the droid rank
+
+                  # if there is only one job, send it
+                  if len(pandajobs) == 1:
+                     jobid = pandajobs.keys()[0]
+                     logger.debug('only one job so sending it')
+                  # if there are no jobs, add this rank to the queue of jobs waiting for a new job
+                  elif len(pandajobs) == 0:
+                     logger.debug('no job available yet. try next loop')
+                     continue
+                  # if there is more than one panda job, decide which job to send
+                  else:
+                     jobid = self.get_jobid_with_minimum_ready(eventranges)
+
+                  # send job to Droid
+                  logger.debug('sending new job to droid rank %d',source_rank)
+                  ydm.send_droid_new_job(pandajobs[jobid],source_rank)
+                  
+                  # reset message request since we addressed the message
+                  droid_msg_request = None
+
+
+               elif droid_msg['type'] == MessageTypes.REQUEST_EVENT_RANGES:
+                  logger.debug('received request for new event ranges')
+
+                  # check the job definition which is already running on this droid rank
+                  # see if there are more events to be dolled out
+
+                  # send the number of event ranges equal to the number of Athena workers
+
+                  # the droid sent the current running panda id, determine if there are events left for this panda job
+                  droid_jobid = droid_msg['PandaID']
+                  if eventranges[droid_jobid].number_ready() > 0:
+                     if eventranges[droid_jobid].number_ready() >= droid_msg['workers']:
+                        local_eventranges = eventranges[droid_jobid].get_next(droid_msg['workers'])
+                     else:
+                        local_eventranges = eventranges[droid_jobid].get_next(eventranges[droid_jobid].number_ready())
+                     
+                     # send event ranges to Droid
+                     logger.debug('sending %d new event ranges to droid rank %d',len(local_eventranges),source_rank)
+                     ydm.send_droid_new_eventranges(local_eventranges,source_rank)
+                  elif no_more_event_ranges:
+                     logger.debug('no more event ranges, sending message to droid ranks')
+                     ydm.send_droid_no_eventranges_left(source_rank)
+                  else:
+                     logger.debug('droid rank %d asking for eventranges, but no event ranges left in local list, should request for more events from harvester')
+                     continue
+
+                  # reset message request since we addressed the message
+                  droid_msg_request = None
+
+               else:
+                  logger.error('Failed to parse message from droid rank %d: %s',source_rank,droid_msg)
+
+                  # reset message request since we can't parse the message
+                  droid_msg_request = None
+               
+            else:
+               logger.debug('waiting for message from droid')
+         
+         
          time.sleep(loop_timeout)
       logger.info('WorkManager is exiting')
 
+   def number_eventranges_ready(self,eventranges):
+      total = 0
+      for id,range in eventranges.iteritems():
+         total += range.number_ready()
+      return total
 
-   def get_jobid_with_minimum_ready(eventranges):
+   def get_jobid_with_minimum_ready(self,eventranges):
       
       # loop over event ranges, count the number of ready events
       job_id = 0
@@ -308,12 +326,16 @@ class GetEventRanges(HarvesterRequest):
       messenger.setup(self.config)
 
       # get panda jobs from Harvester
-      eventranges = messenger.get_eventranges()
-
-      if len(eventranges) == 0:
-         self.queue.put({'type':MessageTypes.NO_MORE_EVENT_RANGES})
+      try:
+         eventranges = messenger.get_eventranges()
+      except exceptions.MessengerEventRangesAlreadyRequested:
+         self.queue.put({'type':MessageTypes.REQUEST_PENDING})
       else:
-         self.queue.put({'type':MessageTypes.NEW_EVENT_RANGES,'eventranges':eventranges})
+
+         if len(eventranges) == 0:
+            self.queue.put({'type':MessageTypes.NO_MORE_EVENT_RANGES})
+         else:
+            self.queue.put({'type':MessageTypes.NEW_EVENT_RANGES,'eventranges':eventranges})
 
 
 

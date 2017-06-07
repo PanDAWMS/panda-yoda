@@ -1,4 +1,4 @@
-import os,sys,logging,threading,subprocess,time
+import os,sys,logging,threading,subprocess,time,multiprocessing
 logger = logging.getLogger(__name__)
 
 from pandayoda.common import MessageTypes,serializer,SerialQueue,EventRangeList
@@ -107,7 +107,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
       # this flag is set when it has been determined that the thread can exit
       # after all event ranges have been processed
-      waiting_to_exit = False
+      no_more_eventranges = False
 
       # this is the current yampl message from AthenaMP which requires a response
       # if it is set to None, a new message will be requested
@@ -116,6 +116,9 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       # this variable holds the current EventRangeRetriever thread object
       # when it is being used, otherwise it is set to None
       eventRangeRetriever = None
+
+      # this holds the most recent message received from the event range receiver
+      evtrr_msg = None
 
       while not self.exit.isSet():
          logger.debug('%s start loop: n-ready: %d n-processing: %d',
@@ -131,6 +134,14 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                   current_job = qmsg['job']
                else:
                   logger.error('%s Received message of NEW_JOB type but no job in message: %s',self.prelog,qmsg)
+            elif qmsg['type'] == MessageTypes.WALLCLOCK_EXPIRING:
+               logger.debug('%s received wallclock expiring message',self.prelog)
+               # stop eventRangeretriever if it is running
+               if eventRangeRetriever is not None and eventRangeRetriever.isAlive():
+                  eventRangeRetriever.stop()
+               # set exit for loop and continue
+               self.stop()
+               break
             else:
                logger.error('%s Received message of unknown type: %s',self.prelog,qmsg)
          except SerialQueue.Empty:
@@ -154,21 +165,21 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
             if not eventRangeRetriever.isAlive():
                logger.debug('%s EventRangeRetriever has completed',self.prelog)
                try:
-                  msg = eventRangeRetriever.queue.get(block=False)
+                  evtrr_msg = eventRangeRetriever.queue.get(block=False)
                except SerialQueue.Empty:
                   logger.error('%s EventRangeRetriever queue was empty after completion.',self.prelog)
+                  evtrr_msg = None
                # parse message
-               logger.debug('%s received msg from EventRangeRetriever: %s',self.prelog,msg)
-               if msg['type'] == MessageTypes.NEW_EVENT_RANGES:
+               logger.debug('%s received msg from EventRangeRetriever: %s',self.prelog,evtrr_msg)
+               if evtrr_msg['type'] == MessageTypes.NEW_EVENT_RANGES:
                   logger.debug('%s received new event ranges, adding them to the local list',self.prelog)
-                  eventranges += EventRangeList.EventRangeList(msg['eventranges'])
-               elif msg['type'] == EventRangeRetriever.NoMoreEventRangesToProcess:
+                  eventranges += EventRangeList.EventRangeList(evtrr_msg['eventranges'])
+               elif evtrr_msg['type'] == MessageTypes.NO_MORE_EVENTRANGES:
                   logger.debug('%s received message from Yoda that there are no more event ranges, so signaling to exit when all work is done.',self.prelog)
-                  waiting_to_exit = True
-               elif msg['type'] == EventRangeRetriever.MalformedMessageFromYoda:
-                  logger.error('%s received malformed message from yoda: %s',self.prelog,msg['msg'])
-               elif msg['type'] == EventRangeRetriever.FailedToParseYodaMessage:
-                  logger.error('%s received message from yoda but could not parse it: %s',self.prelog,msg['msg'])
+               elif evtrr_msg['type'] == EventRangeRetriever.MalformedMessageFromYoda:
+                  logger.error('%s received malformed message from yoda: %s',self.prelog,evtrr_msg['msg'])
+               elif evtrr_msg['type'] == EventRangeRetriever.FailedToParseYodaMessage:
+                  logger.error('%s received message from yoda but could not parse it: %s',self.prelog,evtrr_msg['msg'])
 
                # reset thread variable so another can be started
                eventRangeRetriever = None
@@ -176,13 +187,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                logger.debug('%s EventRangeRetriever is still running, will check next loop',self.prelog)
 
          
-         # check if we should exit
-         if waiting_to_exit and eventranges.number_processing() <= 0:
-            if eventRangeRetriever is not None and eventRangeRetriever.isAlive(): 
-               eventRangeRetriever.stop()
-            self.stop()
-            continue
-
+         
          # receive a message from AthenaMP if we are not already processing one
          if athenamp_msg is None:
             logger.debug('%s getting new message from AthenaMP',self.prelog)
@@ -202,21 +207,24 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                # no more event ranges available
                except EventRangeList.NoMoreEventRanges:
                   logger.debug('%s there are no more event ranges to process',self.prelog)
-                  # if the waiting_to_exit flag is set, then tell the AthenaMP worker there are no more events
-                  if waiting_to_exit:
+                  # if we have been told there are no more eventranges, then tell the AthenaMP worker there are no more events
+                  if evtrr_msg is not None and evtrr_msg['type'] == EventRangeRetriever.NoMoreEventRangesToProcess:
+                     logger.debug('%s sending AthenaMP NO_MORE_EVENTS',self.prelog)
                      comm.send(JobComm.NO_MORE_EVENTS)
                   # otherwise continue the loop so more events will be requested
                   else:
-                     time.sleep(1)
+                     # sleep to avoid overloading CPU
+                     time.sleep(loop_timeout)
                      continue
                # something wrong with the index in the EventRangeList index
                except EventRangeList.RequestedMoreRangesThanAvailable:
                   logger.error('%s requested more event ranges than available',self.prelog)
                   continue
-
-               logger.debug('%s sending eventranges to AthenaMP: %s',self.prelog,local_eventranges)
-               # send AthenaMP the new event ranges
-               comm.send(serializer.serialize(local_eventranges))
+               else:
+                  logger.debug('%s sending eventranges to AthenaMP: %s',self.prelog,local_eventranges)
+                  # send AthenaMP the new event ranges
+                  comm.send(serializer.serialize(local_eventranges))
+               
                # reset the message so a new one will be recieved
                athenamp_msg = None
 
@@ -328,7 +336,8 @@ class EventRangeRetriever(threading.Thread):
       if self.rank == 0:
          logger.debug('%s requesting event ranges',self.prelog)
       # ask Yoda to send event ranges
-      request = ydm.send_eventranges_request(self.job_def['PandaID'],self.job_def['taskID'])
+      workers = os.environ.get('ATHENA_PROC_NUMBER',multiprocessing.cpu_count())
+      request = ydm.send_eventranges_request(self.job_def['PandaID'],self.job_def['taskID'],workers)
       # wait for yoda to receive message
       request.wait()
       
@@ -357,7 +366,7 @@ class EventRangeRetriever(threading.Thread):
       elif yoda_msg['type'] == MessageTypes.NO_MORE_EVENT_RANGES:
          # no more event ranges left
          logger.debug('%s no more events from yoda %s',self.prelog,yoda_msg)
-         self.queue.put({'type':self.NoMoreEventRangesToProcess,'msg':yoda_msg})
+         self.queue.put(yoda_msg)
          return
       else:
          logger.debug('%s failed to parse Yoda message: %s',self.prelog,yoda_msg)

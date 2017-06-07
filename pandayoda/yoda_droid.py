@@ -13,7 +13,8 @@ config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.
 def yoda_droid(working_path,
                config_filename,
                wall_clock_limit,
-               start_time = time.time()):
+               start_time = time.time(),
+               test_without_harvester = False):
    
    # dereference any links on the working path
    working_path = os.path.normpath(working_path)
@@ -49,6 +50,11 @@ def yoda_droid(working_path,
    else:
       logger.error('Rank %d: failed to parse config file: %s',mpirank,config_filename)
       return
+
+   if test_without_harvester:
+      config.set('yoda_droid','test_without_harvester','true')
+   else:
+      config.set('yoda_droid','test_without_harvester','true')
 
    # track starting path
    starting_path = os.path.normpath(os.getcwd())
@@ -113,7 +119,8 @@ def main():
    oparser.add_argument('--debug', dest='debug', default=False, action='store_true', help="Set Logger to DEBUG")
    oparser.add_argument('--error', dest='error', default=False, action='store_true', help="Set Logger to ERROR")
    oparser.add_argument('--warning', dest='warning', default=False, action='store_true', help="Set Logger to ERROR")
-   
+
+   oparser.add_argument('--test-without-harvester', dest='test_without_harvester', default=False, action='store_true', help="For testing purposes. If running without harvester. This flag will turn on some behaviors to correct for the fact that Harvester is not present.")
    
    args = oparser.parse_args()
 
@@ -147,7 +154,8 @@ def main():
    yoda_droid(args.working_path,
               args.yoda_config,
               args.wall_clock_limit,
-              start_time)
+              start_time,
+              args.test_without_harvester)
 
 
 if __name__ == "__main__":

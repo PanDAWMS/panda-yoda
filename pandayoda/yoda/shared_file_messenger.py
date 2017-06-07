@@ -1,4 +1,4 @@
-import os,json,logging,ConfigParser,time,threading
+import os,json,logging,ConfigParser,time,threading,shutil
 from mpi4py import MPI
 from pandayoda.common import exceptions
 logger = logging.getLogger(__name__)
@@ -154,7 +154,7 @@ harvesterConfig = None
 harConfLock = threading.Lock() 
 harConfSect = 'payload_interaction'
 request_polling_time = 5
-request_poll_timeout = 360
+request_poll_timeout = 15
 
 def setup(config):
    global harvesterConfig,harConfLock
@@ -216,7 +216,9 @@ def get_pandajobs():
    # first check to see if a file already exists.
    if os.path.exists(jobSpecFile):
       try:
-         return json.load(open(jobSpecFile))
+         job_def = json.load(open(jobSpecFile))
+         os.rename(jobSpecFile,jobSpecFile+'.old')
+         return job_def
       except:
          logger.exception('Rank %05i: failed to parse jobSpecFile: %s' % (MPI.COMM_WORLD.Get_rank(),jobSpecFile))
          raise
@@ -232,6 +234,7 @@ def get_pandajobs():
       # now wait for the file to show up
       i = int(request_poll_timeout*1./request_polling_time)
       while not os.path.exists(jobSpecFile) and i:
+         logger.debug('Rank %05i: waiting for jobSpecFile to appear, try %d',MPI.COMM_WORLD.Get_rank(),i)
          time.sleep(request_polling_time)
          i -= 1
 
@@ -241,7 +244,15 @@ def get_pandajobs():
       
       # now parse job file
       try:
-         return json.load(open(jobSpecFile))
+         # parse job spec file
+         job_def = json.load(open(jobSpecFile))
+         # remove this file now that we are done with it
+         os.remove(jobSpecFile)
+         # remove request file if harvester has not already
+         if os.path.exists(harvesterConfig.get(harConfSect,'jobRequestFile')):
+            os.remove(harvesterConfig.get(harConfSect,'jobRequestFile'))
+         # return job definition
+         return job_def
       except:
          logger.exception('Rank %05i: failed to parse jobSpecFile: %s' % (MPI.COMM_WORLD.Get_rank(),jobSpecFile))
          raise
@@ -284,7 +295,9 @@ def get_eventranges():
    # first check to see if a file already exists.
    if os.path.exists(eventRangesFile):
       try:
-         return json.load(open(eventRangesFile))
+         eventranges = json.load(open(eventRangesFile))
+         os.rename(eventRangesFile,eventRangesFile+'.old')
+         return eventranges
       except:
          logger.exception('Rank %05i: failed to parse eventRangesFile: %s',eventRangesFile)
          raise
@@ -299,6 +312,7 @@ def get_eventranges():
       # now wait for the file to show up
       i = int(request_poll_timeout*1./request_polling_time)
       while not os.path.exists(eventRangesFile) and i:
+         logger.debug('Rank %05i: waiting for eventRangesFile to appear, try %d',MPI.COMM_WORLD.Get_rank(),i)
          time.sleep(request_polling_time)
          i -= 1
       
@@ -308,7 +322,15 @@ def get_eventranges():
 
       # parse file
       try:
-         return json.load(open(eventRangesFile))
+         # read in event range file
+         eventranges = json.load(open(eventRangesFile))
+         # remove this file now that we are done with it
+         os.remove(eventRangesFile)
+         # remove the request file if harvester has not already
+         if os.path.exists(harvesterConfig.get(harConfSect,'eventRangesFile')):
+            os.remove(harvesterConfig.get(harConfSect,'eventRangesFile'))
+         # return event ranges
+         return eventranges
       except:
          logger.exception('Rank %05i: failed to parse eventRangesFile: %s' % (eventRangesFile,MPI.COMM_WORLD.Get_rank()))
          raise
