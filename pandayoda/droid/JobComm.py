@@ -32,10 +32,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
    '''
 
-   ATHENA_READY_FOR_EVENTS = 'Ready for events'
-   NO_MORE_EVENTS          = 'No more events'
-   ATHENAMP_FAILED_PARSE   = 'ERR_ATHENAMP_PARSE'
-
+   
    def __init__(self,config,queues):
       ''' 
         queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send 
@@ -96,8 +93,8 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
 
       # setup communicator
-      logger.debug('%s start yampl communicator',self.prelog)
-      comm = athena_communicator(yampl_socket_name,prelog=self.prelog)
+      comm = PayloadMessenger()
+      comm.start()
 
       # current panda job that AthenaMP is configured to run
       current_job = None
@@ -134,15 +131,14 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                logger.debug('%s got new job definition from JobManager',self.prelog)
                if 'job' in qmsg:
                   current_job = qmsg['job']
-                  # set the job definition in the EventRangeRetriever
+                  # set the job definition in the EventRangeRetriever and PayloadCommunicator
                   eventRangeRetriever.set_job_def(current_job)
+                  comm.set_job_def(current_job)
                else:
                   logger.error('%s Received message of NEW_JOB type but no job in message: %s',self.prelog,qmsg)
             elif qmsg['type'] == MessageTypes.WALLCLOCK_EXPIRING:
                logger.debug('%s received wallclock expiring message',self.prelog)
-               # stop eventRangeRetriever if it is running
-               if eventRangeRetriever is not None and eventRangeRetriever.isAlive():
-                  eventRangeRetriever.stop()
+
                # set exit for loop and continue
                self.stop()
                break
@@ -184,114 +180,64 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
             logger.debug('%s skipping eventRangeRetriever for now',self.prelog)
          
          # receive a message from AthenaMP if we are not already processing one
-         athenamp_msg_received = False
-         if athenamp_msg is None:
-            logger.debug('%s getting new message from AthenaMP',self.prelog)
-            athenamp_msg = comm.recv()
-         
-         # received a message, parse it
-         if len(athenamp_msg) > 0:
-            logger.debug('%s received message from AthenaMP: %s',self.prelog,athenamp_msg)
-            # flag to keep track if message was received
-            athenamp_msg_received = True
+         if comm.is_idle():
+            logger.debug('%s requesting new message from AthenaMP',self.prelog)
+            comm.initiate_request()
+         # if comm reports ready for events, send events
+         elif comm.ready_for_events():
+            logger.debug('%s sending AthenaMP some events',self.prelog)
             
-            if JobComm.ATHENA_READY_FOR_EVENTS in athenamp_msg:
-               # Athena is ready for events so ask Yoda for an event range
-               logger.debug('%s received %s',self.prelog,athenamp_msg)
+            # get the next event ranges to be processed
+            try:
+               local_eventranges = eventranges.get_next()
+               logger.debug('%s have %d new event ranges to send to AthenaMP',self.prelog,len(local_eventranges))
+            # no more event ranges available
+            except EventRangeList.NoMoreEventRanges:
+               logger.debug('%s there are no more event ranges to process',self.prelog)
+               # if we have been told there are no more eventranges, then tell the AthenaMP worker there are no more events
+               if eventRangeRetriever.no_more_event_ranges():
+                  logger.debug('%s sending AthenaMP NO_MORE_EVENTS',self.prelog)
+                  comm.send_no_more_events()
+               # otherwise continue the loop so more events will be requested
+               elif eventRangeRetriever.is_running():
+                  logger.debug('%s EventRangeRetriever is running so check back in next loop',self.prelog)
+               elif eventranges.is_idle():
+                  logger.debug('%s EventRangeRetriever is idle, so telling it to retrieve events',self.prelog)
+                  eventRangeRetriever.initiate_request()
+            # something wrong with the index in the EventRangeList index
+            except EventRangeList.RequestedMoreRangesThanAvailable:
+               logger.error('%s requested more event ranges than available',self.prelog)
                
-               # get the next event ranges to be processed
-               try:
-                  local_eventranges = eventranges.get_next()
-                  logger.debug('%s have %d new event ranges to send to AthenaMP',self.prelog,len(local_eventranges))
-               # no more event ranges available
-               except EventRangeList.NoMoreEventRanges:
-                  logger.debug('%s there are no more event ranges to process',self.prelog)
-                  # if we have been told there are no more eventranges, then tell the AthenaMP worker there are no more events
-                  if eventRangeRetriever.no_more_event_ranges():
-                     logger.debug('%s sending AthenaMP NO_MORE_EVENTS',self.prelog)
-                     comm.send(JobComm.NO_MORE_EVENTS)
-                  # otherwise continue the loop so more events will be requested
-                  else:
-                     # sleep to avoid overloading CPU
-                     logger.debug('%s waiting for more events to send',self.prelog)
-                     time.sleep(loop_timeout)
-                     continue
-               # something wrong with the index in the EventRangeList index
-               except EventRangeList.RequestedMoreRangesThanAvailable:
-                  logger.error('%s requested more event ranges than available',self.prelog)
-                  continue
-               else:
-                  logger.debug('%s sending eventranges to AthenaMP: %s',self.prelog,local_eventranges)
-                  # send AthenaMP the new event ranges
-                  comm.send(serializer.serialize(local_eventranges))
-               
-               # reset the message so a new one will be recieved
-               athenamp_msg = None
-
-            elif len(athenamp_msg.split(',')) == 4:
-               # Athena sent details of an output file
-               logger.debug('%s received output file from AthenaMP',self.prelog)
-               
-               # parse message
-               parts = athenamp_msg.split(',')
-               # there should be four parts:
-               # "myHITS.pool.root_000.Range-6,ID:Range-6,CPU:1,WALL:1"
-               if len(parts) == 4:
-                  # parse the parts
-                  outputfilename = parts[0]
-                  eventrangeid = parts[1].replace('ID:','')
-                  cpu = parts[2].replace('CPU:','')
-                  wallclock = parts[3].replace('WALL:','')
-                  msg = {'type':MessageTypes.OUTPUT_FILE,
-                         'filename':outputfilename,
-                         'eventrangeid':eventrangeid,
-                         'cpu':cpu,
-                         'wallclock':wallclock,
-                         'scope':current_job['scopeOut']
-                         }
-                  # send them to droid
-                  try:
-                     self.queues['FileManager'].put(msg)
-                  except SerialQueue.Full:
-                     logger.warning('%s FileManager queue is full, could not send output info.',self.prelog)
-                     continue # this will try again since we didn't reset the message to None
-                  
-                  # set event range to completed:
-                  logger.debug('%s mark event range id %s as completed',self.prelog,eventrangeid)
-                  try:
-                     eventranges.mark_completed(eventrangeid)
-                  except:
-                     logger.error('%s failed to mark eventrangeid %s as completed',self.prelog,eventrangeid)
-                     logger.error('%s list of assigned: %s',self.prelog,eventranges.indices_of_assigned_ranges)
-                     logger.error('%s list of completed: %s',self.prelog,eventranges.indices_of_completed_ranges)
-                     self.stop()
-
-               else:
-                  logger.error('%s received message from Athena that appears to be output file because it starts with "/" however when split by commas, it only has %i pieces when 4 are expected',self.prelog,len(parts))
-               
-               # reset message so another will be received
-               athenamp_msg = None
-
-            elif athenamp_msg.startswith(JobComm.ATHENAMP_FAILED_PARSE):
-               # Athena passed an error
-               logger.error('%s AthenaMP failed to parse the message: %s',self.prelog,athenamp_msg)
-               athenamp_msg = None
-               continue
-            elif athenamp_msg.startswith('ERR'):
-               # Athena passed an error
-               logger.error('%s received error from AthenaMP: %s',self.prelog,athenamp_msg)
-               athenamp_msg = None
-               continue
             else:
-               raise Exception('%s received mangled message from Athena: %s' % (self.prelog,athenamp_msg))
-
-
-         else:
-            # no message received so sleep
-            logger.debug('%s no yampl message from AthenaMP',self.prelog)
-            # reset message
-            athenamp_msg = None
+               logger.debug('%s sending eventranges to AthenaMP: %s',self.prelog,local_eventranges)
+               # send AthenaMP the new event ranges
+               comm.send_events(local_eventranges)
          
+         # if output file is available, send it to FileManager 
+         elif comm.has_output_file():
+            # Athena sent details of an output file
+            logger.debug('%s received output file from AthenaMP',self.prelog)
+            
+            # get output file data
+            output_file_data = comm.get_output_file_data()
+            
+            # send them to droid
+            try:
+               self.queues['FileManager'].put(output_file_data)
+            except SerialQueue.Full:
+               logger.error('%s FileManager queue is full, could not send output info.',self.prelog)
+
+            # set event range to completed:
+            logger.debug('%s mark event range id %s as completed',self.prelog,output_file_data['id'])
+            try:
+               eventranges.mark_completed(output_file_data['id'])
+            except:
+               logger.error('%s failed to mark eventrangeid %s as completed',self.prelog,output_file_data['id'])
+               logger.error('%s list of assigned: %s',self.prelog,eventranges.indices_of_assigned_ranges)
+               logger.error('%s list of completed: %s',self.prelog,eventranges.indices_of_completed_ranges)
+               self.stop()
+         else:
+            logger.debug('%s PayloadMessenger has nothing to do',self.prelog)
 
          # should sleep if JobManager has yet to send a job
          if current_job is None and self.queues['JobComm'].empty():
@@ -300,12 +246,14 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
          # no other work to do
          elif (not eventRangeRetriever.eventranges_ready() and
                self.queues['JobComm'].empty() and
-               not athenamp_msg_received):
-
+               comm.is_idle()):
             # so sleep
             logger.debug('%s no work on the queues, so sleeping %d',self.prelog,loop_timeout)
             time.sleep(loop_timeout)
 
+      logger.info('%s sending exit signal to subthreads',self.prelog)
+      eventRangeRetriever.stop()
+      comm.stop()
 
       logger.info('%s JobComm exiting',self.prelog)
 
@@ -493,11 +441,181 @@ class EventRangeRetriever(threading.Thread):
       logger.info('%s EventRangeRetriever is exiting',self.prelog)
       
 
-      
+
+class PayloadMessenger(threading.Thread):
+   ''' This simple thread is run by JobComm to communicate with the payload '''
+
+
+   IDLE                 = 'IDLE'
+   REQUEST              = 'REQUEST'
+   MESSAGE_RECEIVED     = 'MESSAGE_RECEIVED'
+   READY_FOR_EVENTS     = 'READY_FOR_EVENTS'
+   OUTPUT_FILE          = 'OUTPUT_FILE'
+   SEND_NO_MORE_EVENTS  = 'SEND_NO_MORE_EVENTS'
+   SENDING_EVENTS       = 'SENDING_EVENTS'
+   EXITED               = 'EXITED'
+
+   STATES = [IDLE,REQUEST,MESSAGE_RECEIVED,EXITED]
+
+   RUNNING_STATES = [REQUEST,SEND_NO_MORE_EVENTS,MESSAGE_RECEIVED]
+
+   def __init__(self,yampl_socket_name,loop_timeout = 5):
+      super(PayloadMessenger,self).__init__()
+
+      # yample socket name, must be the same as athena
+      self.yampl_socket_name           = yampl_socket_name
+
+      # queue which this thread uses to return information to JobComm
+      self.queue                       = SerialQueue.SerialQueue()
+
+      # get current rank
+      self.rank                        = MPI.COMM_WORLD.Get_rank()
+
+      # the prelog is just a string to attach before each log message
+      self.prelog                      = '%s| Rank %03i:' % (self.__class__.__name__,self.rank)
+
+      # current state of the thread
+      self.state                       = VariableWithLock.VariableWithLock(EventRangeRetriever.IDLE)
+
+      # this is used to trigger the thread exit
+      self.exit                        = threading.Event()
+
+      # loop_timeout decided loop sleep times
+      self.loop_timeout                = loop_timeout
+
+      # current job definition
+      self.job_def                     = VariableWithLock.VariableWithLock()
+
+      # when in the OUTPUT_FILE state, this variable contains the output file data
+      output_file_data                 = VariableWithLock.VariableWithLock()
+
+      # when in the SENDING_EVENTS state, this variable contains the event range file data
+      eventranges                      = VariableWithLock.VariableWithLock()
+
+   def stop(self):
+      ''' this function can be called by outside threads to cause the JobManager thread to exit'''
+      self.exit.set()
+   
+   def get_state(self):
+      return self.state.get()
+
+   def set_state(self,state):
+      if state in PayloadMessenger.STATES:
+         self.state.set(state)
+      else:
+         logger.error('%s tried to set state %s which is not supported',self.prelog,state)
+
+   def in_state(self,state):
+      if state == self.get_state():
+         return True
+      return False
+
+   def set_job_def(self,job):
+      self.job_def.set(job)
+
+   def get_job_def(self):
+      return self.job_def.get()
+
+   def get_output_file_data(self):
+      return self.output_file_data.get()
+
+   def is_idle(self):
+      return self.in_state(PayloadMessenger.IDLE)
+
+   def initiate_request(self):
+      self.set_state(PayloadMessenger.REQUEST)
+
+   def ready_for_events(self):
+      return self.in_state(PayloadMessenger.READY_FOR_EVENTS)
+
+   def has_output_file(self):
+      return self.in_state(PayloadMessenger.OUTPUT_FILE)
+
+   def send_no_more_events(self):
+      self.set_state(PayloadMessenger.SEND_NO_MORE_EVENTS)
+
+   def send_events(self,eventranges):
+      self.eventranges.set(eventranges)
+      self.set_state(PayloadMessenger.SENDING_EVENTS)
+
+
+   def run(self):
+      logger.debug('%s start yampl communicator',self.prelog)
+      athcomm = athena_communicator(yampl_socket_name,prelog=self.prelog)
+      payload_msg = ''
+
+      while not self.exit.wait(timeout=self.loop_timeout):
+         state = self.get_state()
+         logger.debug('%s start loop, current state: %s',self.prelog,state)
+
+         if state == PayloadMessenger.IDLE:
+            pass
+         elif state == PayloadMessenger.REQUEST:
+            logger.debug('%s checking for message from payload',self.prelog)
+            payload_msg = athcomm.recv()
+
+            if len(payload_msg) > 0:
+               logger.debug('%s received message: %s',self.prelog,msg)
+               self.set_state(PayloadMessenger.MESSAGE_RECEIVED)
+            else:
+               logger.debug('%s did not receive message from payload',self.prelog)
+         elif state == PayloadMessenger.MESSAGE_RECEIVED:
+            if athena_communicator.READY_FOR_EVENTS in payload_msg:
+               logger.debug('%s received "%s" message from payload',self.prelog,athena_communicator.READY_FOR_EVENTS)
+               self.set_state(PayloadMessenger.READY_FOR_EVENTS)
+            elif len(payload_msg.split(',')) == 4:
+               # Athena sent details of an output file
+               logger.debug('%s received output file from AthenaMP',self.prelog)
+               
+               # parse message
+               parts = payload_msg.split(',')
+               # there should be four parts:
+               # "myHITS.pool.root_000.Range-6,ID:Range-6,CPU:1,WALL:1"
+               if len(parts) == 4:
+                  # parse the parts
+                  outputfilename = parts[0]
+                  eventrangeid = parts[1].replace('ID:','')
+                  cpu = parts[2].replace('CPU:','')
+                  wallclock = parts[3].replace('WALL:','')
+                  output_file_data = {'type':MessageTypes.OUTPUT_FILE,
+                         'filename':outputfilename,
+                         'eventrangeid':eventrangeid,
+                         'cpu':cpu,
+                         'wallclock':wallclock,
+                         'scope':self.get_job_def()['scopeOut']
+                         }
+                  self.output_file_data.set(output_file_data)
+                  self.set_state(PayloadMessenger.OUTPUT_FILE)
+               else:
+                  logger.error('%s failed to parse output file',self.prelog)
+                  self.set_state(PayloadMessenger.IDLE)
+            else:
+               logger.error('%s failed to parse message from Athena: %s' % (self.prelog,payload_msg))
+               self.set_state(PayloadMessenger.IDLE)
+         elif state == PayloadMessenger.SEND_NO_MORE_EVENTS:
+            logger.debug('%s sending AthenaMP message that there are no more events',self.prelog)
+            athcomm.send(athena_communicator.NO_MORE_EVENTS)
+            self.set_state(PayloadMessenger.IDLE)
+         elif state == PayloadMessenger.SENDING_EVENTS:
+            logger.debug('%s sending AthenaMP more eventranges',self.prelog)
+            athcomm.send(serializer.serialize(self.eventranges.get()))
+            self.set_state(PayloadMessenger.IDLE)
+         else:
+            logger.error('%s current state is not allowed %s',self.prelog,state)
+            self.stop()
+
+      logger.info('%s PayloadMessenger is exiting',self.prelog)
+
+
+
       
 
 class athena_communicator:
    ''' small class to handle yampl communication exception handling '''
+   READY_FOR_EVENTS        = 'Ready for events'
+   NO_MORE_EVENTS          = 'No more events'
+   FAILED_PARSE            = 'ERR_ATHENAMP_PARSE'
+
    def __init__(self,socketname='EventService_EventRanges',context='local',prelog=''):
 
       self.prelog = prelog
