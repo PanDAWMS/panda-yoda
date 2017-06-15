@@ -304,8 +304,14 @@ def get_eventranges():
    # first check to see if a file already exists.
    if os.path.exists(eventRangesFile):
       try:
+         # read in event range file
          eventranges = json.load(open(eventRangesFile))
-         os.rename(eventRangesFile,eventRangesFile+'.old')
+         # remove this file now that we are done with it
+         os.remove(eventRangesFile)
+         # remove the request file if harvester has not already
+         if os.path.exists(harvesterConfig.get(harConfSect,'eventRangesFile')):
+            os.remove(harvesterConfig.get(harConfSect,'eventRangesFile'))
+         # return event ranges
          return eventranges
       except:
          logger.exception('Rank %05i: failed to parse eventRangesFile: %s',eventRangesFile)

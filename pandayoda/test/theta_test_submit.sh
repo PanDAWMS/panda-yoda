@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #COBALT -n 2
-#COBALT -t 120
+#COBALT -t 240
 #COBALT --attrs mcdram=cache:numa=quad
 #COBALT -A AtlasADSP
 
