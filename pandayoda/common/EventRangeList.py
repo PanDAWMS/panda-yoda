@@ -142,7 +142,7 @@ class EventRangeList(object):
       if isinstance(value,EventRange.EventRange):
          self.eventranges[key] = value
       else:
-         raise TypeError('object is not of type EventRange: %s' % type(eventRange).__name__)
+         raise TypeError('object is not of type EventRange: %s' % type(value).__name__)
    def __delitem__(self,key):
       del self.eventranges[key]
    def __contains__(self,key):

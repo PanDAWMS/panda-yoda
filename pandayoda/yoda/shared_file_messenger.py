@@ -158,23 +158,23 @@ request_poll_timeout = 15
 
 def setup(config):
    global harvesterConfig,harConfLock
+   harConfLock.acquire()
    if harvesterConfig is None:
       logger.debug('Rank %05i: loading harvester configuration file',MPI.COMM_WORLD.Get_rank())
       # get harvester config filename
-      harConfLock.acquire()
       harv_config_file = config.get('shared_file_messenger','harvester_config_file')
 
       # parse harvester configuration file
       if os.path.exists(harv_config_file):
          harvesterConfig = ConfigParser.ConfigParser()
          harvesterConfig.read(harv_config_file)
-         harConfLock.release()
       else:
          harConfLock.release()
          raise Exception('Rank %05i: Failed to parse config file: %s' % (harv_config_file,MPI.COMM_WORLD.Get_rank()))
    else:
       logger.debug('Rank %05i: harvester configuration already loaded',MPI.COMM_WORLD.Get_rank())
 
+   harConfLock.release()
 
 def requestjobs():
    global harvesterConfig,harConfSect,harConfLock
@@ -216,8 +216,15 @@ def get_pandajobs():
    # first check to see if a file already exists.
    if os.path.exists(jobSpecFile):
       try:
+         logger.debug('jobSpecFile is present, reading job definitions')
+         # parse job spec file
          job_def = json.load(open(jobSpecFile))
-         os.rename(jobSpecFile,jobSpecFile+'.old')
+         # remove this file now that we are done with it
+         os.remove(jobSpecFile)
+         # remove request file if harvester has not already
+         if os.path.exists(harvesterConfig.get(harConfSect,'jobRequestFile')):
+            os.remove(harvesterConfig.get(harConfSect,'jobRequestFile'))
+         # return job definition
          return job_def
       except:
          logger.exception('Rank %05i: failed to parse jobSpecFile: %s' % (MPI.COMM_WORLD.Get_rank(),jobSpecFile))
@@ -225,6 +232,7 @@ def get_pandajobs():
    # if the file does not exist, request one
    else:
       try:
+         logger.debug('jobSpecFile is absent, requesting job definitions')
          requestjobs()
       except exceptions.MessengerJobAlreadyRequested:
          logger.debug('Rank %05i: duplicate job request',MPI.COMM_WORLD.Get_rank())
@@ -244,6 +252,7 @@ def get_pandajobs():
       
       # now parse job file
       try:
+         logger.debug('jobSpecFile has arrived, parsing job definitions')
          # parse job spec file
          job_def = json.load(open(jobSpecFile))
          # remove this file now that we are done with it

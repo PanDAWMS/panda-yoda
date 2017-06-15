@@ -105,9 +105,11 @@ def yoda_droid(working_path,
       
 def main():
    start_time = time.time()
+   logging_format = '%(asctime)s|%(process)s|%(thread)s|%(levelname)s|%(name)s|%(message)s'
+   logging_datefmt = '%Y-%m-%d %H:%M:%S'
    logging.basicConfig(level=logging.INFO,
-         format='%(asctime)s|%(process)s|%(levelname)s|%(name)s|%(message)s',
-         datefmt='%Y-%m-%d %H:%M:%S')
+         format=logging_format,
+         datefmt=logging_datefmt)
    logging.info('Start yoda_droid')
    oparser = argparse.ArgumentParser()
 
@@ -129,24 +131,24 @@ def main():
       for h in logging.root.handlers:
          logging.root.removeHandler(h)
       logging.basicConfig(level=logging.DEBUG,
-         format='%(asctime)s|%(process)s|%(levelname)s|%(name)s|%(message)s',
-         datefmt='%Y-%m-%d %H:%M:%S')
+         format=logging_format,
+         datefmt=logging_datefmt)
       logger.setLevel(logging.DEBUG)
    elif not args.debug and args.error and not args.warning:
       # remove existing root handlers and reconfigure with ERROR
       for h in logging.root.handlers:
          logging.root.removeHandler(h)
       logging.basicConfig(level=logging.ERROR,
-         format='%(asctime)s|%(process)s|%(levelname)s|%(name)s|%(message)s',
-         datefmt='%Y-%m-%d %H:%M:%S')
+         format=logging_format,
+         datefmt=logging_datefmt)
       logger.setLevel(logging.ERROR)
    elif not args.debug and not args.error and args.warning:
       # remove existing root handlers and reconfigure with WARNING
       for h in logging.root.handlers:
          logging.root.removeHandler(h)
       logging.basicConfig(level=logging.WARNING,
-         format='%(asctime)s|%(process)s|%(levelname)s|%(name)s|%(message)s',
-         datefmt='%Y-%m-%d %H:%M:%S')
+         format=logging_format,
+         datefmt=logging_datefmt)
       logger.setLevel(logging.WARNING)
    
 

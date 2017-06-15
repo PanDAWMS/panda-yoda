@@ -34,8 +34,8 @@ def recv_job_request():
    return receive_message(MPI.ANY_SOURCE,tag=TO_YODA_WORKMANAGER)
 
 # droid sends event ranges request to yoda
-def send_eventranges_request(pandaid,taskid,athena_proc_number):
-   msg = {'type':MessageTypes.REQUEST_EVENT_RANGES,'PandaID':pandaid,'taskID':taskid,'workers':athena_proc_number}
+def send_eventranges_request(pandaid,taskid):
+   msg = {'type':MessageTypes.REQUEST_EVENT_RANGES,'PandaID':pandaid,'taskID':taskid}
    return send_message(msg,dest=YODA_RANK,tag=TO_YODA_WORKMANAGER)
 
 # yoda receives event ranges request from droid

@@ -135,8 +135,11 @@ class Droid(threading.Thread):
             # if the thread is not alive, throw an error
             if not thread.isAlive():
                logger.warning('%s %s is no longer running.',self.prelog,name)
-               exit_msg += '%s is no longer running.' % name
-               self.stop()
+               if name == 'JobManager' and thread.no_more_jobs():
+                  logger.debug('%s JobManager reports no more jobs so it exited.')
+               else:
+                  exit_msg += '%s is no longer running.' % name
+                  self.stop()
             #else:
                #logger.debug('%s %s is running.',self.prelog,name)
 

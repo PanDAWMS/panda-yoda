@@ -1,6 +1,6 @@
 import os,sys,logging,threading,subprocess,time,shutil
 from mpi4py import MPI
-from pandayoda.common import MessageTypes,SerialQueue,yoda_droid_messenger as ydm
+from pandayoda.common import MessageTypes,SerialQueue,VariableWithLock,yoda_droid_messenger as ydm
 logger = logging.getLogger(__name__)
 
 
@@ -109,10 +109,15 @@ class JobManager(threading.Thread):
       # this is used to trigger the thread exit
       self.exit = threading.Event()
 
+      # this flag is set when a message has been received that there are no more jobs to run
+      self.no_more_jobs          = VariableWithLock.VariableWithLock(False)
+
    def stop(self):
       ''' this function can be called by outside threads to cause the JobManager thread to exit'''
       self.exit.set()
 
+   def no_more_jobs(self):
+      return self.no_more_jobs.get()
 
    def run(self):
       ''' this is the main function run as a thread when the user calls jobManager_instance.start()'''
@@ -223,30 +228,34 @@ class JobManager(threading.Thread):
             # received a new job             
             if flag:  
                # check that the message type is correct
-               if msg['type'] != MessageTypes.NEW_JOB:
+               if msg['type'] == MessageTypes.NEW_JOB:
                   logger.error('%s response from yoda does not have the expected type: %s',self.prelog,msg)
                   job_request = None
                   continue
 
-               # check that there is a job
-               if 'job' in msg:
-                  logger.debug('%s received new job %s',self.prelog,msg['job'])
+                  # check that there is a job
+                  if 'job' in msg:
+                     logger.debug('%s received new job %s',self.prelog,msg['job'])
 
-                  # send message to JobComm
-                  self.queues['JobComm'].put(msg)
+                     # send message to JobComm
+                     self.queues['JobComm'].put(msg)
 
-                  # copy input files to working_path
-                  for file in msg['job']['inFiles'].split(','):
-                     logger.debug('copying input file "%s" to working path %s',os.path.join(os.getcwd(),file),self.working_path)
-                     shutil.copy(os.path.join(os.getcwd(),file),self.working_path)
-                  
-                  # start the new subprocess
-                  jobproc = self.start_new_subprocess(msg['job'],self.working_path)
-                  job_request = None
+                     # copy input files to working_path
+                     for file in msg['job']['inFiles'].split(','):
+                        logger.debug('%s copying input file "%s" to working path %s',self.prelog,os.path.join(os.getcwd(),file),self.working_path)
+                        shutil.copy(os.path.join(os.getcwd(),file),self.working_path)
+                     
+                     # start the new subprocess
+                     jobproc = self.start_new_subprocess(msg['job'],self.working_path)
+                     job_request = None
 
-               else:
-                  logger.error('%s no job found in yoda response: %s',self.prelog,msg)
-                  job_request = None
+                  else:
+                     logger.error('%s no job found in yoda response: %s',self.prelog,msg)
+                     job_request = None
+               elif msg['type'] == MessageTypes.NO_MORE_JOBS:
+                  logger.info('%s received NO_MORE_JOBS, exiting.',self.prelog)
+                  self.no_more_jobs.set(True)
+                  self.stop()
             # did not receive job, so sleep
             else:
                logger.debug('%s no job yet received, sleeping %d ',self.prelog,loop_timeout)
