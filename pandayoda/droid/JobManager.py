@@ -229,10 +229,7 @@ class JobManager(threading.Thread):
             if flag:  
                # check that the message type is correct
                if msg['type'] == MessageTypes.NEW_JOB:
-                  logger.error('%s response from yoda does not have the expected type: %s',self.prelog,msg)
-                  job_request = None
-                  continue
-
+                  
                   # check that there is a job
                   if 'job' in msg:
                      logger.debug('%s received new job %s',self.prelog,msg['job'])
@@ -256,6 +253,8 @@ class JobManager(threading.Thread):
                   logger.info('%s received NO_MORE_JOBS, exiting.',self.prelog)
                   self.no_more_jobs.set(True)
                   self.stop()
+               else:
+                  logger.error('%s received message but type %s unexpected',self.prelog,msg['type'])
             # did not receive job, so sleep
             else:
                logger.debug('%s no job yet received, sleeping %d ',self.prelog,loop_timeout)
