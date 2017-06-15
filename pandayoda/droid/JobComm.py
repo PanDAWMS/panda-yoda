@@ -207,12 +207,13 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                except EventRangeList.NoMoreEventRanges:
                   logger.debug('%s there are no more event ranges to process',self.prelog)
                   # if we have been told there are no more eventranges, then tell the AthenaMP worker there are no more events
-                  if evtrr_msg is not None and evtrr_msg['type'] == EventRangeRetriever.NoMoreEventRangesToProcess:
+                  if eventRangeRetriever.no_more_event_ranges():
                      logger.debug('%s sending AthenaMP NO_MORE_EVENTS',self.prelog)
                      comm.send(JobComm.NO_MORE_EVENTS)
                   # otherwise continue the loop so more events will be requested
                   else:
                      # sleep to avoid overloading CPU
+                     logger.debug('%s waiting for more events to send',self.prelog)
                      time.sleep(loop_timeout)
                      continue
                # something wrong with the index in the EventRangeList index
