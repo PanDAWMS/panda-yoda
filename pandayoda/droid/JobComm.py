@@ -93,7 +93,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
 
       # setup communicator
-      comm = PayloadMessenger()
+      comm = PayloadMessenger(yampl_socket_name)
       comm.start()
 
       # current panda job that AthenaMP is configured to run
@@ -541,7 +541,7 @@ class PayloadMessenger(threading.Thread):
 
    def run(self):
       logger.debug('%s start yampl communicator',self.prelog)
-      athcomm = athena_communicator(yampl_socket_name,prelog=self.prelog)
+      athcomm = athena_communicator(self.yampl_socket_name,prelog=self.prelog)
       payload_msg = ''
 
       while not self.exit.wait(timeout=self.loop_timeout):
