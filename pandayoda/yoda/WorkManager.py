@@ -1,7 +1,7 @@
 import os,sys,threading,logging,importlib,time
 from mpi4py import MPI
 from pandayoda.common import MessageTypes,SerialQueue,EventRangeList,exceptions
-from pandayoda.common import yoda_droid_messenger as ydm,VariableWithLock
+from pandayoda.common import yoda_droid_messenger as ydm,VariableWithLock,StatefulService
 logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
@@ -122,6 +122,7 @@ class WorkManager(threading.Thread):
             else:
                # add new event ranges to the list
                for jobid,list_of_eventranges in new_eventranges.iteritems():
+                  logger.debug('Adding %d event ranges to the list for job id %s',len(list_of_eventranges),jobid)
                   if jobid in eventranges:
                      eventranges[jobid] += EventRangeList.EventRangeList(list_of_eventranges)
                   else:
@@ -153,13 +154,19 @@ class WorkManager(threading.Thread):
                # if there is only one job, send it
                if len(pandajobs) > 0:
                   if len(pandajobs) == 1:
-                     jobid = pandajobs.keys()[0]
-                     logger.debug('only one job so sending it')
+                     # if the event range retriever has exited, then there are no more events to do, so don't resend the same job
+                     if threads['GetEventRanges'].no_more_event_ranges():
+                        logger.debug('there are no more events so send no more jobs message to droid')
+                        request.send_no_more_jobs()
+                     else:
+                        jobid = pandajobs.keys()[0]
+                        logger.debug('only one job so sending it')
+                        request.send_job(pandajobs[jobid])
                   else:
                      logger.warning('more than one job, not sure this will work yet')
                      jobid = self.get_jobid_with_minimum_ready(eventranges)
+                     request.send_job(pandajobs[jobid])
 
-                  request.send_job(pandajobs[jobid])
                # if there are no jobs, add this rank to the queue of jobs waiting for a new job
                else:
                   logger.debug('no job available yet. try next loop')
@@ -183,7 +190,7 @@ class WorkManager(threading.Thread):
                      local_eventranges = eventranges[droid_jobid].get_next(eventranges[droid_jobid].number_ready())
                   
                   # send event ranges to DroidRequest
-                  logger.debug('sending %d new event ranges for droid request',len(local_eventranges))
+                  logger.debug('sending %d new event ranges to droid rank %d',len(local_eventranges),request.get_droid_rank())
                   request.send_eventranges(local_eventranges)
                else:
                   logger.debug('droid request asking for eventranges, but no event ranges left in local list')
@@ -207,9 +214,10 @@ class WorkManager(threading.Thread):
          # if there is nothing to be done, sleep
          if not threads['GetJob'].request_complete() and \
             not threads['GetEventRanges'].request_complete() and \
-            droid_requests.number_running() == 0:
+            droid_requests.number_waiting_for_droid_message() == 0:
             time.sleep(loop_timeout)
          else:
+            logger.debug('continuing loop: %s %s %s',not threads['GetJob'].request_complete(),not threads['GetEventRanges'].request_complete(),droid_requests.number_waiting_for_droid_message() == 0)
             time.sleep(1)
 
       for name,thread in threads.iteritems():
@@ -218,6 +226,12 @@ class WorkManager(threading.Thread):
       for name,thread in threads.iteritems():
          logger.info('waiting for %s to join',name)
          thread.join()
+
+      logger.info('check that no DroidRequests need to be exited')
+      for request in droid_requests.get_alive():
+         request.stop()
+      for request in droid_requests.get_alive():
+         request.join()
       
 
       logger.info('WorkManager is exiting')
@@ -449,11 +463,9 @@ class GetEventRanges(HarvesterRequest):
       if self.queue.empty() and self.get_state() == HarvesterRequest.EXITED:
          return True
       return False
-            
 
 
-
-class DroidRequest(threading.Thread):
+class DroidRequest(StatefulService.StatefulService):
    ''' This thread manages one message from Droid ranks '''
 
    CREATED              = 'CREATED'
@@ -467,7 +479,7 @@ class DroidRequest(threading.Thread):
    RUNNING_STATES = [CREATED,REQUESTING,MESSAGE_RECEIVED,RECEIVED_JOB,RECEIVED_EVENTRANGES]
 
    def __init__(self,config,loop_timeout=30):
-      super(DroidRequest,self).__init__()
+      super(DroidRequest,self).__init__(loop_timeout)
 
       # here is a queue to return messages to the calling function
       self.queue        = SerialQueue.SerialQueue()
@@ -475,33 +487,17 @@ class DroidRequest(threading.Thread):
       # keep the configuration info
       self.config       = config
 
-      # control loop execution frequency
-      self.loop_timeout = loop_timeout
-
-      # here is a way to stop the thread
-      self.exit         = threading.Event()
-
-      # current state of the thread
-      self.state        = VariableWithLock.VariableWithLock(DroidRequest.CREATED)
-
       # message from droid that was received (None until message is received)
       self.droid_msg    = VariableWithLock.VariableWithLock()
 
       # droid rank which sent the message
       self.droid_rank   = VariableWithLock.VariableWithLock()
 
-   def stop(self):
-      ''' this function can be called by outside threads to cause the WorkManager thread to exit'''
-      self.exit.set()
+      # override the base classes prelog since we don't need the rank number for yoda.
+      self.prelog       = '%s|' % self.__class__.__name__
 
-   def get_state(self):
-      return self.state.get()
-
-   def set_state(self,state):
-      if state in DroidRequest.STATES:
-         self.state.set(state)
-      else:
-         logger.error('DroidRequest: tried to set state %s which is not supported',state)
+   def get_droid_rank(self):
+      return self.droid_rank.get()
    
    def awaiting_response(self):
       if self.get_state() == DroidRequest.MESSAGE_RECEIVED and not self.queue.empty():
@@ -509,8 +505,7 @@ class DroidRequest(threading.Thread):
       return False
 
    def running(self):
-      state = self.get_state()
-      if state in DroidRequest.RUNNING_STATES:
+      if self.get_state() in DroidRequest.RUNNING_STATES:
          return True
       return False
 
@@ -524,7 +519,7 @@ class DroidRequest(threading.Thread):
       self.queue.put({'type':MessageTypes.NEW_JOB,'job':job})
       self.set_state(DroidRequest.RECEIVED_JOB)
 
-   def send_no_more_jobs(self,job):
+   def send_no_more_jobs(self):
       self.queue.put({'type':MessageTypes.NO_MORE_JOBS})
       self.set_state(DroidRequest.RECEIVED_JOB)
 
@@ -539,24 +534,32 @@ class DroidRequest(threading.Thread):
    def run(self):
       ''' this function is executed as the subthread. '''
 
+      # set initial state
+      self.set_state(self.CREATED)
       
       while not self.exit.isSet():
-         logger.debug('DroidRequest: start loop')
+         logger.debug('%s start loop',self.prelog)
 
          state = self.get_state()
-         logger.debug('DroidRequest: current state: %s',state)
+         logger.debug('%s current state: %s',self.prelog,state)
 
-         # starting state
-         # first thing to do is to request a message from droid ranks
+         ##################
+         # CREATED: starting state, first thing to do is to request a message 
+         #        from droid ranks
+         ######################################################################
          if state == DroidRequest.CREATED:
             
             # setting state
             self.set_state(DroidRequest.REQUESTING)
             # requesting message
-            logger.debug('DroidRequest: requesting new message from droid')
+            logger.debug('%s requesting new message from droid',self.prelog)
             self.mpi_request = ydm.get_droid_message_for_workmanager()
 
-         # after requesting an MPI message, test if the message has been received
+         
+         ##################
+         # REQUESTING: after requesting an MPI message, test if the message  
+         #        has been received
+         ######################################################################
          elif state == DroidRequest.REQUESTING:
 
             # test if message has been received, this loop will continue 
@@ -568,7 +571,7 @@ class DroidRequest(threading.Thread):
 
             # if the message is received, sent the message variable and 
             if msg_received:
-               logger.debug('DroidRequest: message received from droid rank %d: %s',status.Get_source(),msg)
+               logger.debug('%s message received from droid rank %d: %s',self.prelog,status.Get_source(),msg)
                self.droid_msg.set(msg)
                self.droid_rank.set(status.Get_source())
 
@@ -576,67 +579,84 @@ class DroidRequest(threading.Thread):
                self.set_state(DroidRequest.MESSAGE_RECEIVED)
             # otherwise we do nothing
             else:
-               logger.debug('DroidRequest: message not yet received')
+               logger.debug('%s message not yet received',self.prelog)
 
-         # while waiting for a message from WorkManager do some sleeping
+         
+         ##################
+         # MESSAGE_RECEIVED: while waiting for a message from WorkManager
+         #         do some sleeping
+         ######################################################################
          elif state == DroidRequest.MESSAGE_RECEIVED:
+            logger.debug('%s waiting for WorkManager to respond.',self.prelog)
             time.sleep(self.loop_timeout)
 
-         # the next step is for WorkManager to send a job or event range
+         
+         ##################
+         # RECEIVED_JOB: the next step is for WorkManager to send a job 
+         #           or event range
+         ######################################################################
          elif state == DroidRequest.RECEIVED_JOB:
             # check if WorkManager has sent a reply
             if not self.queue.empty():
-               logger.debug('DroidRequest: retrieving message from work manager')
+               logger.debug('%s retrieving message from work manager',self.prelog)
                try:
                   msg = self.queue.get(block=False)
                except SerialQueue.Empty():
-                  logger.debug('DroidRequest: DroidRequest queue empty')
+                  logger.debug('%s DroidRequest queue empty',self.prelog)
                else:
                   
                   droid_msg = self.droid_msg.get()
                   droid_rank = self.droid_rank.get()
                   
                   if msg['type'] == MessageTypes.NEW_JOB and droid_msg['type'] == MessageTypes.REQUEST_JOB:
-                     logger.debug('DroidRequest: sending new job to droid rank %d',droid_rank)
+                     logger.debug('%s sending new job to droid rank %d',self.prelog,droid_rank)
                      ydm.send_droid_new_job(msg['job'],droid_rank).wait()
                   elif msg['type'] == MessageTypes.NO_MORE_JOBS:
-                     logger.debug('DroidRequest: sending NO new job to droid rank %d',droid_rank)
+                     logger.debug('%s sending NO new job to droid rank %d',self.prelog,droid_rank)
                      ydm.send_droid_no_job_left(droid_rank).wait()
                   else:
-                     logger.error('DroidRequest: type mismatch error: current mtype=%s, WorkManager message type=%s',current_mtype,msg['type'])
+                     logger.error('%s type mismatch error: current mtype=%s, WorkManager message type=%s',self.prelog,current_mtype,msg['type'])
                   # in all these cases, the response is complete
                   self.stop()
                   
             else:
-               logger.debug('DroidRequest: DroidRequest queue is empty')
+               logger.debug('%s DroidRequest queue is empty',self.prelog)
+         
+         ##################
+         # RECEIVED_EVENTRANGES: the next step is for WorkManager to send a job 
+         #           or event range
+         ######################################################################
          elif state == DroidRequest.RECEIVED_EVENTRANGES:
             # check if WorkManager has sent a reply
             if not self.queue.empty():
-               logger.debug('DroidRequest: retrieving message from work manager')
+               logger.debug('%s retrieving message from work manager',self.prelog)
                try:
                   msg = self.queue.get(block=False)
                except SerialQueue.Empty():
-                  logger.debug('DroidRequest: DroidRequest queue empty')
+                  logger.debug('%s DroidRequest queue empty',self.prelog)
                else:
                   droid_msg = self.droid_msg.get()
                   droid_rank = self.droid_rank.get()
                   
                   if msg['type'] == MessageTypes.NEW_EVENT_RANGES and droid_msg['type'] == MessageTypes.REQUEST_EVENT_RANGES:
-                     logger.debug('DroidRequest: sending new event ranges to droid rank %d',droid_rank)
+                     logger.debug('%s sending new event ranges to droid rank %d',self.prelog,droid_rank)
                      ydm.send_droid_new_eventranges(msg['eventranges'],droid_rank).wait()
                   elif msg['type'] == MessageTypes.NO_MORE_EVENT_RANGES:
-                     logger.debug('DroidRequest: sending NO new event ranges to droid rank %d',droid_rank)
+                     logger.debug('%s sending NO new event ranges to droid rank %d',self.prelog,droid_rank)
                      ydm.send_droid_no_eventranges_left(droid_rank).wait()
                   else:
-                     logger.error('DroidRequest: type mismatch error: current mtype=%s, WorkManager message type=%s',current_mtype,msg['type'])
+                     logger.error('%s type mismatch error: current mtype=%s, WorkManager message type=%s',self.prelog,current_mtype,msg['type'])
                   # in all these cases, the response is complete
                   self.stop()
                   
             else:
-               logger.debug('DroidRequest: DroidRequest queue is empty')
+               logger.debug('%s DroidRequest queue is empty',self.prelog)
+
+         else:
+            logger.error('%s Failed to parse the current state: %s',self.prelog,state)
 
       self.set_state(DroidRequest.EXITED)
-      logger.debug('DroidRequest: DroidRequest exiting')
+      logger.debug('%s DroidRequest exiting',self.prelog)
 
 
 
@@ -652,6 +672,20 @@ class DroidRequestList:
       new_request = DroidRequest(config,loop_timeout)
       new_request.start()
       self.append(new_request)
+
+   def number_isAlive(self):
+      counter = 0
+      for req in self.droid_requests:
+         if req.isAlive():
+            counter += 1
+      return counter
+
+   def get_alive(self):
+      reqs = []
+      for req in self.droid_requests:
+         if req.isAlive():
+            reqs.append(req)
+      return reqs
 
    def get_running(self):
       running = []

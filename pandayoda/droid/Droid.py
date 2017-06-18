@@ -1,4 +1,4 @@
-import logging,threading,os,time
+import logging,threading,os,time,socket
 from mpi4py import MPI
 from pandayoda.common import yoda_droid_messenger as ydm,SerialQueue,MessageTypes
 from pandayoda.droid import JobManager,JobComm,FileManager
@@ -38,6 +38,7 @@ class Droid(threading.Thread):
       if self.rank == 0:
          logger.info('%s Droid Thread starting',self.prelog)
          logger.debug('%s config_section: %s',self.prelog,config_section)
+      logger.info('%s Droid running on hostname: %s',self.prelog,socket.gethostname())
 
       # read droid loop timeout:
       if self.config.has_option(config_section,'loop_timeout'):
@@ -135,8 +136,8 @@ class Droid(threading.Thread):
             # if the thread is not alive, throw an error
             if not thread.isAlive():
                logger.warning('%s %s is no longer running.',self.prelog,name)
-               if name == 'JobManager' and thread.no_more_jobs():
-                  logger.debug('%s JobManager reports no more jobs so it exited.')
+               if name == 'JobManager' and thread.no_more_jobs.get():
+                  logger.debug('%s JobManager reports no more jobs so it exited.',self.prelog)
                else:
                   exit_msg += '%s is no longer running.' % name
                   self.stop()
@@ -160,6 +161,7 @@ class Droid(threading.Thread):
          thread.join()
 
       # send yoda message that Droid has exited
+      logger.info('%s droid notifying yoda that it has exited',self.prelog)
       ydm.send_droid_has_exited(exit_msg)
 
       logger.info('%s droid exiting',self.prelog)

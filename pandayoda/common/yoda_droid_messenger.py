@@ -78,12 +78,12 @@ def recv_yoda_message():
 
 def send_droid_has_exited(msg):
    msg = {'type':MessageTypes.DROID_HAS_EXITED,'message':msg}
-   return send_message(msg,dest=YODA_RANK,tag=FROM_DROID)
+   return send_message(msg,dest=YODA_RANK,tag=TO_YODA)
 
 
 def send_droid_wallclock_expiring(droid_rank):
    msg = {'type':MessageTypes.WALLCLOCK_EXPIRING}
-   return send_message(msg,dest=droid_rank,tag=TO_DROID)
+   return send_message(msg,dest=droid_rank,tag=FROM_YODA)
 
 
 

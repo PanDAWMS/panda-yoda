@@ -2,7 +2,7 @@ import os,sys,logging,threading,subprocess,time,multiprocessing
 logger = logging.getLogger(__name__)
 
 from pandayoda.common import MessageTypes,serializer,SerialQueue,EventRangeList
-from pandayoda.common import yoda_droid_messenger as ydm,VariableWithLock
+from pandayoda.common import yoda_droid_messenger as ydm,VariableWithLock,StatefulService
 
 try:
    import yampl
@@ -52,7 +52,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       self.rank                        = MPI.COMM_WORLD.Get_rank()
 
       # the prelog is just a string to attach before each log message
-      self.prelog                      = '%s| Rank %03i:' % (self.__class__.__name__,self.rank)
+      self.prelog                      = '%s| Rank %03d:' % (self.__class__.__name__,self.rank)
 
       # this is used to trigger the thread exit
       self.exit = threading.Event()
@@ -74,13 +74,13 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
          logger.info('%s JobComm loop_timeout: %d',self.prelog,loop_timeout)
 
       # get yampl_socket_name
-      if self.config.has_option(config_section,'yampl_socket_name'):
-         yampl_socket_name = self.config.get(config_section,'yampl_socket_name')
+      if self.config.has_option('Droid','yampl_socket_name'):
+         yampl_socket_name = self.config.get('Droid','yampl_socket_name').format(rank_num='%03d' % self.rank)
       else:
-         logger.error('%s must specify "yampl_socket_name" in "%s" section of config file',self.prelog,config_section)
+         logger.error('%s must specify "yampl_socket_name" in "Droid" section of config file',self.prelog)
          return
       if self.rank == 0:
-         logger.info('%s JobComm yampl_socket_name: %s',self.prelog,yampl_socket_name)
+         logger.info('%s Droid yampl_socket_name: %s',self.prelog,yampl_socket_name)
 
       # get get_more_events_threshold
       if self.config.has_option(config_section,'get_more_events_threshold'):
@@ -115,9 +115,6 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       eventRangeRetriever = EventRangeRetriever()
       eventRangeRetriever.start()
 
-      # this holds the most recent message received from the event range receiver
-      evtrr_msg = None
-
       while not self.exit.isSet():
          logger.debug('%s start loop: n-ready: %d n-processing: %d',
             self.prelog,eventranges.number_ready(),eventranges.number_processing())
@@ -150,7 +147,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
          # check to get event ranges
          if current_job is not None \
             and eventranges.number_ready() <= get_more_events_threshold \
-            and not no_more_eventranges \
+            and not eventRangeRetriever.no_more_event_ranges.isSet() \
             and eventRangeRetriever.isAlive():
             
             
@@ -165,17 +162,10 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
             elif eventRangeRetriever.eventranges_ready():
                logger.debug('%s EventRangeRetriever reports event ranges are ready',self.prelog)
                tmp_eventranges_list = eventRangeRetriever.get_eventranges()
+               logger.debug('%s adding %d event ranges to list',self.prelog,len(tmp_eventranges_list))
                eventranges += EventRangeList.EventRangeList(tmp_eventranges_list)
-            # if there are no more event ranges, set this flag
-            elif eventRangeRetriever.no_more_event_ranges():
-               logger.debug('%s received message from Yoda that there are no more event ranges, so signaling to exit when all work is done.',self.prelog)
-               no_more_eventranges = True
-               eventRangeRetriever.stop()
-            # if an error occured, retrieve and log the error
-            elif eventRangeRetriever.error_occured():
-               eventRangeRetriever.reset()
-               msg = eventRangeRetriever.queue.get(block=False)
-               logger.error('%s received error from EventRangeRetriever: %s',self.prelog,msg)
+               logger.debug('%s %d eventranges available',self.prelog,len(eventranges))
+         
          else:
             logger.debug('%s skipping eventRangeRetriever for now',self.prelog)
          
@@ -195,9 +185,10 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
             except EventRangeList.NoMoreEventRanges:
                logger.debug('%s there are no more event ranges to process',self.prelog)
                # if we have been told there are no more eventranges, then tell the AthenaMP worker there are no more events
-               if eventRangeRetriever.no_more_event_ranges():
+               if eventRangeRetriever.no_more_event_ranges.isSet():
                   logger.debug('%s sending AthenaMP NO_MORE_EVENTS',self.prelog)
                   comm.send_no_more_events()
+
                # otherwise continue the loop so more events will be requested
                elif eventRangeRetriever.is_running():
                   logger.debug('%s EventRangeRetriever is running so check back in next loop',self.prelog)
@@ -220,7 +211,9 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
             
             # get output file data
             output_file_data = comm.get_output_file_data()
-            
+            # reset comm for next message
+            comm.reset()
+
             # send them to droid
             try:
                self.queues['FileManager'].put(output_file_data)
@@ -228,16 +221,22 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                logger.error('%s FileManager queue is full, could not send output info.',self.prelog)
 
             # set event range to completed:
-            logger.debug('%s mark event range id %s as completed',self.prelog,output_file_data['id'])
+            logger.debug('%s mark event range id %s as completed',self.prelog,output_file_data['eventrangeid'])
             try:
-               eventranges.mark_completed(output_file_data['id'])
+               eventranges.mark_completed(output_file_data['eventrangeid'])
             except:
-               logger.error('%s failed to mark eventrangeid %s as completed',self.prelog,output_file_data['id'])
+               logger.error('%s failed to mark eventrangeid %s as completed',self.prelog,output_file_data['eventrangeid'])
                logger.error('%s list of assigned: %s',self.prelog,eventranges.indices_of_assigned_ranges)
                logger.error('%s list of completed: %s',self.prelog,eventranges.indices_of_completed_ranges)
                self.stop()
          else:
             logger.debug('%s PayloadMessenger has nothing to do',self.prelog)
+
+
+         # check if all work is done and can exit
+         if eventRangeRetriever.get_state() == EventRangeRetriever.EXITED and eventranges.number_processing() == 0:
+            self.stop()
+            continue
 
          # should sleep if JobManager has yet to send a job
          if current_job is None and self.queues['JobComm'].empty():
@@ -246,10 +245,15 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
          # no other work to do
          elif (not eventRangeRetriever.eventranges_ready() and
                self.queues['JobComm'].empty() and
-               comm.is_idle()):
+               comm.not_waiting()):
             # so sleep
             logger.debug('%s no work on the queues, so sleeping %d',self.prelog,loop_timeout)
             time.sleep(loop_timeout)
+         elif eventRangeRetriever.is_running() and not comm.not_waiting():
+            logger.debug('%s waiting for eventRangeRetriever to receive data, sleeping',self.prelog)
+            time.sleep(loop_timeout)
+         else:
+            logger.debug('%s continuing loop: %s %s %s %s',self.prelog,current_job is None,self.queues['JobComm'].empty(),not eventRangeRetriever.eventranges_ready(),comm.not_waiting())
 
       logger.info('%s sending exit signal to subthreads',self.prelog)
       eventRangeRetriever.stop()
@@ -257,7 +261,9 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
       logger.info('%s JobComm exiting',self.prelog)
 
-class EventRangeRetriever(threading.Thread):
+
+
+class EventRangeRetriever(StatefulService.StatefulService):
    ''' This simple thread is run by JobComm to request new event ranges from Yoda/WorkManager '''
 
    MalformedMessageFromYoda      = 'MalformedMessageFromYoda'
@@ -271,73 +277,34 @@ class EventRangeRetriever(threading.Thread):
    WAITING_REPLY        = 'WAITING_REPLY'
    RECEIVED_REPLY       = 'RECEIVED_REPLY'
    EVENTRANGES_READY    = 'EVENTRANGES_READY'
-   ERROR_OCCURED        = 'ERROR_OCCURED'
-   NO_MORE_EVENT_RANGES = 'NO_MORE_EVENT_RANGES'
    EXITED               = 'EXITED'
 
    STATES = [IDLE,REQUEST,SENDING_REQUEST,WAITING_REPLY,RECEIVED_REPLY,
-               EVENTRANGES_READY,ERROR_OCCURED,NO_MORE_EVENT_RANGES,EXITED]
+               EVENTRANGES_READY,EXITED]
 
    RUNNING_STATES = [SENDING_REQUEST,WAITING_REPLY,RECEIVED_REPLY]
 
    def __init__(self,loop_timeout = 5):
-      super(EventRangeRetriever,self).__init__()
-
-
-      # queue which this thread uses to return information to JobComm
-      self.queue = SerialQueue.SerialQueue()
-
-      # get current rank
-      self.rank                        = MPI.COMM_WORLD.Get_rank()
-
-      # the prelog is just a string to attach before each log message
-      self.prelog                      = '%s| Rank %03i:' % (self.__class__.__name__,self.rank)
-
-      # current state of the thread
-      self.state                       = VariableWithLock.VariableWithLock(EventRangeRetriever.IDLE)
-
-      # this is used to trigger the thread exit
-      self.exit                        = threading.Event()
-
-      # loop_timeout decided loop sleep times
-      self.loop_timeout                = loop_timeout
+      super(EventRangeRetriever,self).__init__(loop_timeout)
 
       # current job definition
       self.job_def                     = VariableWithLock.VariableWithLock()
 
-   def stop(self):
-      ''' this function can be called by outside threads to cause the JobManager thread to exit'''
-      self.exit.set()
-   
-   def get_state(self):
-      return self.state.get()
+      # flag to mark that NO_MORE_EVENT_RANGES message has been received
+      self.no_more_event_ranges        = threading.Event()
 
-   def set_state(self,state):
-      if state in EventRangeRetriever.STATES:
-         self.state.set(state)
-      else:
-         logger.error('%s tried to set state %s which is not supported',self.prelog,state)
+      # variable to hold event ranges when in EVENTRANGES_READY state
+      self.eventranges                 = VariableWithLock.VariableWithLock()
 
    def set_job_def(self,job):
       self.job_def.set(job)
+   def get_job_def(self):
+      return self.job_def.get()
 
    def eventranges_ready(self):
-      if self.get_state() == EventRangeRetriever.EVENTRANGES_READY:
-         return True
-      return False
-   def error_occured(self):
-      if self.get_state() == EventRangeRetriever.ERROR_OCCURED:
-         return True
-      return False
-   def no_more_event_ranges(self):
-      if self.get_state() == EventRangeRetriever.NO_MORE_EVENT_RANGES:
-         return True
-      return False
-
+      return self.in_state(EventRangeRetriever.EVENTRANGES_READY)
    def is_idle(self):
-      if self.get_state() == EventRangeRetriever.IDLE:
-         return True
-      return False
+      return self.in_state(EventRangeRetriever.IDLE)
 
    def initiate_request(self):
       self.set_state(EventRangeRetriever.REQUEST)
@@ -351,24 +318,27 @@ class EventRangeRetriever(threading.Thread):
       self.set_state(EventRangeRetriever.IDLE)
 
    def get_eventranges(self,block=False,timeout=None):
-      ''' this function retrieves a message from the queue and returns the
-          the eventranges. This should be called by the calling function, not by
-          the thread.'''
-      try:
-         msg = self.queue.get(block=block,timeout=timeout)
+      ''' this function returns the event ranges if they are set.
+          The intention is for the controling thread to call this 
+          to retrieve the event ranges. '''
+      if self.eventranges_ready():
          # reset state to IDLE
          self.set_state(EventRangeRetriever.IDLE)
-         return msg['eventranges']
-      except SerialQueue.Empty:
-         logger.debug('%s EventRangeRetriever queue is empty',self.prelog)
+         return self.eventranges.get()
+      else:
+         logger.warning('%s event ranges not ready',self.prelog)
          return {}
    
    def run(self):
       if self.rank == 0:
-         logger.debug('%s config_section: %s',self.prelog,config_section)
+         logger.info('%s config_section: %s',self.prelog,config_section)
 
       if self.rank == 0:
-         logger.debug('%s requesting event ranges',self.prelog)
+         logger.info('%s requesting event ranges',self.prelog)
+
+
+      # set initial state
+      self.set_state(self.IDLE)
       
 
       while not self.exit.wait(timeout=self.loop_timeout):
@@ -376,13 +346,22 @@ class EventRangeRetriever(threading.Thread):
          state = self.get_state()
          logger.debug('%s start loop, current state: %s',self.prelog,state)
 
-         # starting state
+         
+         ##################
+         # IDLE: no work to do
+         # ERROR_OCCURED: no work to do
+         # NO_MORE_EVENT_RANGES: no work to do
+         # EVENTRANEGS_READY: no work to do
+         ######################################################
          if state == EventRangeRetriever.IDLE or \
-            state == EventRangeRetriever.ERROR_OCCURED or \
-            state == EventRangeRetriever.NO_MORE_EVENT_RANGES or \
             state == EventRangeRetriever.EVENTRANGES_READY:
             # do nothing
             continue
+         
+         ##################
+         # REQUEST: this state is set by the controling thread and initiates
+         #          a request for event ranges from the yoda.WorkManager
+         ######################################################
          elif state == EventRangeRetriever.REQUEST:
             
             # setting new state
@@ -399,7 +378,12 @@ class EventRangeRetriever(threading.Thread):
             self.set_state(EventRangeRetriever.WAITING_REPLY)
 
             
-         # after requesting event ranges, test if the event ranges have been received
+         ##################
+         # WAITING_REPLY: this state indicates that a request for event
+         #          ranges has been sent and a response is expected.
+         #          Every loop iteration, a check is made for a response.
+         #          If a response is received, it is processed.
+         ######################################################
          elif state == EventRangeRetriever.WAITING_REPLY:
             # test for message arrival
             msg_received,msg = self.mpi_request.test()
@@ -413,36 +397,43 @@ class EventRangeRetriever(threading.Thread):
             logger.debug('%s received message from yoda %s',self.prelog,msg)
             self.set_state(EventRangeRetriever.RECEIVED_REPLY)
 
-            # parse the message
+            #####
+            ##### NEW EVENT RANGES were received from yoda.WorkManager
+            #####
             if msg['type'] == MessageTypes.NEW_EVENT_RANGES:
                
                if 'eventranges' in msg:
                   logger.debug('%s received %d event ragnes from yoda',self.prelog,len(msg['eventranges']))
-                  self.queue.put(msg)
+                  self.eventranges.set(msg['eventranges'])
                   self.set_state(EventRangeRetriever.EVENTRANGES_READY)
 
                else:
-                  logger.debug('%s Malformed Message From Yoda: %s',self.prelog,msg)
-                  self.queue.put({'type':self.MalformedMessageFromYoda,'msg': msg})
-                  self.set_state(EventRangeRetriever.ERROR_OCCURED)
+                  logger.error('%s Malformed Message From Yoda: %s',self.prelog,msg)
+                  self.reset()
                   
+            #####
+            ##### NO MORE EVENT RANGES are available for processing
+            #####
             elif msg['type'] == MessageTypes.NO_MORE_EVENT_RANGES:
                # no more event ranges left
                logger.debug('%s no more events from yoda %s',self.prelog,msg)
-               self.queue.put(msg)
-               self.set_state(EventRangeRetriever.NO_MORE_EVENT_RANGES)
+               self.no_more_event_ranges.set()
+               self.set_state(EventRangeRetriever.EXITED)
+               self.stop()
                
+            #####
+            ##### failed to parse the message
+            #####
             else:
-               logger.debug('%s failed to parse Yoda message: %s',self.prelog,msg)
-               self.queue.put({'type':self.FailedToParseYodaMessage,'msg':msg})
-               self.set_state(EventRangeRetriever.ERROR_OCCURED)
+               logger.error('%s failed to parse Yoda message: %s',self.prelog,msg)
+               self.reset()
          
 
       logger.info('%s EventRangeRetriever is exiting',self.prelog)
       
 
 
-class PayloadMessenger(threading.Thread):
+class PayloadMessenger(StatefulService.StatefulService):
    ''' This simple thread is run by JobComm to communicate with the payload '''
 
 
@@ -455,91 +446,89 @@ class PayloadMessenger(threading.Thread):
    SENDING_EVENTS       = 'SENDING_EVENTS'
    EXITED               = 'EXITED'
 
-   STATES = [IDLE,REQUEST,MESSAGE_RECEIVED,EXITED]
+   # a list of all states
+   STATES = [IDLE,REQUEST,MESSAGE_RECEIVED,READY_FOR_EVENTS,OUTPUT_FILE,
+             SEND_NO_MORE_EVENTS,SENDING_EVENTS,EXITED]
 
-   RUNNING_STATES = [REQUEST,SEND_NO_MORE_EVENTS,MESSAGE_RECEIVED]
+   # a list of states where the thread is running or busy doing something
+   RUNNING_STATES = [REQUEST,SEND_NO_MORE_EVENTS,MESSAGE_RECEIVED,SENDING_EVENTS]
+
+   # a list of states where it is waiting for the controling thread to do something
+   # or has exited or is idle.
+   NOT_WAITING_FOR_RESPONSE_STATES = [IDLE,REQUEST,MESSAGE_RECEIVED,SENDING_EVENTS,EXITED]
 
    def __init__(self,yampl_socket_name,loop_timeout = 5):
-      super(PayloadMessenger,self).__init__()
+      super(PayloadMessenger,self).__init__(loop_timeout)
 
       # yample socket name, must be the same as athena
       self.yampl_socket_name           = yampl_socket_name
-
-      # queue which this thread uses to return information to JobComm
-      self.queue                       = SerialQueue.SerialQueue()
-
-      # get current rank
-      self.rank                        = MPI.COMM_WORLD.Get_rank()
-
-      # the prelog is just a string to attach before each log message
-      self.prelog                      = '%s| Rank %03i:' % (self.__class__.__name__,self.rank)
-
-      # current state of the thread
-      self.state                       = VariableWithLock.VariableWithLock(EventRangeRetriever.IDLE)
-
-      # this is used to trigger the thread exit
-      self.exit                        = threading.Event()
-
-      # loop_timeout decided loop sleep times
-      self.loop_timeout                = loop_timeout
 
       # current job definition
       self.job_def                     = VariableWithLock.VariableWithLock()
 
       # when in the OUTPUT_FILE state, this variable contains the output file data
-      output_file_data                 = VariableWithLock.VariableWithLock()
+      self.output_file_data            = VariableWithLock.VariableWithLock()
 
       # when in the SENDING_EVENTS state, this variable contains the event range file data
-      eventranges                      = VariableWithLock.VariableWithLock()
+      self.eventranges                 = VariableWithLock.VariableWithLock()
 
-   def stop(self):
-      ''' this function can be called by outside threads to cause the JobManager thread to exit'''
-      self.exit.set()
-   
-   def get_state(self):
-      return self.state.get()
 
-   def set_state(self,state):
-      if state in PayloadMessenger.STATES:
-         self.state.set(state)
-      else:
-         logger.error('%s tried to set state %s which is not supported',self.prelog,state)
 
-   def in_state(self,state):
-      if state == self.get_state():
-         return True
-      return False
+   def reset(self):
+      ''' reset the service to the IDLE state '''
+      self.set_state(PayloadMessenger.IDLE)
 
    def set_job_def(self,job):
+      ''' set the current job definition '''
       self.job_def.set(job)
 
    def get_job_def(self):
+      ''' retrieve the current job definition '''
       return self.job_def.get()
 
    def get_output_file_data(self):
+      ''' retrieve the output file data, only valid when in state OUTPUT_FILE '''
       return self.output_file_data.get()
 
    def is_idle(self):
+      ''' test if in IDLE state '''
       return self.in_state(PayloadMessenger.IDLE)
 
    def initiate_request(self):
+      ''' initiate a request for a message from the payload '''
       self.set_state(PayloadMessenger.REQUEST)
 
    def ready_for_events(self):
+      ''' test if in READY_FOR_EVENTS state '''
       return self.in_state(PayloadMessenger.READY_FOR_EVENTS)
 
    def has_output_file(self):
+      ''' test if in OUTPUT_FILE state '''
       return self.in_state(PayloadMessenger.OUTPUT_FILE)
 
    def send_no_more_events(self):
+      ''' test if in SEND_NO_MORE_EVENTS state '''
       self.set_state(PayloadMessenger.SEND_NO_MORE_EVENTS)
 
    def send_events(self,eventranges):
+      ''' initiate sending event ranges to payload '''
       self.eventranges.set(eventranges)
       self.set_state(PayloadMessenger.SENDING_EVENTS)
 
+   def not_waiting(self):
+      ''' test if in a state that does not require a response from the controlling thread '''
+      if self.get_state() in PayloadMessenger.NOT_WAITING_FOR_RESPONSE_STATES:
+         return True
+      return False
+
 
    def run(self):
+      ''' service main thread '''
+
+
+      # set initial state
+      self.set_state(self.IDLE)
+      
       logger.debug('%s start yampl communicator',self.prelog)
       athcomm = athena_communicator(self.yampl_socket_name,prelog=self.prelog)
       payload_msg = ''
@@ -548,17 +537,30 @@ class PayloadMessenger(threading.Thread):
          state = self.get_state()
          logger.debug('%s start loop, current state: %s',self.prelog,state)
 
+         ##################
+         # IDLE: no work to do
+         ##################################
          if state == PayloadMessenger.IDLE:
             pass
+         
+         ##################
+         # REQUEST: this state is set by the controling thread and initiates
+         #          a request for a message from the payload
+         ######################################################################
          elif state == PayloadMessenger.REQUEST:
             logger.debug('%s checking for message from payload',self.prelog)
             payload_msg = athcomm.recv()
 
             if len(payload_msg) > 0:
-               logger.debug('%s received message: %s',self.prelog,msg)
+               logger.debug('%s received message: %s',self.prelog,payload_msg)
                self.set_state(PayloadMessenger.MESSAGE_RECEIVED)
             else:
                logger.debug('%s did not receive message from payload',self.prelog)
+         
+         ##################
+         # MESSAGE_RECEIVED: this state indicates that a message has been
+         #          received from the payload and its meaning will be parsed
+         ######################################################################
          elif state == PayloadMessenger.MESSAGE_RECEIVED:
             if athena_communicator.READY_FOR_EVENTS in payload_msg:
                logger.debug('%s received "%s" message from payload',self.prelog,athena_communicator.READY_FOR_EVENTS)
@@ -592,17 +594,26 @@ class PayloadMessenger(threading.Thread):
             else:
                logger.error('%s failed to parse message from Athena: %s' % (self.prelog,payload_msg))
                self.set_state(PayloadMessenger.IDLE)
+         
+         ##################
+         # SEND_NO_MORE_EVENTS: this state is set by the controling thread and
+         #          and initiates sending a message to the payload that there
+         #          are no more events to process
+         ######################################################################
          elif state == PayloadMessenger.SEND_NO_MORE_EVENTS:
             logger.debug('%s sending AthenaMP message that there are no more events',self.prelog)
             athcomm.send(athena_communicator.NO_MORE_EVENTS)
             self.set_state(PayloadMessenger.IDLE)
+         
+         ##################
+         # SENDING_EVENTS: this state is indicates events are being transmitted
+         #          to the payload
+         ######################################################################
          elif state == PayloadMessenger.SENDING_EVENTS:
             logger.debug('%s sending AthenaMP more eventranges',self.prelog)
             athcomm.send(serializer.serialize(self.eventranges.get()))
             self.set_state(PayloadMessenger.IDLE)
-         else:
-            logger.error('%s current state is not allowed %s',self.prelog,state)
-            self.stop()
+
 
       logger.info('%s PayloadMessenger is exiting',self.prelog)
 
@@ -618,7 +629,11 @@ class athena_communicator:
 
    def __init__(self,socketname='EventService_EventRanges',context='local',prelog=''):
 
-      self.prelog = prelog
+      # get current rank
+      self.rank                        = MPI.COMM_WORLD.Get_rank()
+
+      # the prelog is just a string to attach before each log message
+      self.prelog                      = '%s| Rank %03i:' % (self.__class__.__name__,self.rank)
       
       # create server socket for yampl
       try:

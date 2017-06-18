@@ -116,8 +116,6 @@ class JobManager(threading.Thread):
       ''' this function can be called by outside threads to cause the JobManager thread to exit'''
       self.exit.set()
 
-   def no_more_jobs(self):
-      return self.no_more_jobs.get()
 
    def run(self):
       ''' this is the main function run as a thread when the user calls jobManager_instance.start()'''
@@ -151,6 +149,15 @@ class JobManager(threading.Thread):
       if self.rank == 0:
          logger.info('%s JobManager droidSubprocessStderr: %s',self.prelog,self.droidSubprocessStderr)
 
+      # get yampl_socket_name
+      if self.config.has_option('Droid','yampl_socket_name'):
+         self.yampl_socket_name = self.config.get('Droid','yampl_socket_name').format(rank_num='%03d' % self.rank)
+      else:
+         logger.error('%s must specify "yampl_socket_name" in "Droid" section of config file',self.prelog)
+         return
+      if self.rank == 0:
+         logger.info('%s Droid yampl_socket_name: %s',self.prelog,self.yampl_socket_name)
+
 
       # get use_mock_athenamp
       if self.config.has_option(config_section,'use_mock_athenamp'):
@@ -162,10 +169,16 @@ class JobManager(threading.Thread):
          logger.info('%s JobManager use_mock_athenamp: %s',self.prelog,self.use_mock_athenamp)
 
       waiting_for_panda_job = False
+      
       # variable that holds currently running process (Popen object)
       jobproc = None
+      
+      # current job definition
+      current_job = None
 
+      # job request to monitor messaging
       job_request = None
+
       while not self.exit.isSet():
          logger.debug('%s start loop',self.prelog)
          # The JobManager should block on the most urgent task
@@ -234,17 +247,38 @@ class JobManager(threading.Thread):
                   if 'job' in msg:
                      logger.debug('%s received new job %s',self.prelog,msg['job'])
 
-                     # send message to JobComm
-                     self.queues['JobComm'].put(msg)
+                     # insert the Yampl AthenaMP setting
+                     if 'jobPars' in msg['job']:
+                        jobPars = msg['job']['jobPars']
+                        if not "--preExec" in jobPars:
+                           jobPars += " --preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % self.yampl_socket_name
+                        else:
+                           if "import jobproperties as jps" in jobPars:
+                              jobPars = jobPars.replace("import jobproperties as jps;", "import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\";" % self.yampl_socket_name)
+                           else:
+                              jobPars = jobPars.replace("--preExec ", "--preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % self.yampl_socket_name)
+                        msg['job']['jobPars'] = jobPars
+                     else:
+                        logger.error('%s erorr in job format',self.prelog)
+ 
 
-                     # copy input files to working_path
-                     for file in msg['job']['inFiles'].split(','):
-                        logger.debug('%s copying input file "%s" to working path %s',self.prelog,os.path.join(os.getcwd(),file),self.working_path)
-                        shutil.copy(os.path.join(os.getcwd(),file),self.working_path)
-                     
-                     # start the new subprocess
-                     jobproc = self.start_new_subprocess(msg['job'],self.working_path)
-                     job_request = None
+                     # do not run the same job back to back because likely just received the only job around
+                     if current_job is None or current_job['PandaID'] != msg['job']['PandaID']:
+                        logger.debug('%s running new job',self.prelog)
+                        # send message to JobComm
+                        self.queues['JobComm'].put(msg)
+
+                        # copy input files to working_path
+                        for file in msg['job']['inFiles'].split(','):
+                           logger.debug('%s copying input file "%s" to working path %s',self.prelog,os.path.join(os.getcwd(),file),self.working_path)
+                           shutil.copy(os.path.join(os.getcwd(),file),self.working_path)
+                        
+                        # start the new subprocess
+                        jobproc = self.start_new_subprocess(msg['job'],self.working_path)
+                        job_request = None
+                     else:
+                        logger.debug('%s received the same job again, exiting.',self.prelog)
+                        self.stop()
 
                   else:
                      logger.error('%s no job found in yoda response: %s',self.prelog,msg)
