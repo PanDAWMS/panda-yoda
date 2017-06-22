@@ -1,4 +1,4 @@
-import logging,threading,os,time,socket
+import logging,threading,os,time,socket,multiprocessing,platform
 from mpi4py import MPI
 from pandayoda.common import yoda_droid_messenger as ydm,SerialQueue,MessageTypes
 from pandayoda.droid import JobManager,JobComm,FileManager
@@ -38,7 +38,10 @@ class Droid(threading.Thread):
       if self.rank == 0:
          logger.info('%s Droid Thread starting',self.prelog)
          logger.debug('%s config_section: %s',self.prelog,config_section)
-      logger.info('%s Droid running on hostname: %s',self.prelog,socket.gethostname())
+      logger.info('%s Droid running on hostname: %s, %s',self.prelog,socket.gethostname(),platform.node())
+      logger.info('%s Droid node has %d cpus',self.prelog,multiprocessing.cpu_count())
+      logger.info('%s Droid uname: %s',self.prelog,','.join(platform.uname()))
+      logger.info('%s Droid processor: %s',self.prelog,platform.processor())
 
       # read droid loop timeout:
       if self.config.has_option(config_section,'loop_timeout'):

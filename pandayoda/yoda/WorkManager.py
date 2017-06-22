@@ -214,10 +214,10 @@ class WorkManager(threading.Thread):
          # if there is nothing to be done, sleep
          if not threads['GetJob'].request_complete() and \
             not threads['GetEventRanges'].request_complete() and \
-            droid_requests.number_waiting_for_droid_message() == 0:
+            len(droid_requests.get_waiting()) == 0:
             time.sleep(loop_timeout)
          else:
-            logger.debug('continuing loop: %s %s %s',not threads['GetJob'].request_complete(),not threads['GetEventRanges'].request_complete(),droid_requests.number_waiting_for_droid_message() == 0)
+            logger.debug('continuing loop: %s %s %s',not threads['GetJob'].request_complete(),not threads['GetEventRanges'].request_complete(),len(droid_requests.get_waiting()) == 0)
             time.sleep(1)
 
       for name,thread in threads.iteritems():
