@@ -62,3 +62,77 @@ export LD_LIBRARY_PATH=/path/to/yampl/install/lib:$LD_LIBRARY_PATH
 
 ```
 
+Install on ALCF/Theta:
+```bash
+
+# create install area
+INSTALL_AREA=/path/to/yoda
+mkdir $INSTALL_AREA
+cd $INSTALL_AREA
+
+# build using GNU not Intel compilers
+module swap PrgEnv-intel PrgEnv-gnu
+
+# Custom build Cython with local compilers for Theta worker nodes
+git clone git@github.com:cython/cython.git
+cd cython
+git checkout tags/0.25.2 # or the latest tag
+CC=cc CXX=CC python setup.py build
+export PYTHONPATH=$INSTALL_AREA/lib64/python2.7/site-packages
+CC=cc CXX=CC python setup.py install --prefix=$INSTALL_AREA
+
+cd ../
+
+# Custom build mpi4py with local compilers for Theta worker nodes
+git clone git@github.com:mpi4py/mpi4py.git
+cd mpi4py
+git checkout tags/2.0.0 # or latest tag
+##  edit mpi.cfg
+##  under [mpi]
+##  uncomment mpicc = cc
+##  uncomment mpicxx = cxx
+CC=cc CXX=CC python setup.py build
+CC=cc CXX=CC python setup.py install --prefix=/path/to/yoda
+
+# Custom build yampl library
+git clone git@github.com:vitillo/yampl.git
+cd yampl
+./configure --prefix=$INSTALL_AREA CC=cc CXX=CC LDFLAGS=-dynamic
+make -j 10 install
+# in my case this fails in the zeromq folder
+# so I did this
+cd zeromq
+./configure --prefix=$INSTALL_AREA CC=cc CXX=CC LDFLAGS=-dynamic
+make -j 10 install
+cd ..
+make -j 10 install
+cd ..
+
+# Custom build yampl python bindings
+git clone git@github.com:tsulaiav/python-yampl.git
+cd python-yampl
+##  edit setup.py such that inside the 'include_dirs' inside the 'Extension' have
+##  both the path to the '$INSTALL_AREA/yampl/install/include/yampl' 
+##  and '$INSTALL_AREA/yampl/install/include' and the 'extra_link_args' has 
+##  '-L$INSTALL_AREA/yampl/install/lib'
+python setup.py build_ext
+python setup.py install
+cd ..
+
+# grab yoda
+git clone git@github.com:PanDAWMS/panda-yoda.git
+```
+
+Installing Yoda on NERSC/Cori, follow directions
+
+``` bash
+module load python/2.7-anaconda
+module swap PrgEnv-intel PrgEnv-gnu
+
+# follow directions for ALCF/Theta
+```
+
+
+
+
+
