@@ -304,6 +304,7 @@ def get_eventranges():
    # first check to see if a file already exists.
    if os.path.exists(eventRangesFile):
       try:
+         logger.debug('eventRangesFile is present, parsing event ranges')
          # read in event range file
          eventranges = json.load(open(eventRangesFile))
          # remove this file now that we are done with it
@@ -337,6 +338,7 @@ def get_eventranges():
 
       # parse file
       try:
+         logger.debug('eventRangesFile is present, parsing event ranges')
          # read in event range file
          eventranges = json.load(open(eventRangesFile))
          # remove this file now that we are done with it
