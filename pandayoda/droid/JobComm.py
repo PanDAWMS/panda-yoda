@@ -33,7 +33,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
    '''
 
    
-   def __init__(self,config,queues):
+   def __init__(self,config,queues,droid_working_path):
       ''' 
         queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send 
                      messages to other Droid components about errors, etc.
@@ -51,8 +51,15 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       # get current rank
       self.rank                        = MPI.COMM_WORLD.Get_rank()
 
+      # working path for droid, where AthenaMP output files will be located
+      self.working_path                = droid_working_path
+
+
       # the prelog is just a string to attach before each log message
       self.prelog                      = '%s| Rank %03d:' % (self.__class__.__name__,self.rank)
+
+      # flag to set when all work is done and thread is exiting
+      self.all_work_done               = VariableWithLock.VariableWithLock(False)
 
       # this is used to trigger the thread exit
       self.exit = threading.Event()
@@ -204,7 +211,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                # send AthenaMP the new event ranges
                comm.send_events(local_eventranges)
          
-         # if output file is available, send it to FileManager 
+         # if output file is available, send it to Yoda/FileManager 
          elif comm.has_output_file():
             # Athena sent details of an output file
             logger.debug('%s received output file from AthenaMP',self.prelog)
@@ -214,11 +221,10 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
             # reset comm for next message
             comm.reset()
 
-            # send them to droid
-            try:
-               self.queues['FileManager'].put(output_file_data)
-            except SerialQueue.Full:
-               logger.error('%s FileManager queue is full, could not send output info.',self.prelog)
+            # send output file data to Yoda/FileManager
+            logger.debug('%s sending output file data to Yoda/FileManager: %s',self.prelog,output_file_data)
+            ydm.send_file_for_stage_out(output_file_data).wait()
+            
 
             # set event range to completed:
             logger.debug('%s mark event range id %s as completed',self.prelog,output_file_data['eventrangeid'])
@@ -235,6 +241,8 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
          # check if all work is done and can exit
          if eventRangeRetriever.get_state() == EventRangeRetriever.EXITED and eventranges.number_processing() == 0:
+            logger.info('All work is complete so initiating exit')
+            self.all_work_done.set(True)
             self.stop()
             continue
 
@@ -369,7 +377,10 @@ class EventRangeRetriever(StatefulService.StatefulService):
             
             logger.debug('%s requesting new message from droid',self.prelog)
             # ask Yoda to send event ranges
-            ydm.send_eventranges_request(self.job_def.get()['PandaID'],self.job_def.get()['taskID']).wait()
+            ydm.send_eventranges_request(
+               self.job_def.get()['PandaID'],
+               self.job_def.get()['taskID'],
+               self.job_def.get()['jobsetID']).wait()
 
             # get request handle for mpi reply
             logger.debug('%s getting request for reply from Yoda',self.prelog)
@@ -584,7 +595,9 @@ class PayloadMessenger(StatefulService.StatefulService):
                          'eventrangeid':eventrangeid,
                          'cpu':cpu,
                          'wallclock':wallclock,
-                         'scope':self.get_job_def()['scopeOut']
+                         'scope':self.get_job_def()['scopeOut'],
+                         'pandaid':self.job_def.get()['PandaID'],
+                         'eventstatus':'finished',
                          }
                   self.output_file_data.set(output_file_data)
                   self.set_state(PayloadMessenger.OUTPUT_FILE)

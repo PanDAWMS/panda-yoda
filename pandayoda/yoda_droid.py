@@ -47,6 +47,7 @@ def yoda_droid(working_path,
          return
       # add working_path to config in yoda_droid section
       config.set(config_section,'working_path',working_path)
+      config.set('FileManager','yoda_working_path',working_path)
    else:
       logger.error('Rank %d: failed to parse config file: %s',mpirank,config_filename)
       return

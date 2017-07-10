@@ -6,13 +6,25 @@ import DroidRequest
 class DroidRequestList:
    ''' a list of DroidRequest threads to keep track of multiple requests '''
 
-   def __init__(self):
+   def __init__(self,config,msg_tag=None,loop_timeout=30,parent_name=None):
 
       # internal list of droid requests
       self.droid_requests = []
 
-   def add_request(self,config,loop_timeout=30):
-      new_request = DroidRequest.DroidRequest(config,loop_timeout)
+      # config to pass to new DroidRequests
+      self.config          = config
+
+      # the message tag to use when creating new requests.
+      self.msg_tag         = msg_tag
+
+      # the loop timeout to pass to new DroidRequests
+      self.loop_timeout    = loop_timeout
+
+      # name of the calling function to help track logging
+      self.parent_name     = parent_name
+
+   def add_request(self):
+      new_request = DroidRequest.DroidRequest(self.config,self.msg_tag,self.loop_timeout,self.parent_name)
       new_request.start()
       self.append(new_request)
 

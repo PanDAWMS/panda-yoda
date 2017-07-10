@@ -1,5 +1,5 @@
 import logging,threading,time,os
-import WorkManager
+import WorkManager,FileManager
 from mpi4py import MPI
 from pandayoda.common import yoda_droid_messenger as ydm
 from pandayoda.common import SerialQueue,MessageTypes
@@ -81,9 +81,14 @@ class Yoda(threading.Thread):
       # a dictionary of subthreads
       subthreads = {}
       
-      # create droid comm thread
+      # create WorkManager thread
       subthreads['WorkManager']  = WorkManager.WorkManager(self.config,queues)
       subthreads['WorkManager'].start()
+
+      # create FileManager thread
+      subthreads['FileManager']  = FileManager.FileManager(self.config,queues)
+      subthreads['FileManager'].start()
+
 
       # handle for droid messages
       droid_msg_request = None

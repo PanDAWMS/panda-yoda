@@ -1,6 +1,6 @@
 import logging,os,sys,importlib
 logger = logging.getLogger(__name__)
-from pandayoda.common import StatefulService,VariableWithLock
+from pandayoda.common import StatefulService,VariableWithLock,exceptions
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
@@ -30,8 +30,9 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
       # set if there are no more event ranges coming from Harvester
       self.no_more_eventranges_flag    = VariableWithLock.VariableWithLock(False)
 
-      # the prelog is just a string to attach before each log message
-      self.prelog                      = '%s:' % self.__class__.__name__
+      # set this to define which job definition will be used to request event ranges
+      self.job_def                     = VariableWithLock.VariableWithLock()
+
 
    def reset(self):
       self.set_state(self.IDLE)
@@ -39,8 +40,9 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
       return self.in_state(self.IDLE)
    def exited(self):
       return self.in_state(self.EXITED)
-   
-   def start_request(self):
+
+   def start_request(self,job_def):
+      self.job_def.set(job_def)
       self.set_state(self.REQUEST)
 
    def get_eventranges(self):
@@ -64,7 +66,7 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
       if self.config.has_option(config_section,'messenger_plugin_module'):
          messenger_plugin_module = self.config.get(config_section,'messenger_plugin_module')
       else:
-         raise Exception('%s Failed to retrieve messenger_plugin_module from config file section %s' % (self.prelog,config_section))
+         raise Exception('Failed to retrieve messenger_plugin_module from config file section %s' % config_section)
 
 
       # try to import the module specified in the config
@@ -72,7 +74,7 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
       try:
          return importlib.import_module(messenger_plugin_module)
       except ImportError:
-         logger.exception('%s Failed to import messenger_plugin: %s',self.prelog,messenger_plugin_module)
+         logger.exception('Failed to import messenger_plugin: %s',messenger_plugin_module)
          raise
 
 
@@ -84,26 +86,26 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
       messenger.setup(self.config)
 
       while not self.exit.wait(timeout=self.loop_timeout):
-         logger.debug('%s start loop',self.prelog)
+         logger.debug('start loop')
 
          state = self.get_state()
-         logger.debug('%s current state: %s',self.prelog,state)
+         logger.debug('current state: %s',state)
          if state == self.REQUEST:
             # request events
             self.set_state(self.REQUESTING)
 
             # get event ranges from Harvester
             try:
-               eventranges = messenger.get_eventranges()
+               eventranges = messenger.get_eventranges(self.job_def.get())
             except exceptions.MessengerJobAlreadyRequested:
-               logger.warning('%s tried requesting event ranges twice',self.prelog)
+               logger.warning('tried requesting event ranges twice')
             else:
                if len(eventranges) == 0:
-                  logger.debug('%s setting NO_MORE_EVENT_RANGES flag',self.prelog)
+                  logger.debug('setting NO_MORE_EVENT_RANGES flag')
                   self.no_more_eventranges_flag.set(True)
                   self.stop()
                else:
-                  logger.debug('%s setting NEW_EVENT_RANGES variable with %d event ranges',self.prelog,len(eventranges))
+                  logger.debug('setting NEW_EVENT_RANGES variable with %d event ranges',len(eventranges))
                   self.set_eventranges(eventranges)
                   self.set_state(self.NEW_EVENT_RANGES_READY)
 
@@ -117,14 +119,14 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
       try:
          msg = self.queue.get(block=block,timeout=timeout)
       except SerialQueue.Empty:
-         logger.debug('%s GetEventRanges queue is empty',self.prelog)
+         logger.debug('GetEventRanges queue is empty')
          return {}
 
       if msg['type'] ==  MessageTypes.NEW_EVENT_RANGES:
-         logger.debug('%s received new event range message',self.prelog)
+         logger.debug('received new event range message')
          return msg['eventranges']
       elif msg['type'] == MessageTypes.NO_MORE_EVENT_RANGES:
-         logger.debug('%s receive no more event ranges message',self.prelog)
+         logger.debug('receive no more event ranges message')
       else:
-         logger.error('%s message type from event range request unrecognized: %s',self.prelog,msg['type'])
+         logger.error('message type from event range request unrecognized: %s',msg['type'])
       return {}

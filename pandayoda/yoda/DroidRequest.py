@@ -17,7 +17,7 @@ class DroidRequest(StatefulService.StatefulService):
    STATES = [CREATED,REQUESTING,MESSAGE_RECEIVED,RECEIVED_JOB,RECEIVED_EVENTRANGES,EXITED]
    RUNNING_STATES = [CREATED,REQUESTING,MESSAGE_RECEIVED,RECEIVED_JOB,RECEIVED_EVENTRANGES]
 
-   def __init__(self,config,loop_timeout=30):
+   def __init__(self,config,msg_tag=None,loop_timeout=30,parent_name = None):
       super(DroidRequest,self).__init__(loop_timeout)
 
       # here is a queue to return messages to the calling function
@@ -26,14 +26,23 @@ class DroidRequest(StatefulService.StatefulService):
       # keep the configuration info
       self.config       = config
 
+      # the message tag to use to filter MPI messages received by this request
+      self.msg_tag      = msg_tag
+
       # message from droid that was received (None until message is received)
       self.droid_msg    = VariableWithLock.VariableWithLock()
 
       # droid rank which sent the message
       self.droid_rank   = VariableWithLock.VariableWithLock()
 
+      # name of the function or class creating this request
+      self.parent_name  = parent_name
+
       # override the base classes prelog since we don't need the rank number for yoda.
-      self.prelog       = '%s|' % self.__class__.__name__
+      self.prelog       = ''
+      if parent_name:
+         self.prelog    = '%s|' % parent_name
+
 
    def get_droid_rank(self):
       return self.droid_rank.get()
@@ -91,8 +100,8 @@ class DroidRequest(StatefulService.StatefulService):
             # setting state
             self.set_state(DroidRequest.REQUESTING)
             # requesting message
-            logger.debug('%s requesting new message from droid',self.prelog)
-            self.mpi_request = ydm.get_droid_message_for_workmanager()
+            logger.debug('%s requesting new message from droid with tag %s',self.prelog,self.msg_tag)
+            self.mpi_request = ydm.receive_message(tag=self.msg_tag)
 
          
          ##################

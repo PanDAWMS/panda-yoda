@@ -23,6 +23,8 @@ FROM_DROID           = 6
 TO_YODA              = 7
 FROM_YODA            = 8
 
+TO_YODA_FILEMANAGER  = 9
+
 
 # droid sends job request to yoda
 def send_job_request():
@@ -34,8 +36,8 @@ def recv_job_request():
    return receive_message(MPI.ANY_SOURCE,tag=TO_YODA_WORKMANAGER)
 
 # droid sends event ranges request to yoda
-def send_eventranges_request(pandaid,taskid):
-   msg = {'type':MessageTypes.REQUEST_EVENT_RANGES,'PandaID':pandaid,'taskID':taskid}
+def send_eventranges_request(pandaid,taskid,jobsetid):
+   msg = {'type':MessageTypes.REQUEST_EVENT_RANGES,'pandaID':pandaid,'taskID':taskid,'jobsetID':jobsetid}
    return send_message(msg,dest=YODA_RANK,tag=TO_YODA_WORKMANAGER)
 
 # yoda receives event ranges request from droid
@@ -87,11 +89,20 @@ def send_droid_wallclock_expiring(droid_rank):
 
 
 
+def send_file_for_stage_out(output_file_data):
+   msg = {'type':MessageTypes.OUTPUT_FILE,'output_file_data':output_file_data}
+   return send_message(msg,dest=YODA_RANK,tag=TO_YODA_FILEMANAGER)
+
+
+
 def get_droid_message_for_yoda():
    return receive_message(MPI.ANY_SOURCE,TO_YODA)
 
 def get_droid_message_for_workmanager():
    return receive_message(MPI.ANY_SOURCE,TO_YODA_WORKMANAGER)
+
+def get_droid_message_for_filemanager():
+   return receive_message(MPI.ANY_SOURCE,TO_YODA_FILEMANAGER)
 
 def send_message(data,dest=None,tag=None):
    ''' basic MPI_ISend but mpi4py handles the object tranlation for sending 

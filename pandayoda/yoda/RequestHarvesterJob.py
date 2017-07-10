@@ -1,6 +1,6 @@
 import logging,os,sys,importlib
 logger = logging.getLogger(__name__)
-from pandayoda.common import StatefulService,VariableWithLock
+from pandayoda.common import StatefulService,VariableWithLock,exceptions
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 

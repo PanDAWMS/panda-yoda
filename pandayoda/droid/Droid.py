@@ -1,7 +1,7 @@
 import logging,threading,os,time,socket,multiprocessing,platform
 from mpi4py import MPI
 from pandayoda.common import yoda_droid_messenger as ydm,SerialQueue,MessageTypes
-from pandayoda.droid import JobManager,JobComm,FileManager
+from pandayoda.droid import JobManager,JobComm
 logger = logging.getLogger(__name__)
 
 
@@ -64,7 +64,6 @@ class Droid(threading.Thread):
       queues = {}
       queues['JobManager']       = SerialQueue.SerialQueue()
       queues['JobComm']          = SerialQueue.SerialQueue()
-      queues['FileManager']      = SerialQueue.SerialQueue()
       queues['Droid']            = SerialQueue.SerialQueue()
       
       # a dictionary of subthreads
@@ -75,12 +74,9 @@ class Droid(threading.Thread):
       subthreads['JobManager'].start()
 
       # create job comm thread
-      subthreads['JobComm']      = JobComm.JobComm(self.config,queues)
+      subthreads['JobComm']      = JobComm.JobComm(self.config,queues,droid_working_path)
       subthreads['JobComm'].start()
 
-      # create file manager thread
-      subthreads['FileManager']  = FileManager.FileManager(self.config,queues,os.getcwd())
-      subthreads['FileManager'].start()
 
       yoda_recv = None
 
@@ -118,7 +114,7 @@ class Droid(threading.Thread):
                   # if there are subthreads, tell them to exit
                   for name,thread in subthreads.iteritems():
                      if thread.isAlive():
-                        self.queues.put(msg)
+                        queues[name].put(msg)
                   # wait for subthreads to exit
                   for name,thread in subthreads.iteritems():
                      thread.join()
@@ -134,6 +130,7 @@ class Droid(threading.Thread):
 
          # check the status of each subthread
          keys = subthreads.keys()
+         number_running = 0
          for name in keys:
             thread = subthreads[name]
             # if the thread is not alive, throw an error
@@ -141,9 +138,20 @@ class Droid(threading.Thread):
                logger.warning('%s %s is no longer running.',self.prelog,name)
                if name == 'JobManager' and thread.no_more_jobs.get():
                   logger.debug('%s JobManager reports no more jobs so it exited.',self.prelog)
+               elif name == 'JobComm' and thread.all_work_done.get():
+                  logger.debug('%s JobComm reports no more work so it exited.',self.prelog)
                else:
                   exit_msg += '%s is no longer running.' % name
                   self.stop()
+            else:
+               number_running += 1
+
+         # if no process are running, exit
+         if number_running == 0:
+            logger.info('%s no more processes running so exiting.',self.prelog)
+            self.stop()
+
+
             #else:
                #logger.debug('%s %s is running.',self.prelog,name)
 
