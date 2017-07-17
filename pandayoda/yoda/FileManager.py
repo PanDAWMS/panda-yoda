@@ -140,6 +140,17 @@ class FileManager(threading.Thread):
             else:
                logger.error('droid message had no output file data inside.')
 
+      # exit clean up
+
+      logger.info('check that no DroidRequests need to be exited')
+      for request in droid_requests.get_alive():
+         request.stop()
+      for request in droid_requests.get_alive():
+         request.join()
+
+      # exit
+      logger.info('FileManager exiting')
+
 
 
 

@@ -95,6 +95,9 @@ class WorkManager(threading.Thread):
          logger.debug('start loop')
          logger.debug('cwd: %s',os.getcwd())
 
+         ###############
+         # check all sub threads still running
+         ################################
          logger.debug('checking all threads are still running and if they have messages')
          for name,thread in threads.iteritems():
             if not thread.isAlive() or thread.in_state(thread.EXITED):
@@ -113,6 +116,8 @@ class WorkManager(threading.Thread):
                pandajobs[jobid] = job
          elif threads['RequestHarvesterJob'].no_more_jobs():
             logger.debug('there are no more jobs')
+         elif not threads['RequestHarvesterJob'].isAlive():
+            logger.debug('RequestHarvesterJob thread has exited.')
          else:
             logger.debug('RequestHarvesterJob state is %s',threads['RequestHarvesterJob'].get_state())
 
@@ -123,10 +128,10 @@ class WorkManager(threading.Thread):
          ################################
          logger.debug('checking for event range')
          if threads['RequestHarvesterEventRanges'].new_eventranges_ready():
-            logger.debug('retrieving event range from GetEventRanges queue')
+            logger.debug('retrieving event range from RequestHarvesterEventRanges')
             new_eventranges = threads['RequestHarvesterEventRanges'].get_eventranges()
             if new_eventranges is None:
-               logger.error('new eventranges ready set, but none available')
+               logger.error('new eventranges ready set, but none available. Should not happen.')
             else:
                # parse event ranges if they were returned
                if len(new_eventranges) > 0: 
@@ -139,6 +144,8 @@ class WorkManager(threading.Thread):
                         eventranges[str(jobid)] = EventRangeList.EventRangeList(list_of_eventranges)
          elif threads['RequestHarvesterEventRanges'].no_more_eventranges():
             logger.debug('there are no more event ranges')
+         elif not threads['RequestHarvesterEventRanges'].isAlive():
+            logger.debug('RequestHarvesterEventRanges thread has exited.')
          else:
             logger.debug('RequestHarvesterEventRanges state is %s',threads['RequestHarvesterEventRanges'].get_state())
             
@@ -146,14 +153,15 @@ class WorkManager(threading.Thread):
          ################
          # check for Droid requests
          ################################
-         logger.debug('checking for droid messages, current request count: %s',len(droid_requests))
+         waiting_droid_requests = droid_requests.get_waiting()
+         logger.debug('checking for droid messages, current request count: %s waiting count: %s',len(droid_requests),len(waiting_droid_requests))
 
          # process the droid requests that are waiting for a response
-         for request in droid_requests.get_waiting():
+         for request in waiting_droid_requests:
             # get the message
             msg = request.droid_msg.get()
 
-            logger.debug('message received from droid rank %s: %s',request.get_droid_rank(),msg)
+            logger.debug('processing request from droid rank %s: %s',request.get_droid_rank(),msg)
 
             #############
             ## DROID requesting new job
@@ -252,7 +260,7 @@ class WorkManager(threading.Thread):
                else:
                   logger.debug('droid request asking for eventranges, but no event ranges left in local list')
                   if threads['RequestHarvesterEventRanges'].idle():
-                     logger.debug('Setting GetEventRanges state to REQUEST to trigger new request')
+                     logger.debug('Setting RequestHarvesterEventRanges state to REQUEST to trigger new request')
                      threads['RequestHarvesterEventRanges'].start_request(
                            {
                             'pandaID':msg['pandaID'],
@@ -270,6 +278,7 @@ class WorkManager(threading.Thread):
          
          # if no droid requests are waiting for droid messages, create a new one
          if droid_requests.number_waiting_for_droid_message() <= 0:
+            logger.debug('adding new droid request')
             droid_requests.add_request()
          
 
@@ -288,6 +297,7 @@ class WorkManager(threading.Thread):
       for name,thread in threads.iteritems():
          logger.info('waiting for %s to join',name)
          thread.join()
+         logger.info('%s has joined',name)
 
       logger.info('check that no DroidRequests need to be exited')
       for request in droid_requests.get_alive():

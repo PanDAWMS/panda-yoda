@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #COBALT -n 2
-#COBALT -t 240
+#COBALT -t 20
 #COBALT --attrs mcdram=cache:numa=quad
 #COBALT -A AtlasADSP
 
@@ -20,11 +20,12 @@ echo [$SECONDS] env
 env | sort
 
 RUNTIME=$(( $COBALT_ENDTIME - $COBALT_STARTTIME ))
-
+RUNTIME=$(( $RUNTIME / 60 ))
+echo [$SECONDS] RUNTIME=$RUNTIME
 
 echo [$SECONDS] Starting yoda_droid
 #aprun -n  $(( COBALT_PARTSIZE * $MPI_RANKS_PER_NODE )) -N $MPI_RANKS_PER_NODE ../yoda_droid.py -w $WORK_DIR --debug -c $YODADIR/pandayoda/yoda.cfg
-aprun -n 2 -N 1 -d 64 -j 1 --cc depth -e KMP_AFFINITY=none ../yoda_droid.py -w $WORK_DIR --debug -c $YODADIR/pandayoda/yoda.cfg
+aprun -n 2 -N 1 -d 64 -j 1 --cc depth -e KMP_AFFINITY=none ../yoda_droid.py -w $WORK_DIR --debug -c $YODADIR/pandayoda/yoda.cfg -t $RUNTIME
 EXIT_CODE=$?
 echo [$SECONDS] yoda_droid exit code = $EXIT_CODE
 exit $EXIT_CODE

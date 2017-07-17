@@ -1,4 +1,4 @@
-import logging,os,sys,importlib,time
+import logging,os,sys,importlib,time,threading
 from mpi4py import MPI
 logger = logging.getLogger(__name__)
 from pandayoda.common import StatefulService,VariableWithLock,SerialQueue
@@ -38,6 +38,9 @@ class DroidRequest(StatefulService.StatefulService):
       # name of the function or class creating this request
       self.parent_name  = parent_name
 
+      # event to block on when waiting for a response
+      self.received_response = threading.Event()
+
       # override the base classes prelog since we don't need the rank number for yoda.
       self.prelog       = ''
       if parent_name:
@@ -66,18 +69,22 @@ class DroidRequest(StatefulService.StatefulService):
    def send_job(self,job):
       self.queue.put({'type':MessageTypes.NEW_JOB,'job':job})
       self.set_state(DroidRequest.RECEIVED_JOB)
+      self.received_response.set()
 
    def send_no_more_jobs(self):
       self.queue.put({'type':MessageTypes.NO_MORE_JOBS})
       self.set_state(DroidRequest.RECEIVED_JOB)
+      self.received_response.set()
 
    def send_eventranges(self,eventranges):
       self.queue.put({'type':MessageTypes.NEW_EVENT_RANGES,'eventranges':eventranges})
       self.set_state(DroidRequest.RECEIVED_EVENTRANGES)
+      self.received_response.set()
 
    def send_no_more_eventranges(self):
       self.queue.put({'type':MessageTypes.NO_MORE_EVENT_RANGES})
       self.set_state(DroidRequest.RECEIVED_EVENTRANGES)
+      self.received_response.set()
 
    def run(self):
       ''' this function is executed as the subthread. '''
@@ -109,14 +116,12 @@ class DroidRequest(StatefulService.StatefulService):
          #        has been received
          ######################################################################
          elif state == DroidRequest.REQUESTING:
-
+            logger.debug('%s testing message request',self.prelog)
             # test if message has been received, this loop will continue 
             # until a message is received, or the thread is signaled to exit
             status = MPI.Status()
             msg_received,msg = self.mpi_request.test(status=status)
-            while not msg_received and not self.exit.wait(timeout=5):
-               msg_received,msg = self.mpi_request.test(status=status)
-
+            
             # if the message is received, sent the message variable and 
             if msg_received:
                logger.debug('%s message received from droid rank %d: %s',self.prelog,status.Get_source(),msg)
@@ -127,7 +132,8 @@ class DroidRequest(StatefulService.StatefulService):
                self.set_state(DroidRequest.MESSAGE_RECEIVED)
             # otherwise we do nothing
             else:
-               logger.debug('%s message not yet received',self.prelog)
+               logger.debug('%s message not yet received, sleeping %d',self.prelog,self.loop_timeout)
+               time.sleep(self.loop_timeout)
 
          
          ##################
@@ -136,7 +142,14 @@ class DroidRequest(StatefulService.StatefulService):
          ######################################################################
          elif state == DroidRequest.MESSAGE_RECEIVED:
             logger.debug('%s waiting for WorkManager to respond.',self.prelog)
-            time.sleep(self.loop_timeout)
+            
+            # if the message was a job or event range request, sleep on the queue 
+            # since that is where the message will come from
+            if self.received_response.wait(self.loop_timeout):
+               logger.debug('%s received response, time to wake up.',self.prelog)
+               self.received_response.clear()
+            else:
+               time.sleep(self.loop_timeout)
 
          
          ##################

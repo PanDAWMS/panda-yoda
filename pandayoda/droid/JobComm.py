@@ -56,7 +56,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
 
       # the prelog is just a string to attach before each log message
-      self.prelog                      = '%s| Rank %03d:' % (self.__class__.__name__,self.rank)
+      self.prelog                      = '%s|' % (self.__class__.__name__)
 
       # flag to set when all work is done and thread is exiting
       self.all_work_done               = VariableWithLock.VariableWithLock(False)
@@ -266,6 +266,9 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       logger.info('%s sending exit signal to subthreads',self.prelog)
       eventRangeRetriever.stop()
       comm.stop()
+      logger.info('%s waiting for subthreads to join',self.prelog)
+      eventRangeRetriever.join()
+      comm.join()
 
       logger.info('%s JobComm exiting',self.prelog)
 
@@ -375,7 +378,7 @@ class EventRangeRetriever(StatefulService.StatefulService):
             # setting new state
             self.set_state(EventRangeRetriever.SENDING_REQUEST)
             
-            logger.debug('%s requesting new message from droid',self.prelog)
+            logger.debug('%s requesting new event range from droid',self.prelog)
             # ask Yoda to send event ranges
             ydm.send_eventranges_request(
                self.job_def.get()['PandaID'],

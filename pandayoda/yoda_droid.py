@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import argparse,logging,os,sys,time,importlib
+import argparse,logging,os,sys,importlib,datetime,time
 import ConfigParser
 from mpi4py import MPI
 from pandayoda.yoda import Yoda
@@ -13,7 +13,7 @@ config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.
 def yoda_droid(working_path,
                config_filename,
                wall_clock_limit,
-               start_time = time.time(),
+               start_time = datetime.datetime.now(),
                test_without_harvester = False):
    
    # dereference any links on the working path
@@ -102,11 +102,14 @@ def yoda_droid(working_path,
       droid.stop()
       droid.join()
 
+   logger.info('Rank %s: waiting for other ranks to reach MPI Barrier',mpirank)
+   MPI.COMM_WORLD.Barrier()
+
    logger.info('Rank %s: yoda_droid exiting',mpirank)
       
 def main():
-   start_time = time.time()
-   logging_format = '%(asctime)s|%(process)s|%(thread)s|%(levelname)s|%(name)s|%(message)s'
+   start_time = datetime.datetime.now()
+   logging_format = '%(asctime)s|%(process)s|%(thread)s|' + ('%05d' % MPI.COMM_WORLD.Get_rank()) +'|%(levelname)s|%(name)s|%(message)s' 
    logging_datefmt = '%Y-%m-%d %H:%M:%S'
    logging.basicConfig(level=logging.INFO,
          format=logging_format,

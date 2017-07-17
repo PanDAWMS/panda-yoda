@@ -86,47 +86,50 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
       messenger.setup(self.config)
 
       while not self.exit.wait(timeout=self.loop_timeout):
-         logger.debug('start loop')
-
+         # get state
          state = self.get_state()
-         logger.debug('current state: %s',state)
+         logger.debug('%s start loop, current state: %s',self.prelog,state)
+         
+         ########
+         # REQUEST State
+         ########################
          if state == self.REQUEST:
+            logger.debug('%s making request for event ranges',self.prelog)
+            # request event ranges from Harvester
+            try:
+               # use messenger to request event ranges from Harvester
+               messenger.request_eventranges(self.job_def.get())
+            except exceptions.MessengerEventRangesAlreadyRequested:
+               logger.warning('event ranges already requesting')
+            
             # request events
             self.set_state(self.REQUESTING)
 
-            # get event ranges from Harvester
-            try:
-               eventranges = messenger.get_eventranges(self.job_def.get())
-            except exceptions.MessengerJobAlreadyRequested:
-               logger.warning('tried requesting event ranges twice')
-            else:
-               if len(eventranges) == 0:
-                  logger.debug('setting NO_MORE_EVENT_RANGES flag')
-                  self.no_more_eventranges_flag.set(True)
-                  self.stop()
-               else:
-                  logger.debug('setting NEW_EVENT_RANGES variable with %d event ranges',len(eventranges))
+         
+         #########
+         # REQUESTING State
+         ########################
+         elif state == self.REQUESTING:
+            logger.debug('%s checking for event ranges',self.prelog)
+            # use messenger to check if event ranges are ready
+            if messenger.eventranges_ready():
+               logger.debug('%s event ranges are ready',self.prelog)
+               # use messenger to get event ranges from Harvester
+               eventranges = messenger.get_eventranges()
+
+               # set event ranges for parent and change state
+               if len(eventranges) > 0:
+                  logger.debug('%s setting NEW_EVENT_RANGES variable with %d event ranges',self.prelog,len(eventranges))
                   self.set_eventranges(eventranges)
                   self.set_state(self.NEW_EVENT_RANGES_READY)
+               else:
+                  logger.debug('%s received no eventranges',self.prelog)
+            else:
+               logger.debug('%s no event ranges yet received.',self.prelog)
+
+         else:
+            logger.debug('%s nothing to do',self.prelog)
 
       self.set_state(self.EXITED)
       logger.debug('%s GetEventRanges thread is exiting',self.prelog)
    
-   def get_new_eventranges(self,block=False,timeout=None):
-      ''' this function retrieves a message from the queue and returns the
-          the eventranges. This should be called by the calling function, not by
-          the thread.'''
-      try:
-         msg = self.queue.get(block=block,timeout=timeout)
-      except SerialQueue.Empty:
-         logger.debug('GetEventRanges queue is empty')
-         return {}
-
-      if msg['type'] ==  MessageTypes.NEW_EVENT_RANGES:
-         logger.debug('received new event range message')
-         return msg['eventranges']
-      elif msg['type'] == MessageTypes.NO_MORE_EVENT_RANGES:
-         logger.debug('receive no more event ranges message')
-      else:
-         logger.error('message type from event range request unrecognized: %s',msg['type'])
-      return {}

@@ -81,30 +81,49 @@ class RequestHarvesterJob(StatefulService.StatefulService):
       messenger = self.get_messenger()
       messenger.setup(self.config)
 
-
       while not self.exit.wait(timeout=self.loop_timeout):
-         logger.debug('%s start loop',self.prelog)
+         # get state
          state = self.get_state()
-         logger.debug('%s current state: %s',self.prelog,state)
+         logger.debug('%s start loop, current state: %s',self.prelog,state)
+         
+         #########
+         # REQUEST State
+         ########################
          if state == self.REQUEST:
+            logger.debug('%s making request for job',self.prelog)
+            try:
+               # use messenger to request jobs from Harvester
+               messenger.request_jobs()
+            except exceptions.MessengerJobAlreadyRequested:
+               logger.warning('job already requested.')
             # request events
             self.set_state(self.REQUESTING)
+         
 
-            # get panda jobs from Harvester
-            try:
+         #########
+         # REQUESTING State
+         ########################
+         elif state == self.REQUESTING:
+            logger.debug('%s checking if request is complete',self.prelog)
+            # use messenger to check if jobs are ready
+            if messenger.pandajobs_ready():
+               logger.debug('%s jobs are ready',self.prelog)
+               # use messenger to get jobs from Harvester
                pandajobs = messenger.get_pandajobs()
-            except exceptions.MessengerJobAlreadyRequested:
-               logger.warning('%s tried requesting job twice',self.prelog)
-            else:
-               if len(pandajobs) == 0:
-                  logger.debug('%s setting NO_MORE_JOBS flag and exiting',self.prelog)
-                  self.no_more_jobs_flag.set(True)
-                  self.stop()
-               else:
+               
+               # set jobs for parent and change state
+               if len(pandajobs) > 0:
                   logger.debug('%s setting NEW_JOBS variable',self.prelog)
                   self.set_jobs(pandajobs)
                   self.set_state(self.NEW_JOBS_READY)
+               else:
+                  logger.debug('%s no jobs returned.',self.prelog)
+            else:
+               logger.debug('%s no jobs ready yet.',self.prelog)
+
+         else:
+            logger.debug('%s nothing to do',self.prelog)
          
 
       self.set_state(self.EXITED)
-      logger.debug('%s GetJob thread is exiting',self.prelog)
+      logger.debug('%s RequestHarvesterJob thread is exiting',self.prelog)

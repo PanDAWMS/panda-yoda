@@ -104,7 +104,7 @@ class JobManager(threading.Thread):
       self.rank                  = MPI.COMM_WORLD.Get_rank()
 
       # the prelog is just a string to attach before each log message
-      self.prelog                = 'Rank %03i:' % self.rank
+      self.prelog                = ''
 
       # this is used to trigger the thread exit
       self.exit = threading.Event()
@@ -297,6 +297,11 @@ class JobManager(threading.Thread):
       if jobproc is not None:
          logger.info('%s killing job subprocess.',self.prelog)
          jobproc.kill()
+         while jobproc.poll() is None:
+            logger.info('waiting for subprocess to exit.')
+            time.sleep(2)
+            jobproc.kill()
+
       logger.info('%s JobManager thread exiting',self.prelog)
 
    def start_new_subprocess(self,new_job,working_path):
