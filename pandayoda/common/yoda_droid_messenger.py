@@ -76,7 +76,7 @@ def send_droid_exit(droid_rank):
    return send_message(msg,dest=droid_rank,tag=TO_DROID)
 
 def recv_yoda_message():
-   return receive_message(YODA_RANK,TO_DROID)
+   return receive_message(YODA_RANK,FROM_YODA)
 
 def send_droid_has_exited(msg):
    msg = {'type':MessageTypes.DROID_HAS_EXITED,'message':msg}
