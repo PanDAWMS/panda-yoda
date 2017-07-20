@@ -1,5 +1,5 @@
 from mpi4py import MPI
-import os,logging,array
+import os,logging,array,threading
 from pandayoda.common import MessageTypes
 logger = logging.getLogger(__name__)
 ''' 
@@ -25,6 +25,8 @@ FROM_YODA            = 8
 
 TO_YODA_FILEMANAGER  = 9
 
+
+using_mpi_lock = threading.Lock()
 
 # droid sends job request to yoda
 def send_job_request():
@@ -112,11 +114,18 @@ def send_message(data,dest=None,tag=None):
          tag:  this tag can be used to filter messages
       return: returns a Request object which is used to test for communication completion,
               through a blocking call, Request.wait(), and and a non-blocking call, Request.test(). '''
+   global using_mpi_lock
    try:
-      return MPI.COMM_WORLD.isend(data,dest=dest,tag=tag)
+      logger.debug('Rank %05d: send message: %s',MPI.COMM_WORLD.Get_rank(),data)
+      using_mpi_lock.acquire()
+      request =  MPI.COMM_WORLD.isend(data,dest=dest,tag=tag)
+      using_mpi_lock.release()
+      logger.debug('Rank %05d: message sent',MPI.COMM_WORLD.Get_rank())
    except:
       logger.exception('Rank %05i: exception received during sending request for a job.',MPI.COMM_WORLD.Get_rank())
       raise
+
+   return request
 
 def receive_message(source=MPI.ANY_SOURCE,tag=None):
    ''' basic MPI_ISend but mpi4py handles the object tranlation for sending 
@@ -125,13 +134,19 @@ def receive_message(source=MPI.ANY_SOURCE,tag=None):
          tag:  this tag can be used to filter messages
       return: returns a Request object which is used to test for communication completion,
               through a blocking call, Request.wait(), and and a non-blocking call, Request.test(). '''
+   global using_mpi_lock
    # using MPI_Recv
    try:
+      logger.debug('Rank %05d: requsting message',MPI.COMM_WORLD.Get_rank())
+      using_mpi_lock.acquire()
       if tag is not None:
-         return MPI.COMM_WORLD.irecv(source=source,tag=tag)
+         request = MPI.COMM_WORLD.irecv(source=source,tag=tag)
       else:
-         return MPI.COMM_WORLD.irecv(source=source)
+         request = MPI.COMM_WORLD.irecv(source=source)
+      using_mpi_lock.release()
+      logger.debug('Rank %05d: done requsting message',MPI.COMM_WORLD.Get_rank())
    except:
       logger.exception('Rank %05i: exception received while trying to receive a message.',MPI.COMM_WORLD.Get_rank())
       raise
 
+   return request

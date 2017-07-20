@@ -33,6 +33,8 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
       # set this to define which job definition will be used to request event ranges
       self.job_def                     = VariableWithLock.VariableWithLock()
 
+      self.prelog                      = ''
+
 
    def reset(self):
       self.set_state(self.IDLE)

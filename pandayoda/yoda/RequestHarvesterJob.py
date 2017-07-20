@@ -31,7 +31,7 @@ class RequestHarvesterJob(StatefulService.StatefulService):
       self.no_more_jobs_flag  = VariableWithLock.VariableWithLock(False)
 
       # the prelog is just a string to attach before each log message
-      self.prelog             = '%s:' % self.__class__.__name__
+      self.prelog             = ''
 
    def get_jobs(self):
       ''' parent thread calls this function to retrieve the jobs sent by Harevester '''

@@ -272,13 +272,17 @@ def request_eventranges(job_def):
       harConfLock.release()
       raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPI.COMM_WORLD.Get_rank(),harConfSect,harvesterConfig.sections()))
    
+   
    # crate event request file
    if not os.path.exists(eventRequestFile):
       # need to output a file containing:
       #   {'nRanges': ???, 'pandaID':???, 'taskID':???, 'jobsetID':???}
       logger.debug('Rank %05i: requesting new event ranges with job_def = %s',MPI.COMM_WORLD.Get_rank(),job_def)
-      f = open(eventRequestFile_tmp,'w')
+      
+      # get new job definition
       new_job_def = {job_def['pandaID']:job_def}
+      
+      f = open(eventRequestFile_tmp,'w')
       f.write(serializer.serialize(new_job_def)) 
       f.close()
 
@@ -286,7 +290,34 @@ def request_eventranges(job_def):
       os.rename(eventRequestFile_tmp,eventRequestFile)
 
    else:
-      raise exceptions.MessengerEventRangesAlreadyRequested
+      logger.debug('Rank %05i: request file already exists. Adding requests',MPI.COMM_WORLD.Get_rank())
+
+      # move current file to temp
+      os.rename(eventRequestFile,eventRequestFile_tmp)
+
+      filedata = open(eventRequestFile_tmp).read()
+      requests = serializer.deserialize(filedata)
+
+      pandaID = job_def['pandaID']
+      if pandaID in requests:
+         logger.debug('Rank %05i: adding event range count to existing request',MPI.COMM_WORLD.Get_rank())
+         thisjob = requests[pandaID]
+         if thisjob['jobsetID'] == job_def['jobsetID'] and thisjob['taskID'] == job_def['taskID']:
+            thisjob['nRanges'] += job_def['nRanges']
+         else:
+            logger.warning('Rank %05i: existing request for PandaID %s does not match new request details %s',MPI.COMM_WORLD.Get_rank(),thisjob,job_def)
+      else:
+         logger.debug('Rank %05i: adding new job definition to existing request',MPI.COMM_WORLD.Get_rank())
+         requests[pandaID] = job_def
+
+      # output updated requests to file
+      open(eventRequestFile_tmp,'w').write(serializer.serialize(requests))
+
+      # now move tmp filename to real filename
+      os.rename(eventRequestFile_tmp,eventRequestFile)
+
+
+      
 
 def eventranges_ready():
    global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock

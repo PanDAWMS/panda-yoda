@@ -56,7 +56,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
 
       # the prelog is just a string to attach before each log message
-      self.prelog                      = '%s|' % (self.__class__.__name__)
+      self.prelog                      = ''
 
       # flag to set when all work is done and thread is exiting
       self.all_work_done               = VariableWithLock.VariableWithLock(False)
@@ -318,6 +318,7 @@ class EventRangeRetriever(StatefulService.StatefulService):
       return self.in_state(EventRangeRetriever.IDLE)
 
    def initiate_request(self):
+      logger.debug('initiating new request')
       self.set_state(EventRangeRetriever.REQUEST)
 
    def is_running(self):
