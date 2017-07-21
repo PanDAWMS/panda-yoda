@@ -154,7 +154,7 @@ class Yoda(threading.Thread):
             # if the thread is not alive, throw an error
             if not thread.isAlive():
                logger.warning('%s is no longer running.',name)
-               del subthreads[name]
+               #del subthreads[name]
             #else:
                #logger.debug('%s %s is running.',self.prelog,name)
 

@@ -124,9 +124,11 @@ class Droid(threading.Thread):
 
 
          # check the status of each subthread
+         logger.debug('checking subthreads')
          keys = subthreads.keys()
          number_running = 0
          for name in keys:
+            logger.debug('checking thread %s',name)
             thread = subthreads[name]
             # if the thread is not alive, throw an error
             if not thread.isAlive():
