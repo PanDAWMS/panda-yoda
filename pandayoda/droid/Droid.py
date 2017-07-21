@@ -157,6 +157,8 @@ class Droid(threading.Thread):
             logger.info('%s no subthreads remaining, exiting',self.prelog)
             exit_msg += ' no subthreads remaining, exiting.'
             break
+
+         logger.debug('sleeping %s',loop_timeout)
          time.sleep(loop_timeout)
 
       # send the exit signal to all subthreads
