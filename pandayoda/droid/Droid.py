@@ -142,6 +142,7 @@ class Droid(threading.Thread):
                   self.stop()
             else:
                number_running += 1
+         logger.debug('threads running %s',number_running)
 
          # if no process are running, exit
          if number_running == 0:
