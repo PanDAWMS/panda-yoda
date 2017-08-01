@@ -100,6 +100,9 @@ class Yoda(threading.Thread):
       while not self.exit.isSet():
          logger.debug('start loop')
 
+         logger.debug(' MPI.Query_thread(): %s',MPI.Query_thread())
+         logger.debug(' MPI.THREAD_MULTIPLE: %s',MPI.THREAD_MULTIPLE)
+
          # check for wallclock expiring
          if self.wall_clock_limit.total_seconds() > 0:
             running_time = datetime.datetime.now() - self.start_time

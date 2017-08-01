@@ -85,6 +85,9 @@ class Droid(threading.Thread):
          logger.debug('%s droid start loop',self.prelog)
          logger.debug('%s cwd: %s',self.prelog,os.getcwd())
 
+         logger.debug(' MPI.Query_thread(): %s',MPI.Query_thread())
+         logger.debug(' MPI.THREAD_MULTIPLE: %s',MPI.THREAD_MULTIPLE)
+
          # check for exit message, creating a request if needed
          if yoda_recv is None:
             logger.debug('%s requesting message via MPI',self.prelog)

@@ -16,6 +16,9 @@ echo [$SECONDS] WORK_DIR = $WORK_DIR
 # copy input files that Harvester would provide
 cp /projects/AtlasADSP/atlas/tests/yodajob_input/* $WORK_DIR/
 
+module load atp
+export ATP_ENABLED=1
+
 echo [$SECONDS] env
 env | sort
 

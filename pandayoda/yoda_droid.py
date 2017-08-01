@@ -1,11 +1,14 @@
 #!/usr/bin/env python
 import argparse,logging,os,sys,importlib,datetime,time
 import ConfigParser
+import mpi4py
+mpi4py.rc(thread_level='multiple')
 from mpi4py import MPI
 from pandayoda.yoda import Yoda
 from pandayoda.droid import Droid
 from pandayoda.common import yoda_droid_messenger as ydm
 logger = logging.getLogger(__name__)
+
 
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
@@ -25,6 +28,8 @@ def yoda_droid(working_path,
       mpirank = comm.Get_rank()
       mpisize = comm.Get_size()
       logger.debug(' rank %10i of %10i',mpirank,mpisize)
+      logger.debug(' MPI.Query_thread(): %s',MPI.Query_thread())
+      logger.debug(' MPI.THREAD_MULTIPLE: %s',MPI.THREAD_MULTIPLE)
    except:
       logger.error('Exception retrieving MPI rank information')
       raise
