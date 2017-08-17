@@ -16,8 +16,10 @@ echo [$SECONDS] WORK_DIR = $WORK_DIR
 # copy input files that Harvester would provide
 cp /projects/AtlasADSP/atlas/tests/yodajob_input/* $WORK_DIR/
 
-module load atp
-export ATP_ENABLED=1
+#module load atp
+#export ATP_ENABLED=1
+
+ulimit -c unlimited
 
 echo [$SECONDS] env
 env | sort
@@ -28,7 +30,7 @@ echo [$SECONDS] RUNTIME=$RUNTIME
 
 echo [$SECONDS] Starting yoda_droid
 #aprun -n  $(( COBALT_PARTSIZE * $MPI_RANKS_PER_NODE )) -N $MPI_RANKS_PER_NODE ../yoda_droid.py -w $WORK_DIR --debug -c $YODADIR/pandayoda/yoda.cfg
-aprun -n 8 -N 1 -d 64 -j 1 --cc depth -e KMP_AFFINITY=none ../yoda_droid.py -w $WORK_DIR --debug -c $YODADIR/pandayoda/yoda.cfg -t $RUNTIME
+aprun -n 8 -N 1 -d 64 -j 1 --cc depth -e KMP_AFFINITY=none python -u ../yoda_droid.py -w $WORK_DIR --debug -c $YODADIR/pandayoda/yoda.cfg -t $RUNTIME
 EXIT_CODE=$?
 echo [$SECONDS] yoda_droid exit code = $EXIT_CODE
 exit $EXIT_CODE

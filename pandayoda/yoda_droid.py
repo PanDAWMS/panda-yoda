@@ -3,10 +3,10 @@ import argparse,logging,os,sys,importlib,datetime,time
 import ConfigParser
 import mpi4py
 mpi4py.rc(thread_level='multiple')
-from mpi4py import MPI
+
 from pandayoda.yoda import Yoda
 from pandayoda.droid import Droid
-from pandayoda.common import yoda_droid_messenger as ydm
+from pandayoda.common import yoda_droid_messenger as ydm,MPIService
 logger = logging.getLogger(__name__)
 
 
@@ -24,12 +24,9 @@ def yoda_droid(working_path,
    
    # get MPI world info
    try:
-      comm = MPI.COMM_WORLD
-      mpirank = comm.Get_rank()
-      mpisize = comm.Get_size()
+      mpirank = MPIService.rank
+      mpisize = MPIService.nrank
       logger.debug(' rank %10i of %10i',mpirank,mpisize)
-      logger.debug(' MPI.Query_thread(): %s',MPI.Query_thread())
-      logger.debug(' MPI.THREAD_MULTIPLE: %s',MPI.THREAD_MULTIPLE)
    except:
       logger.error('Exception retrieving MPI rank information')
       raise
@@ -69,6 +66,7 @@ def yoda_droid(working_path,
       os.chdir(working_path)
 
    yoda = None
+   droid = None
    # if you are rank 0, start the yoda thread
    if mpirank==0:
       try:
@@ -77,44 +75,43 @@ def yoda_droid(working_path,
       except:
          logger.exception('Rank %s: failed to start Yoda.',mpirank)
          raise
-   # all ranks start Droid threads
-   try:
-      droid = Droid.Droid(config)
-      droid.start()
-   except:
-      logger.exception('Rank %s: failed to start Droid',mpirank)
-      raise
+   else:
+      # all other ranks start Droid threads
+      try:
+         droid = Droid.Droid(config)
+         droid.start()
+      except:
+         logger.exception('Rank %s: failed to start Droid',mpirank)
+         raise
 
    # loop until droid and/or yoda exit
    while True:
       logger.debug('yoda_droid start loop')
       logger.debug('cwd: %s',os.getcwd())
-      if not droid.isAlive():
+      if droid and not droid.isAlive():
          logger.info('Rank %s: droid has finished',mpirank)
          break
-      if yoda:
-         if not yoda.isAlive():
-            logger.info('Rank %s: yoda has finished',mpirank)
-            break
+      if yoda and not yoda.isAlive():
+         logger.info('Rank %s: yoda has finished',mpirank)
+         break
       time.sleep(loop_timeout)
 
-   if yoda:
-      if yoda.isAlive():
-         yoda.stop()
-         yoda.join()
+   if yoda and if yoda.isAlive():
+      yoda.stop()
+      yoda.join()
 
-   if droid.isAlive():
+   if droid and droid.isAlive():
       droid.stop()
       droid.join()
 
-   logger.info('Rank %s: waiting for other ranks to reach MPI Barrier',mpirank)
-   MPI.COMM_WORLD.Barrier()
+   #logger.info('Rank %s: waiting for other ranks to reach MPI Barrier',mpirank)
+   #MPI.COMM_WORLD.Barrier()
 
    logger.info('Rank %s: yoda_droid exiting',mpirank)
       
 def main():
    start_time = datetime.datetime.now()
-   logging_format = '%(asctime)s|%(process)s|%(thread)s|' + ('%05d' % MPI.COMM_WORLD.Get_rank()) +'|%(levelname)s|%(name)s|%(message)s' 
+   logging_format = '%(asctime)s|%(process)s|%(thread)s|' + ('%05d' % MPIService.rank) +'|%(levelname)s|%(name)s|%(message)s' 
    logging_datefmt = '%Y-%m-%d %H:%M:%S'
    logging.basicConfig(level=logging.INFO,
          format=logging_format,

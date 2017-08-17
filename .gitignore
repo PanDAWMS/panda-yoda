@@ -1,2 +1,5 @@
 *.pyc
 ._*
+pandayoda/test/*.cobaltlog
+pandayoda/test/*.output
+pandayoda/test/*.error

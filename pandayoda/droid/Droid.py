@@ -1,6 +1,5 @@
 import logging,threading,os,time,socket,multiprocessing,platform
-from mpi4py import MPI
-from pandayoda.common import yoda_droid_messenger as ydm,SerialQueue,MessageTypes
+from pandayoda.common import yoda_droid_messenger as ydm,SerialQueue,MessageTypes,MPIService
 from pandayoda.droid import JobManager,JobComm
 logger = logging.getLogger(__name__)
 
@@ -18,14 +17,8 @@ class Droid(threading.Thread):
       # configuration of Yoda
       self.config                = config
 
-      # get current rank
-      self.rank                  = MPI.COMM_WORLD.Get_rank()
-
-      # the prelog is just a string to attach before each log message
-      self.prelog                = ''
-
       # this is used to trigger the thread exit
-      self.exit = threading.Event()
+      self.exit                  = threading.Event()
 
    def stop(self):
       ''' this function can be called by outside threads to cause the Yoda thread to exit'''
@@ -35,22 +28,24 @@ class Droid(threading.Thread):
    # this runs when 'droid_instance.start()' is called
    def run(self):
       ''' this is the function called when the user runs droid_instance.start() '''
+      
       if self.rank == 0:
-         logger.info('%s Droid Thread starting',self.prelog)
-         logger.debug('%s config_section: %s',self.prelog,config_section)
-      logger.info('%s Droid running on hostname: %s, %s',self.prelog,socket.gethostname(),platform.node())
-      logger.info('%s Droid node has %d cpus',self.prelog,multiprocessing.cpu_count())
-      logger.info('%s Droid uname: %s',self.prelog,','.join(platform.uname()))
-      logger.info('%s Droid processor: %s',self.prelog,platform.processor())
+         logger.info('Droid Thread starting')
+         logger.debug('config_section: %s',config_section)
+      
+      logger.info('Droid running on hostname: %s, %s',socket.gethostname(),platform.node())
+      logger.info('Droid node has %d cpus',multiprocessing.cpu_count())
+      logger.info('Droid uname: %s',','.join(platform.uname()))
+      logger.info('Droid processor: %s',platform.processor())
 
       # read droid loop timeout:
       if self.config.has_option(config_section,'loop_timeout'):
          loop_timeout = self.config.getfloat(config_section,'loop_timeout')
       else:
-         logger.error('%s must specify "loop_timeout" in "%s" section of config file',self.prelog,config_section)
+         logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
          return
       if self.rank == 0:
-         logger.info('%s %s loop_timeout: %d',self.prelog,config_section,loop_timeout)
+         logger.info('%s loop_timeout: %d',config_section,loop_timeout)
 
       # place holder for exit message in case there is an error
       exit_msg = ''
@@ -65,6 +60,17 @@ class Droid(threading.Thread):
       queues['JobManager']       = SerialQueue.SerialQueue()
       queues['JobComm']          = SerialQueue.SerialQueue()
       queues['Droid']            = SerialQueue.SerialQueue()
+      queues['MPIService']       = SerialQueue.SerialQueue()
+
+      # create forwarding map for MPIService
+      forwarding_map = {
+         MessageTypes.NEW_JOB: 'JobManager',
+         MessageTypes.NEW_EVENT_RANGES: 'JobComm',
+         MessageTypes.WALLCLOCK_EXPIRING: 'Droid',
+      }
+
+      # initialize MPI Service
+      MPIService.mpiService.initialize(queues,forwarding_map)
       
       # a dictionary of subthreads
       subthreads = {}
@@ -77,53 +83,31 @@ class Droid(threading.Thread):
       subthreads['JobComm']      = JobComm.JobComm(self.config,queues,droid_working_path)
       subthreads['JobComm'].start()
 
-
-      yoda_recv = None
-
       # begin while loop to monitor subthreads
       while not self.exit.isSet():
-         logger.debug('%s droid start loop',self.prelog)
-         logger.debug('%s cwd: %s',self.prelog,os.getcwd())
+         logger.debug('droid start loop')
+         logger.debug('cwd: %s',os.getcwd())
 
          logger.debug(' MPI.Query_thread(): %s',MPI.Query_thread())
          logger.debug(' MPI.THREAD_MULTIPLE: %s',MPI.THREAD_MULTIPLE)
 
-         # check for exit message, creating a request if needed
-         if yoda_recv is None:
-            logger.debug('%s requesting message via MPI',self.prelog)
-            yoda_recv = ydm.recv_yoda_message()
-         if yoda_recv is not None:
-            logger.debug('%s testing for message via MPI',self.prelog)
-            try:
-               # test request to see if message was received
-               msg_received,msg = yoda_recv.test()
-            except:
-               logger.exception('%s error running test on MPI request: %s',self.prelog,yoda_recv)
-               logger.warning('%s trying to test mpi request again',self.prelog)
-               msg_received,msg = yoda_recv.test()
-               if msg_received and msg is None:
-                  logger.error('%s failed to retrieve message via MPI, reseting reqeust and continuing',self.prelog)
-                  yoda_recv = None
-                  continue
-            # if message was received
-            if msg_received:
-               logger.debug('%s received MPI message: %s',self.prelog,msg)
-               if msg['type'] == MessageTypes.DROID_EXIT:
-                  logger.debug('%s received exit message signaling stop',self.prelog)
-                  self.stop()
-                  break
-               if msg['type'] == MessageTypes.WALLCLOCK_EXPIRING:
-                  logger.debug('%s received wallclock expiring message',self.prelog)
-                  # set flag for stop
-                  self.stop()
-                  break
-               else:
-                  logger.error('%s failed to parse message from Yoda: %s',self.prelog,msg)
-
-               # reset message
-               yoda_recv = None
+         # check for queue message
+         try:
+            qmsg = queues['Droid'].get(block=False)
+            logger.debug('received message: %s',qmsg)
+            if qmsg['type'] == MessageTypes.DROID_EXIT:
+               logger.debug('received exit message signaling stop')
+               self.stop()
+               break
+            if qmsg['type'] == MessageTypes.WALLCLOCK_EXPIRING:
+               logger.debug('received wallclock expiring message')
+               # send message to other threads\
+               self.stop()
+               break
             else:
-               logger.debug('%s no messages via MPI',self.prelog)
+               logger.error('failed to parse message')
+         except SerialQueue.Empty():
+            logger.debug('no messages for Droid')
 
 
          # check the status of each subthread
@@ -135,13 +119,13 @@ class Droid(threading.Thread):
             thread = subthreads[name]
             # if the thread is not alive, throw an error
             if not thread.isAlive():
-               logger.warning('%s %s is no longer running.',self.prelog,name)
+               logger.warning('%s is no longer running.',name)
                if name == 'JobManager' and thread.no_more_jobs.get():
-                  logger.debug('%s JobManager reports no more jobs so it exited.',self.prelog)
+                  logger.debug('JobManager reports no more jobs so it exited.')
                elif name == 'JobComm' and thread.all_work_done.get():
-                  logger.debug('%s JobComm reports no more work so it exited.',self.prelog)
+                  logger.debug('JobComm reports no more work so it exited.')
                else:
-                  exit_msg += '%s is no longer running.' % name
+                  exit_msg += 'is no longer running.' % name
                   self.stop()
             else:
                number_running += 1
@@ -149,15 +133,11 @@ class Droid(threading.Thread):
 
          # if no process are running, exit
          if number_running == 0:
-            logger.info('%s no more processes running so exiting.',self.prelog)
+            logger.info('no more processes running so exiting.')
             self.stop()
 
-
-            #else:
-               #logger.debug('%s %s is running.',self.prelog,name)
-
          if len(subthreads) == 0:
-            logger.info('%s no subthreads remaining, exiting',self.prelog)
+            logger.info('no subthreads remaining, exiting')
             exit_msg += ' no subthreads remaining, exiting.'
             break
 
@@ -165,21 +145,21 @@ class Droid(threading.Thread):
          time.sleep(loop_timeout)
 
       # send the exit signal to all subthreads
-      logger.info('%s sending exit signal to subthreads',self.prelog)
+      logger.info('sending exit signal to subthreads')
       for name,thread in subthreads.iteritems():
          thread.stop()
 
       # wait for sub threads to exit
-      logger.info('%s waiting for subthreads to join',self.prelog)
+      logger.info('waiting for subthreads to join')
       for name,thread in subthreads.iteritems():
          thread.join()
-         logger.info('%s %s has joined',self.prelog,name)
+         logger.info('%s has joined',name)
 
       # send yoda message that Droid has exited
-      logger.info('%s droid notifying yoda that it has exited',self.prelog)
+      logger.info('droid notifying yoda that it has exited')
       ydm.send_droid_has_exited(exit_msg)
 
-      logger.info('%s droid exiting',self.prelog)
+      logger.info('droid exiting')
 
 
 

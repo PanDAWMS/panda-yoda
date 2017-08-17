@@ -1,8 +1,6 @@
 import os,sys,threading,logging,shutil,importlib
-from mpi4py import MPI
-from pandayoda.common import MessageTypes,serializer
+from pandayoda.common import MessageTypes,serializer,SerialQueue
 from pandayoda.common import yoda_droid_messenger as ydm
-from pandayoda.yoda import DroidRequestList
 logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
@@ -35,7 +33,7 @@ class FileManager(threading.Thread):
       self.exit.set()
 
 
-   def get_messenger(self):
+   def get_harvester_messenger(self):
       # get the name of the plugin from the config file
       if self.config.has_option(config_section,'messenger_plugin_module'):
          messenger_plugin_module = self.config.get(config_section,'messenger_plugin_module')
@@ -56,64 +54,32 @@ class FileManager(threading.Thread):
    def run(self):
       logger.debug('starting thread')
 
-      # get loop_timeout
-      if self.config.has_option(config_section,'loop_timeout'):
-         loop_timeout = self.config.getfloat(config_section,'loop_timeout')
-      else:
-         logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
-         return
-      logger.info('%s loop_timeout: %d',config_section,loop_timeout)
+      # read configuration info from file
+      self.read_config()
 
-      # get output_file_type
-      if self.config.has_option(config_section,'output_file_type'):
-         output_file_type = self.config.get(config_section,'output_file_type')
-      else:
-         logger.error('must specify "output_file_type" in "%s" section of config file',config_section)
-         return
-      logger.info('%s output_file_type: %s',config_section,output_file_type)
-
-      # get yoda_working_path
-      if self.config.has_option(config_section,'yoda_working_path'):
-         yoda_working_path = self.config.get(config_section,'yoda_working_path')
-      else:
-         logger.error('typically "yoda_working_path" is set by yoda_droid in the "%s" section of config',config_section)
-         return
-      logger.info('%s yoda_working_path: %s',config_section,yoda_working_path)
-
-
-      # there can be multiple droid requests running at any given time.
-      # this list keeps track of them
-      droid_requests = DroidRequestList.DroidRequestList(self.config,ydm.TO_YODA_FILEMANAGER,loop_timeout,self.__class__.__name__)
-
-
-      # get the messenger for communicating with Harvester
-      messenger = self.get_messenger()
-      messenger.setup(self.config)
+      # get the harvester_messenger for communicating with Harvester
+      harvester_messenger = self.get_harvester_messenger()
+      harvester_messenger.setup(self.config)
 
 
 
-      while not self.exit.wait(timeout=loop_timeout):
+      while not self.exit.isSet():
          logger.debug('starting loop')
 
-         # if no droid requests are waiting for droid messages, create a new one
-         if droid_requests.number_waiting_for_droid_message() <= 0:
-            logger.debug('adding request')
-            droid_requests.add_request()
+         # process incoming messages
+         try:
+            qmsg = self.queues['FileManager'].get(timeout=self.loop_timeout)
+         except SerialQueue.Empty():
+            logger.debug('queue is empty')
+         else:
 
-         # process the droid requests that are waiting for a response
-         for request in droid_requests.get_waiting():
-            # get the message from droid
-            msg = request.droid_msg.get()
+            logger.debug('message received: %s',qmsg)
 
-            logger.debug('message received from droid rank %s: %s',request.get_droid_rank(),msg)
-
-            if 'output_file_data' in msg:
-               # extract the file data from the message
-               output_file_data = msg['output_file_data']
-
+            if qmsg['type'] == MessageTypes.OUTPUT_FILE:
+               
                # copy file to yoda working path
-               source_file = output_file_data['filename']
-               destination_path = yoda_working_path
+               source_file = qmsg['filename']
+               destination_path = self.yoda_working_path
 
                if os.path.exists(source_file) and os.path.exists(destination_path):
                   
@@ -121,37 +87,51 @@ class FileManager(threading.Thread):
                   shutil.copy(source_file,destination_path)
                elif not os.path.exists(source_file):
                   logger.error('input filename does not exist: %s',source_file)
-               elif not os.path.exists(yoda_working_path):
+               elif not os.path.exists(self.yoda_working_path):
                   logger.error('output file path does not exist: %s',destination_path)
 
-               destination_file = os.path.join(destination_path,os.path.basename(output_file_data['filename']))
+               destination_file = os.path.join(destination_path,os.path.basename(qmsg['filename']))
                
                # add file to Harvester stage out
-               messenger.stage_out_file(output_file_type,
+               harvester_messenger.stage_out_file(self.output_file_type,
                                         destination_file,
-                                        output_file_data['eventrangeid'],
-                                        output_file_data['eventstatus'],
-                                        output_file_data['pandaid']
+                                        qmsg['eventrangeid'],
+                                        qmsg['eventstatus'],
+                                        qmsg['pandaid']
                                        )
 
-               # tell request to exit because it is done
-               request.stop()
 
             else:
-               logger.error('droid message had no output file data inside.')
+               logger.error('message type not recognized')
 
-      # exit clean up
-
-      logger.info('check that no DroidRequests need to be exited')
-      for request in droid_requests.get_alive():
-         request.stop()
-      for request in droid_requests.get_alive():
-         request.join()
 
       # exit
       logger.info('FileManager exiting')
 
+   def read_config(self):
+      # get self.loop_timeout
+      if self.config.has_option(config_section,'self.loop_timeout'):
+         self.loop_timeout = self.config.getfloat(config_section,'self.loop_timeout')
+      else:
+         logger.error('must specify "self.loop_timeout" in "%s" section of config file',config_section)
+         return
+      logger.info('%s self.loop_timeout: %d',config_section,self.loop_timeout)
 
+      # get self.output_file_type
+      if self.config.has_option(config_section,'self.output_file_type'):
+         self.output_file_type = self.config.get(config_section,'self.output_file_type')
+      else:
+         logger.error('must specify "self.output_file_type" in "%s" section of config file',config_section)
+         return
+      logger.info('%s self.output_file_type: %s',config_section,self.output_file_type)
+
+      # get self.yoda_working_path
+      if self.config.has_option(config_section,'self.yoda_working_path'):
+         self.yoda_working_path = self.config.get(config_section,'self.yoda_working_path')
+      else:
+         logger.error('typically "self.yoda_working_path" is set by yoda_droid in the "%s" section of config',config_section)
+         return
+      logger.info('%s self.yoda_working_path: %s',config_section,self.yoda_working_path)
 
 
 

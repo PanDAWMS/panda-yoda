@@ -1,6 +1,5 @@
 import os,sys,threading,logging,importlib,time
-import RequestHarvesterJob,RequestHarvesterEventRanges,DroidRequestList
-from mpi4py import MPI
+import RequestHarvesterJob,RequestHarvesterEventRanges
 from pandayoda.common import MessageTypes,SerialQueue,EventRangeList,exceptions
 from pandayoda.common import yoda_droid_messenger as ydm,VariableWithLock,StatefulService
 logger = logging.getLogger(__name__)
@@ -29,37 +28,15 @@ class WorkManager(threading.Thread):
       self.exit                  = threading.Event()
 
    def stop(self):
-      ''' this function can be called by outside threads to cause the JobManager thread to exit'''
+      ''' this function can be called by outside subthreads to cause the JobManager thread to exit'''
       self.exit.set()
 
 
    def run(self):
       ''' this function is executed as the subthread. '''
 
-      # get loop_timeout
-      if self.config.has_option(config_section,'loop_timeout'):
-         loop_timeout = self.config.getfloat(config_section,'loop_timeout')
-      else:
-         logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
-         return
-      logger.info('loop_timeout: %d',loop_timeout)
-
-
-      # get send_n_eventranges
-      if self.config.has_option(config_section,'send_n_eventranges'):
-         send_n_eventranges = self.config.getint(config_section,'send_n_eventranges')
-      else:
-         logger.error('must specify "send_n_eventranges" in "%s" section of config file',config_section)
-         return
-      logger.info('send_n_eventranges: %d',send_n_eventranges)
-
-      # get request_n_eventranges
-      if self.config.has_option(config_section,'request_n_eventranges'):
-         request_n_eventranges = self.config.getint(config_section,'request_n_eventranges')
-      else:
-         logger.error('must specify "request_n_eventranges" in "%s" section of config file',config_section)
-         return
-      logger.info('request_n_eventranges: %d',request_n_eventranges)
+      # read inputs from config file
+      self.read_config()
 
       # this is a place holder for the GetJobRequest object
       job_request                = None
@@ -80,26 +57,23 @@ class WorkManager(threading.Thread):
 
 
       # setup subthreads
-      threads = {}
-      threads['RequestHarvesterJob']  = RequestHarvesterJob.RequestHarvesterJob(self.config,loop_timeout)
-      threads['RequestHarvesterJob'].start()
+      subthreads = {}
+      subthreads['RequestHarvesterJob']  = RequestHarvesterJob.RequestHarvesterJob(self.config,self.loop_timeout)
+      subthreads['RequestHarvesterJob'].start()
 
-      threads['RequestHarvesterEventRanges']  = RequestHarvesterEventRanges.RequestHarvesterEventRanges(self.config,loop_timeout)
-      threads['RequestHarvesterEventRanges'].start()
+      subthreads['RequestHarvesterEventRanges']  = RequestHarvesterEventRanges.RequestHarvesterEventRanges(self.config,self.loop_timeout)
+      subthreads['RequestHarvesterEventRanges'].start()
       
-      # there can be multiple droid requests running at any given time.
-      # this list keeps track of them
-      droid_requests = DroidRequestList.DroidRequestList(self.config,ydm.TO_YODA_WORKMANAGER,loop_timeout,self.__class__.__name__)
 
       while not self.exit.isSet():
          logger.debug('start loop')
          logger.debug('cwd: %s',os.getcwd())
 
          ###############
-         # check all sub threads still running
+         # check all subthreads still running
          ################################
-         logger.debug('checking all threads are still running and if they have messages')
-         for name,thread in threads.iteritems():
+         logger.debug('checking all subthreads are still running and if they have messages')
+         for name,thread in subthreads.iteritems():
             if not thread.isAlive() or thread.in_state(thread.EXITED):
                logger.error('%s has exited',name)
 
@@ -107,19 +81,19 @@ class WorkManager(threading.Thread):
          # check for a new job
          ################################
          logger.debug('checking for new job')
-         if threads['RequestHarvesterJob'].new_jobs_ready():
+         if subthreads['RequestHarvesterJob'].new_jobs_ready():
             logger.debug('getting new jobs from RequestHarvesterJob')
-            new_jobs = threads['RequestHarvesterJob'].get_jobs()
+            new_jobs = subthreads['RequestHarvesterJob'].get_jobs()
             # add new_jobs to list
             for jobid,job in new_jobs.iteritems():
                # add job to list of jobs orderd by job id
                pandajobs[jobid] = job
-         elif threads['RequestHarvesterJob'].no_more_jobs():
+         elif subthreads['RequestHarvesterJob'].no_more_jobs():
             logger.debug('there are no more jobs')
-         elif not threads['RequestHarvesterJob'].isAlive():
+         elif not subthreads['RequestHarvesterJob'].isAlive():
             logger.debug('RequestHarvesterJob thread has exited.')
          else:
-            logger.debug('RequestHarvesterJob state is %s',threads['RequestHarvesterJob'].get_state())
+            logger.debug('RequestHarvesterJob state is %s',subthreads['RequestHarvesterJob'].get_state())
 
 
 
@@ -127,9 +101,9 @@ class WorkManager(threading.Thread):
          # check for a new event range
          ################################
          logger.debug('checking for event range')
-         if threads['RequestHarvesterEventRanges'].new_eventranges_ready():
+         if subthreads['RequestHarvesterEventRanges'].new_eventranges_ready():
             logger.debug('retrieving event range from RequestHarvesterEventRanges')
-            new_eventranges = threads['RequestHarvesterEventRanges'].get_eventranges()
+            new_eventranges = subthreads['RequestHarvesterEventRanges'].get_eventranges()
             if new_eventranges is None:
                logger.error('new eventranges ready set, but none available. Should not happen.')
             else:
@@ -142,31 +116,30 @@ class WorkManager(threading.Thread):
                         eventranges[str(jobid)] += EventRangeList.EventRangeList(list_of_eventranges)
                      else:
                         eventranges[str(jobid)] = EventRangeList.EventRangeList(list_of_eventranges)
-         elif threads['RequestHarvesterEventRanges'].no_more_eventranges():
+         elif subthreads['RequestHarvesterEventRanges'].no_more_eventranges():
             logger.debug('there are no more event ranges')
-         elif not threads['RequestHarvesterEventRanges'].isAlive():
+         elif not subthreads['RequestHarvesterEventRanges'].isAlive():
             logger.debug('RequestHarvesterEventRanges thread has exited.')
          else:
-            logger.debug('RequestHarvesterEventRanges state is %s',threads['RequestHarvesterEventRanges'].get_state())
-            
+            logger.debug('RequestHarvesterEventRanges state is %s',subthreads['RequestHarvesterEventRanges'].get_state())
+         
+
 
          ################
-         # check for Droid requests
+         # check for queue messages
          ################################
-         waiting_droid_requests = droid_requests.get_waiting()
-         logger.debug('checking for droid messages, current request count: %s waiting count: %s',len(droid_requests),len(waiting_droid_requests))
+         try:
+            qmsg = self.queues['WorkManager'].get(block=False)
+         except SerialQueue.Empty():
+            logger.debug('WorkManager queue is empty')
+         else:
+            logger.debug('received message %s',qmsg)
 
-         # process the droid requests that are waiting for a response
-         for request in waiting_droid_requests:
-            # get the message
-            msg = request.droid_msg.get()
-
-            logger.debug('processing request from droid rank %s: %s',request.get_droid_rank(),msg)
 
             #############
             ## DROID requesting new job
             ###############################
-            if msg['type'] == MessageTypes.REQUEST_JOB:
+            if qmsg['type'] == MessageTypes.REQUEST_JOB:
                logger.debug('droid requesting job description')
                # check to see what events I have left to do and to which job they belong
                # then decide which job description to send the droid rank
@@ -177,13 +150,19 @@ class WorkManager(threading.Thread):
                   logger.debug('no panda jobs')
                   if len(eventranges) == 0:
                      logger.debug('no eventranges')
-                     if threads['RequestHarvesterJob'].idle():
+                     if subthreads['RequestHarvesterJob'].idle():
                         logger.debug('starting new request for RequestHarvesterJob')
-                        threads['RequestHarvesterJob'].start_request()
+                        subthreads['RequestHarvesterJob'].start_request()
+
                      else:
                         logger.debug('There are no jobs or eventranges, but the RequestHarvesterJob thread is not idle, so waiting for jobs')
+
                   else:
                      logger.warning('no jobs but have eventranges, perhaps communication is out of sync. Will try waiting for next loop.')
+
+
+                  # place message back on queue for later processing
+                  self.queues['WorkManager'].put(qmsg)
                
                # if there are jobs, need to pick one.
                else:
@@ -192,13 +171,22 @@ class WorkManager(threading.Thread):
                   if len(eventranges) == 0:
                      logger.debug('no event ranges')
                      if len(pandajobs) == 1:
+                        # extract the panda job id
                         pandaid = pandajobs.keys()[0]
-                        logger.debug('sending droid rank %s panda id %s',request.get_droid_rank(),pandaid)
-                        request.send_job(pandajobs[pandaid])
+                        logger.debug('sending droid rank %s panda id %s',qmsg['source_rank'],pandaid)
+                        outmsg = {
+                           'type':MessageTypes.NEW_JOB,
+                           'job':pandajobs[pandaid],
+                           'destination_rank':qmsg['source_rank']
+                        }
+                        self.queues['MPIService'].put(outmsg)
+
                      else:
                         logger.warning('have more than one panda job, but no eventranges. This may be an error, or harvester is going to be giving yoda eventranges from more than one jobs. Have not implemented this case.')
+                        # place message back on queue for later processing
+                        self.queues['WorkManager'].put(qmsg)
                   else:
-                     logger.debug('determining which of the %s panda ids to send to droid rank %s',len(pandajobs),request.get_droid_rank())
+                     logger.debug('determining which of the %s panda ids to send to droid rank %s',len(pandajobs),qmsg['source_rank'])
                      # find the panda job with the most event ranges ready
                      most_ready = 0
                      most_ready_id = None
@@ -209,23 +197,37 @@ class WorkManager(threading.Thread):
 
                      if most_ready_id is None:
                         logger.debug('there are no events ready')
-                        if threads['RequestHarvesterJob'].no_more_jobs():
+                        if subthreads['RequestHarvesterJob'].no_more_jobs():
                            logger.debug('sending no more jobs')
-                           request.send_no_more_jobs()
-                        elif threads['RequestHarvesterJob'].idle():
+                           outmsg = {
+                              'type':MessageTypes.NO_MORE_JOBS,
+                              'destination_rank':qmsg['source_rank'],
+                           }
+                           self.queues['MPIService'].put(outmsg)
+                        elif subthreads['RequestHarvesterJob'].idle():
                            logger.debug('start a new request')
-                           threads['RequestHarvesterJob'].start_request()
+                           subthreads['RequestHarvesterJob'].start_request()
+                           # place message back on queue for later processing
+                           self.queues['WorkManager'].put(qmsg)   
                         else:
                            logger.debug('waiting for job or events to arrive')
+                           # place message back on queue for later processing
+                           self.queues['WorkManager'].put(qmsg)
                      else:
                         logger.debug('sending droid rank %s panda id %s which has the most ready events %s',request.get_droid_rank(),most_ready_id,most_ready)
-                        request.send_job(pandajobs[most_ready_id])
+                        outmsg = {
+                           'type':MessageTypes.NEW_JOB,
+                           'job':pandajobs[most_ready_id],
+                           'destination_rank':qmsg['source_rank']
+                        }
+                        self.queues['MPIService'].put(outmsg)
+                        
                   
             
             #############
             ## DROID requesting new event ranges
             ###############################
-            elif msg['type'] == MessageTypes.REQUEST_EVENT_RANGES:
+            elif qmsg['type'] == MessageTypes.REQUEST_EVENT_RANGES:
                logger.debug('droid requesting event ranges')
 
                # check the job definition which is already running on this droid rank
@@ -234,77 +236,76 @@ class WorkManager(threading.Thread):
                # send the number of event ranges equal to the number of Athena workers
 
                # the droid sent the current running panda id, determine if there are events left for this panda job
-               droid_jobid = msg['pandaID']
+               droid_pandaid = msg['pandaID']
 
-               if str(droid_jobid) not in eventranges:
-                  logger.debug('droid rank %s is requesting events, but none for panda id %s have been received. Current ids: %s',request.get_droid_rank(),droid_jobid,str(eventranges.keys()))
-                  if threads['RequestHarvesterEventRanges'].idle():
+               if str(droid_pandaid) not in eventranges:
+                  logger.debug('droid rank %s is requesting events, but none for panda id %s have been received. Current ids: %s',qmsg['source_rank'],droid_pandaid,str(eventranges.keys()))
+                  if subthreads['RequestHarvesterEventRanges'].idle():
                      logger.debug('RequestHarvesterEventRanges starting new request')
-                     threads['RequestHarvesterEventRanges'].start_request(
+                     subthreads['RequestHarvesterEventRanges'].start_request(
                            {
-                            'pandaID':msg['pandaID'],
-                            'jobsetID':msg['jobsetID'],
-                            'taskID':msg['taskID'],
-                            'nRanges':request_n_eventranges,
+                            'pandaID':qmsg['pandaID'],
+                            'jobsetID':qmsg['jobsetID'],
+                            'taskID':qmsg['taskID'],
+                            'nRanges':self.request_n_eventranges,
                            }
                         )
-               elif eventranges[str(droid_jobid)].number_ready() > 0:
-                  if eventranges[str(droid_jobid)].number_ready() >= send_n_eventranges:
-                     local_eventranges = eventranges[str(droid_jobid)].get_next(send_n_eventranges)
+               elif eventranges[str(droid_pandaid)].number_ready() > 0:
+                  if eventranges[str(droid_pandaid)].number_ready() >= self.send_n_eventranges:
+                     local_eventranges = eventranges[str(droid_pandaid)].get_next(self.send_n_eventranges)
                   else:
-                     local_eventranges = eventranges[str(droid_jobid)].get_next(eventranges[str(droid_jobid)].number_ready())
+                     local_eventranges = eventranges[str(droid_pandaid)].get_next(eventranges[str(droid_pandaid)].number_ready())
                   
                   # send event ranges to DroidRequest
-                  logger.debug('sending %d new event ranges to droid rank %d',len(local_eventranges),request.get_droid_rank())
-                  request.send_eventranges(local_eventranges)
+                  logger.debug('sending %d new event ranges to droid rank %d',len(local_eventranges),qmsg['source_rank'])
+                  outmsg = {
+                     'type':MessageTypes.NEW_EVENT_RANGES,
+                     'eventranges': local_eventranges,
+                     'destination_rank':qmsg['source_rank'],
+                  }
+                  self.queues['MPIService'].put(outmsg)
                else:
                   logger.debug('droid request asking for eventranges, but no event ranges left in local list')
-                  if threads['RequestHarvesterEventRanges'].idle():
+                  if subthreads['RequestHarvesterEventRanges'].idle():
                      logger.debug('Setting RequestHarvesterEventRanges state to REQUEST to trigger new request')
-                     threads['RequestHarvesterEventRanges'].start_request(
+                     subthreads['RequestHarvesterEventRanges'].start_request(
                            {
                             'pandaID':msg['pandaID'],
                             'jobsetID':msg['jobsetID'],
                             'taskID':msg['taskID'],
-                            'nRanges':request_n_eventranges,
+                            'nRanges':self.request_n_eventranges,
                            }
                         )
-                  elif threads['RequestHarvesterEventRanges'].exited() and threads['RequestHarvesterEventRanges'].no_more_eventranges():
+                  elif subthreads['RequestHarvesterEventRanges'].exited() and subthreads['RequestHarvesterEventRanges'].no_more_eventranges():
                      logger.debug('GetEventRanges has exited and no more ranges to get')
-                     request.send_no_more_eventranges()
+                     outmsg = {
+                        'type':MessageTypes.NO_MORE_EVENT_RANGES,
+                        'destination_rank':qmsg['source_rank'],
+                     }
+                     self.queues['MPIService'].put(outmsg)
 
             else:
                logger.error('message type was not recognized: %s',msg['type'])
          
-         # if no droid requests are waiting for droid messages, create a new one
-         if droid_requests.number_waiting_for_droid_message() <= 0:
-            logger.debug('adding new droid request')
-            droid_requests.add_request()
+         
          
 
          # if there is nothing to be done, sleep
-         if not threads['RequestHarvesterJob'].new_jobs_ready() and \
-            not threads['RequestHarvesterEventRanges'].new_eventranges_ready() and \
-            len(droid_requests.get_waiting()) == 0:
-            time.sleep(loop_timeout)
+         if not subthreads['RequestHarvesterJob'].new_jobs_ready() and \
+            not subthreads['RequestHarvesterEventRanges'].new_eventranges_ready() and \
+            self.queues['WorkManager'].empty():
+            time.sleep(self.loop_timeout)
          else:
-            logger.debug('continuing loop: %s %s %s',not threads['RequestHarvesterJob'].new_jobs_ready(),not threads['RequestHarvesterEventRanges'].new_eventranges_ready(),len(droid_requests.get_waiting()) == 0)
-            time.sleep(1)
+            logger.debug('continuing loop: %s %s %s',not subthreads['RequestHarvesterJob'].new_jobs_ready(),not subthreads['RequestHarvesterEventRanges'].new_eventranges_ready(),self.queues['WorkManager'].empty())
+            #time.sleep(1)
 
-      for name,thread in threads.iteritems():
+      for name,thread in subthreads.iteritems():
          logger.info('signaling exit to thread %s',name)
          thread.stop()
-      for name,thread in threads.iteritems():
+      for name,thread in subthreads.iteritems():
          logger.info('waiting for %s to join',name)
          thread.join()
          logger.info('%s has joined',name)
-
-      logger.info('check that no DroidRequests need to be exited')
-      for request in droid_requests.get_alive():
-         request.stop()
-      for request in droid_requests.get_alive():
-         request.join()
-      
 
       logger.info('WorkManager is exiting')
 
@@ -327,7 +328,31 @@ class WorkManager(threading.Thread):
 
       return job_id
 
+   def read_config(self):
+      # get self.loop_timeout
+      if self.config.has_option(config_section,'self.loop_timeout'):
+         self.loop_timeout = self.config.getfloat(config_section,'self.loop_timeout')
+      else:
+         logger.error('must specify "self.loop_timeout" in "%s" section of config file',config_section)
+         return
+      logger.info('self.loop_timeout: %d',self.loop_timeout)
 
+
+      # get self.send_n_eventranges
+      if self.config.has_option(config_section,'self.send_n_eventranges'):
+         self.send_n_eventranges = self.config.getint(config_section,'self.send_n_eventranges')
+      else:
+         logger.error('must specify "self.send_n_eventranges" in "%s" section of config file',config_section)
+         return
+      logger.info('self.send_n_eventranges: %d',self.send_n_eventranges)
+
+      # get self.request_n_eventranges
+      if self.config.has_option(config_section,'self.request_n_eventranges'):
+         self.request_n_eventranges = self.config.getint(config_section,'self.request_n_eventranges')
+      else:
+         logger.error('must specify "self.request_n_eventranges" in "%s" section of config file',config_section)
+         return
+      logger.info('self.request_n_eventranges: %d',self.request_n_eventranges)
 
 
 

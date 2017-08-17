@@ -139,6 +139,7 @@ def receive_message(source=MPI.ANY_SOURCE,tag=None):
    try:
       logger.debug('Rank %05d: requsting message',MPI.COMM_WORLD.Get_rank())
       using_mpi_lock.acquire()
+      #buf = bytearray(1<<30)
       if tag is not None:
          request = MPI.COMM_WORLD.irecv(source=source,tag=tag)
       else:

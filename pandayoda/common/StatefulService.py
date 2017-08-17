@@ -23,7 +23,7 @@ class StatefulService(threading.Thread):
       self.rank                        = MPI.COMM_WORLD.Get_rank()
 
       # the prelog is just a string to attach before each log message
-      self.prelog                      = '%s| Rank %03i:' % (self.__class__.__name__,self.rank)
+      self.prelog                      = ''
 
       # this is used to trigger the thread exit
       self.exit                        = threading.Event()

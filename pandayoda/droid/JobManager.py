@@ -1,6 +1,7 @@
 import os,sys,logging,threading,subprocess,time,shutil
 from mpi4py import MPI
-from pandayoda.common import MessageTypes,SerialQueue,VariableWithLock,yoda_droid_messenger as ydm
+from pandayoda.common import MessageTypes,SerialQueue,VariableWithLock
+from pandayoda.common import yoda_droid_messenger as ydm
 logger = logging.getLogger(__name__)
 
 
@@ -100,12 +101,6 @@ class JobManager(threading.Thread):
       # working path for athenaMP
       self.working_path          = working_path
 
-      # get current rank
-      self.rank                  = MPI.COMM_WORLD.Get_rank()
-
-      # the prelog is just a string to attach before each log message
-      self.prelog                = ''
-
       # this is used to trigger the thread exit
       self.exit = threading.Event()
 
@@ -116,60 +111,12 @@ class JobManager(threading.Thread):
       ''' this function can be called by outside threads to cause the JobManager thread to exit'''
       self.exit.set()
 
-
    def run(self):
       ''' this is the main function run as a thread when the user calls jobManager_instance.start()'''
-      if self.rank == 0:
-         logger.debug('%s config_section: %s',self.prelog,config_section)
-
-      # get loop_timeout
-      if self.config.has_option(config_section,'loop_timeout'):
-         loop_timeout = self.config.getfloat(config_section,'loop_timeout')
-      else:
-         logger.error('%s must specify "loop_timeout" in "%s" section of config file',self.prelog,config_section)
-         return
-      if self.rank == 0:
-         logger.info('%s JobManager loop_timeout: %d',self.prelog,loop_timeout)
-
-      # get droidSubprocessStdout
-      if self.config.has_option(config_section,'droidSubprocessStdout'):
-         self.droidSubprocessStdout = self.config.get(config_section,'droidSubprocessStdout')
-      else:
-         logger.error('%s must specify "droidSubprocessStdout" in "%s" section of config file',self.prelog,config_section)
-         return
-      if self.rank == 0:
-         logger.info('%s JobManager droidSubprocessStdout: %s',self.prelog,self.droidSubprocessStdout)
-
-      # get droidSubprocessStderr
-      if self.config.has_option(config_section,'droidSubprocessStderr'):
-         self.droidSubprocessStderr = self.config.get(config_section,'droidSubprocessStderr')
-      else:
-         logger.error('%s must specify "droidSubprocessStderr" in "%s" section of config file',self.prelog,config_section)
-         return
-      if self.rank == 0:
-         logger.info('%s JobManager droidSubprocessStderr: %s',self.prelog,self.droidSubprocessStderr)
-
-      # get yampl_socket_name
-      if self.config.has_option('Droid','yampl_socket_name'):
-         self.yampl_socket_name = self.config.get('Droid','yampl_socket_name').format(rank_num='%03d' % self.rank)
-      else:
-         logger.error('%s must specify "yampl_socket_name" in "Droid" section of config file',self.prelog)
-         return
-      if self.rank == 0:
-         logger.info('%s Droid yampl_socket_name: %s',self.prelog,self.yampl_socket_name)
-
-
-      # get use_mock_athenamp
-      if self.config.has_option(config_section,'use_mock_athenamp'):
-         self.use_mock_athenamp = self.config.getboolean(config_section,'use_mock_athenamp')
-      else:
-         logger.error('%s must specify "use_mock_athenamp" in "%s" section of config file',self.prelog,config_section)
-         return
-      if self.rank == 0:
-         logger.info('%s JobManager use_mock_athenamp: %s',self.prelog,self.use_mock_athenamp)
-
-      waiting_for_panda_job = False
       
+      # read in configuration variables from config file
+      self.read_config()
+
       # variable that holds currently running process (Popen object)
       jobproc = None
       
@@ -180,7 +127,7 @@ class JobManager(threading.Thread):
       job_request = None
 
       while not self.exit.isSet():
-         logger.debug('%s start loop',self.prelog)
+         logger.debug('start loop')
          # The JobManager should block on the most urgent task
          # during a fresh startup, it should block on receiving work
          # from other Droid elements, so it should message The YodaComm
@@ -190,141 +137,210 @@ class JobManager(threading.Thread):
          # as soon as it is completed, it moves to reqeust more work.
 
          
-         # check for message from droid
-         try:
-            msg = self.queues['JobManager'].get(block=False)
-            logger.debug('%s received msg: %s',self.prelog,msg)
-            if msg['type'] == MessageTypes.WALLCLOCK_EXPIRING:
-               logger.debug('%s received wallclock expiring message, exiting loop',self.prelog)
-               # set exit flag to exit loop
-               self.stop()
-               break
-         except SerialQueue.Empty:
-            logger.debug('%s no message on queue',self.prelog)
-         
-            
-
 
          # a job subprocess has been started previously
-         if jobproc is not None:
-            # check if job is still running
-            procstatus = jobproc.poll()
+         if jobproc:
             
             # subprocess is still running so wait for it to join
-            if procstatus is None:
-               logger.debug('%s wait for subprocess to join',self.prelog)
-               time.sleep(loop_timeout)
+            if jobproc.is_running():
+               logger.debug('wait for subprocess to join')
+               
+               # check for message from droid before sleep
+               try:
+                  msg = self.queues['JobManager'].get(block=False)
+                  logger.debug('received msg: %s',msg)
+                  if msg['type'] == MessageTypes.WALLCLOCK_EXPIRING:
+                     logger.debug('received wallclock expiring message, exiting loop')
+                     # set exit flag to exit loop
+                     self.stop()
+                     break
+                  else:
+                     logger.warning('received unexpected message type')
+               except SerialQueue.Empty:
+                  logger.debug('no message on queue')
+
+               time.sleep(self.loop_timeout)
             # subprocess completed
             else:
-               returncode = procstatus
-               logger.info('%s subprocess finished with return code = %i',
+               returncode = jobproc.returncode()
+               logger.info('subprocess finished with return code = %i',
                            self.prelog,returncode)
                # set jobproc to None so a new job is retrieved
                jobproc = None
+
+            
+
          # no subprocess started so we need to request a job.
          else:
             
-            # if we haven't requested a job already, then do so
-            if job_request is None:
-               logger.debug('%s requesting new panda job',self.prelog)
-               # send a request to Yoda to send another job
-               job_request = ydm.send_job_request()
-               # wait until this message is received
-               job_request.wait()
+            logger.debug('requesting new panda job')
+
+            # send message to MPIService to request job from Yoda
+            msg = {
+               'type':MessageTypes.REQUEST_JOB,
+               'destination_rank': 0 # YODA rank
+            }
+            self.queues['MPIService'].put(msg)
+
+            logger.debug('waiting for new panda job')
+            # wait for response with new job
+            msg = self.queues['JobManager'].get()
+
+            # check that the message type is correct
+            if msg['type'] == MessageTypes.NEW_JOB:
                
-               # can go ahead and request a reply from MPI
-               job_request = ydm.recv_job()
-            
-             
-            # test for requested job arrival
-            flag,msg = job_request.test()
-            # received a new job             
-            if flag:  
-               # check that the message type is correct
-               if msg['type'] == MessageTypes.NEW_JOB:
-                  
-                  # check that there is a job
-                  if 'job' in msg:
-                     logger.debug('%s received new job %s',self.prelog,msg['job'])
+               # check that there is a job
+               if 'job' in msg:
+                  logger.debug('received new job %s',msg['job'])
 
-                     # insert the Yampl AthenaMP setting
-                     if 'jobPars' in msg['job']:
-                        jobPars = msg['job']['jobPars']
-                        if not "--preExec" in jobPars:
-                           jobPars += " --preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % self.yampl_socket_name
+                  # insert the Yampl AthenaMP setting
+                  if 'jobPars' in msg['job']:
+                     jobPars = msg['job']['jobPars']
+                     if not "--preExec" in jobPars:
+                        jobPars += " --preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % self.yampl_socket_name
+                     else:
+                        if "import jobproperties as jps" in jobPars:
+                           jobPars = jobPars.replace("import jobproperties as jps;", "import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\";" % self.yampl_socket_name)
                         else:
-                           if "import jobproperties as jps" in jobPars:
-                              jobPars = jobPars.replace("import jobproperties as jps;", "import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\";" % self.yampl_socket_name)
-                           else:
-                              jobPars = jobPars.replace("--preExec ", "--preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % self.yampl_socket_name)
-                        msg['job']['jobPars'] = jobPars
-                     else:
-                        logger.error('%s erorr in job format',self.prelog)
- 
-
-                     # do not run the same job back to back because likely just received the only job around
-                     if current_job is None or current_job['PandaID'] != msg['job']['PandaID']:
-                        logger.debug('%s running new job',self.prelog)
-                        # send message to JobComm
-                        self.queues['JobComm'].put(msg)
-
-                        # copy input files to working_path
-                        for file in msg['job']['inFiles'].split(','):
-                           logger.debug('%s copying input file "%s" to working path %s',self.prelog,os.path.join(os.getcwd(),file),self.working_path)
-                           shutil.copy(os.path.join(os.getcwd(),file),self.working_path)
-                        
-                        # start the new subprocess
-                        jobproc = self.start_new_subprocess(msg['job'],self.working_path)
-                        job_request = None
-                     else:
-                        logger.debug('%s received the same job again, exiting.',self.prelog)
-                        self.stop()
-
+                           jobPars = jobPars.replace("--preExec ", "--preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % self.yampl_socket_name)
+                     msg['job']['jobPars'] = jobPars
                   else:
-                     logger.error('%s no job found in yoda response: %s',self.prelog,msg)
-                     job_request = None
-               elif msg['type'] == MessageTypes.NO_MORE_JOBS:
-                  logger.info('%s received NO_MORE_JOBS, exiting.',self.prelog)
-                  self.no_more_jobs.set(True)
-                  self.stop()
+                     logger.error('erorr in job format')
+
+
+                  logger.debug('running new job')
+
+                  # send job definition to JobComm thread
+                  self.queues['JobComm'].put(msg)
+
+                  # copy input files to working_path
+                  for file in msg['job']['inFiles'].split(','):
+                     logger.debug('copying input file "%s" to working path %s',os.path.join(os.getcwd(),file),self.working_path)
+                     shutil.copy(os.path.join(os.getcwd(),file),self.working_path)
+                  
+                  # start the new subprocess
+                  jobproc = JobSubProcess(msg['job'],self.working_path,self.droidSubprocessStdout,self.droidSubprocessStderr)
+                  jobproc.start()
+                  
+                  PANDA_JOB_REQUEST_SENT = False
                else:
-                  logger.error('%s received message but type %s unexpected',self.prelog,msg['type'])
-            # did not receive job, so sleep
+                  logger.error('no job found in yoda response: %s',msg)
+                  PANDA_JOB_REQUEST_SENT = False
+            elif msg['type'] == MessageTypes.NO_MORE_JOBS:
+               logger.info('received NO_MORE_JOBS, exiting.')
+               self.no_more_jobs.set(True)
+               self.stop()
+            elif msg['type'] == MessageTypes.WALLCLOCK_EXPIRING:
+               logger.info('received wallclock expiring message, exiting loop')
+               # set exit flag to exit loop
+               self.stop()
+               break
             else:
-               logger.debug('%s no job yet received, sleeping %d ',self.prelog,loop_timeout)
-               time.sleep(loop_timeout)
+               logger.error('received message but type %s unexpected',msg['type'])
+            
          
       if jobproc is not None:
-         logger.info('%s killing job subprocess.',self.prelog)
+         logger.info('killing job subprocess.')
          jobproc.kill()
-         while jobproc.poll() is None:
+         while jobproc.is_running():
             logger.info('waiting for subprocess to exit.')
             time.sleep(2)
             jobproc.kill()
 
-      logger.info('%s JobManager thread exiting',self.prelog)
+      logger.info('JobManager thread exiting')
 
-   def start_new_subprocess(self,new_job,working_path):
+   
+
+
+   def read_config(self):
+      logger.debug('config_section: %s',config_section)
+
+      # get loop_timeout
+      if self.config.has_option(config_section,'loop_timeout'):
+         self.loop_timeout = self.config.getfloat(config_section,'loop_timeout')
+      else:
+         logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
+         return
+      if self.rank == 0:
+         logger.info('JobManager loop_timeout: %d',self.loop_timeout)
+
+      # get droidSubprocessStdout
+      if self.config.has_option(config_section,'droidSubprocessStdout'):
+         self.droidSubprocessStdout = self.config.get(config_section,'droidSubprocessStdout')
+      else:
+         logger.error('must specify "droidSubprocessStdout" in "%s" section of config file',config_section)
+         return
+      if self.rank == 0:
+         logger.info('JobManager droidSubprocessStdout: %s',self.droidSubprocessStdout)
+
+      # get droidSubprocessStderr
+      if self.config.has_option(config_section,'droidSubprocessStderr'):
+         self.droidSubprocessStderr = self.config.get(config_section,'droidSubprocessStderr')
+      else:
+         logger.error('must specify "droidSubprocessStderr" in "%s" section of config file',config_section)
+         return
+      if self.rank == 0:
+         logger.info('JobManager droidSubprocessStderr: %s',self.droidSubprocessStderr)
+
+      # get yampl_socket_name
+      if self.config.has_option('Droid','yampl_socket_name'):
+         self.yampl_socket_name = self.config.get('Droid','yampl_socket_name').format(rank_num='%03d' % self.rank)
+      else:
+         logger.error('must specify "yampl_socket_name" in "Droid" section of config file')
+         return
+      if self.rank == 0:
+         logger.info('Droid yampl_socket_name: %s',self.yampl_socket_name)
+
+
+      # get use_mock_athenamp
+      if self.config.has_option(config_section,'use_mock_athenamp'):
+         self.use_mock_athenamp = self.config.getboolean(config_section,'use_mock_athenamp')
+      else:
+         logger.error('must specify "use_mock_athenamp" in "%s" section of config file',config_section)
+         return
+      if self.rank == 0:
+         logger.info('JobManager use_mock_athenamp: %s',self.use_mock_athenamp)
+
+class JobSubProcess:
+   def __init__(self,new_job,working_path,droidSubprocessStdout,droidSubprocessStderr):
+      self.jobproc = None
+
+      self.new_job = new_job
+      self.working_path = working_path
+      self.droidSubprocessStdout = droidSubprocessStdout
+      self.droidSubprocessStderr = droidSubprocessStderr
+
+   def kill(self):
+      self.jobproc.kill()
+
+   def is_running(self):
+      # check if job is still running
+      if jobproc.poll() is None: return True
+      return False
+
+   def returncode(self):
+      return self.jobproc.returncode
+
+   def start(self):
       ''' start the job subprocess, handling the command parsing and log file naming '''
       # parse filenames for the log output and check that they do not exist already
       stdoutfile = self.droidSubprocessStdout.format(rank='%03i'%self.rank,PandaID=new_job['PandaID'])
       stdoutfile = os.path.join(working_path,stdoutfile)
       if False: #os.path.exists(stdoutfile): # FIXME: for testing only, so remove later
-         raise Exception('%s file already exists %s' % (self.prelog,stdoutfile))
+         raise Exception('file already exists %s' % (self.prelog,stdoutfile))
       stderrfile = self.droidSubprocessStderr.format(rank='%03i'%self.rank,PandaID=new_job['PandaID'])
       stderrfile = os.path.join(working_path,stderrfile)
       if False: #os.path.exists(stderrfile): # FIXME: for testing only, so remove later
-         raise Exception('%s file already exists %s' % (self.prelog,stderrfile))
+         raise Exception('file already exists %s' % (self.prelog,stderrfile))
 
       # parse the job into a command
-      cmd = self.create_job_run_script(new_job,working_path)
-      logger.debug('%s starting run_script: %s',self.prelog,cmd)
+      cmd = self.create_job_run_script()
+      logger.debug('starting run_script: %s',cmd)
       
-      jobproc = subprocess.Popen(['/bin/bash',cmd],stdout=open(stdoutfile,'w'),stderr=open(stderrfile,'w'),cwd=working_path)
+      self.jobproc = subprocess.Popen(['/bin/bash',cmd],stdout=open(stdoutfile,'w'),stderr=open(stderrfile,'w'),cwd=working_path)
 
-      return jobproc
 
-   def create_job_run_script(self,new_job,working_path):
+   def create_job_run_script(self):
       ''' using the template set in the configuration, create a script that 
           will run the panda job with the appropriate environment '''
       template_filename = self.config.get('JobManager','template')
@@ -332,7 +348,7 @@ class JobManager(threading.Thread):
          template_file = open(template_filename)
          template = template_file.read()
          template_file.close()
-         package,release = new_job['homepackage'].split('/')
+         package,release = self.new_job['homepackage'].split('/')
          gcclocation = ''
          if release.startswith('19'):
             gcclocation  = '--gcclocation=$VO_ATLAS_SW_DIR/software/'
@@ -349,29 +365,28 @@ class JobManager(threading.Thread):
             #logger.info('script = %s',script)
             transformation = script
          else:
-            transformation = new_job['transformation']
+            transformation = self.new_job['transformation']
          
          script = template.format(transformation=transformation,
-                                  jobPars=new_job['jobPars'],
-                                  cmtConfig=new_job['cmtConfig'],
+                                  jobPars=self.new_job['jobPars'],
+                                  cmtConfig=self.new_job['cmtConfig'],
                                   release=release,
                                   package=package,
-                                  processingType=new_job['processingType'],
-                                  pandaID=new_job['PandaID'],
-                                  taskID=new_job['taskID'],
+                                  processingType=self.new_job['processingType'],
+                                  pandaID=self.new_job['PandaID'],
+                                  taskID=self.new_job['taskID'],
                                   gcclocation=gcclocation
                                  )
 
          script_filename = self.config.get('JobManager','run_script')
-         script_filename = os.path.join(working_path,script_filename)
+         script_filename = os.path.join(self.working_path,script_filename)
          script_file = open(script_filename,'w')
          script_file.write(script)
          script_file.close()
 
          return script_filename
       else:
-         raise Exception('%s specified template does not exist: %s',self.prelog,template_filename)
-
+         raise Exception('specified template does not exist: %s',template_filename)
 
 
 
