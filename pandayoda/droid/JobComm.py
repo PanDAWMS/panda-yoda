@@ -88,6 +88,9 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       # this flag is set when waiting for more event ranges
       NEW_EVENT_RANGES_REQUEST_SENT = False
 
+      # this flag is set when no transform is running
+      TRANFORM_IS_RUNNING = False
+
       # this is the current yampl message from AthenaMP which requires a response
       # if it is set to None, a new message will be requested
       athenamp_msg = None
@@ -120,6 +123,8 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                logger.debug('got new job definition from JobManager')
                if 'job' in qmsg:
                   current_job = qmsg['job']
+                  # assume transform is now running
+                  TRANFORM_IS_RUNNING = True
                   # set the job definition in the PayloadCommunicator
                   payloadcomm.set_job_def(current_job)
                else:
@@ -142,6 +147,9 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                # set exit for loop and continue
                self.stop()
                break
+            elif qmsg['type'] == MessageTypes.TRANSFORM_EXITED:
+               logger.info('received transform exited')
+               TRANFORM_IS_RUNNING = False
             else:
                logger.error('Received message of unknown type: %s',qmsg)
          except SerialQueue.Empty:

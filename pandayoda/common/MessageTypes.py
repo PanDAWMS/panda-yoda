@@ -1,8 +1,16 @@
 
 
+# Theses are the Queue message and MPI message types 
+
+
+# sent by Droid to Yoda to get a job
 REQUEST_JOB             = 'REQUEST_JOB'
+# sent by Yoda to Droid with a panda job definition
 NEW_JOB                 = 'NEW_JOB'
+# sent by Yoda to Droid when no more jobs are coming
 NO_MORE_JOBS            = 'NO_MORE_JOBS'
+# sent by Droid to JobComm when a Transform exits
+TRANSFORM_EXITED        = 'TRANSFORM_EXITED'
 
 REQUEST_EVENT_RANGES    = 'REQUEST_EVENT_RANGES'
 NEW_EVENT_RANGES        = 'NEW_EVENT_RANGES'

@@ -221,6 +221,9 @@ class Droid(StatefulService.StatefulService):
                # log transform error
                logger.error('transform exited but is not in FINISHED state, returncode = %s, see output files for details = [%s,%s]',transform.get_returncode(),self.stderr_filename,self.stdout_filename)
 
+            # send message to JobCommand that transform exited
+            queues['JobComm'].put({'type':MessageTypes.TRANSFORM_EXITED})
+
 
             # if JobComm is still alive, request another job
             if subthreads['JobComm'].is_alive():
