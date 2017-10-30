@@ -257,7 +257,7 @@ class WorkManager(threading.Thread):
                   else:
                      local_eventranges = eventranges[str(droid_pandaid)].get_next(eventranges[str(droid_pandaid)].number_ready())
                   
-                  # send event ranges to DroidRequest
+                  # send event ranges to Droid
                   logger.debug('sending %d new event ranges to droid rank %d',len(local_eventranges),qmsg['source_rank'])
                   outmsg = {
                      'type':MessageTypes.NEW_EVENT_RANGES,
