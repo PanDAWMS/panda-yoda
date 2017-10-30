@@ -1,7 +1,7 @@
 import os,sys,threading,logging,importlib,time
 import RequestHarvesterJob,RequestHarvesterEventRanges
 from pandayoda.common import MessageTypes,SerialQueue,EventRangeList,exceptions
-from pandayoda.common import yoda_droid_messenger as ydm,VariableWithLock,StatefulService
+from pandayoda.common import VariableWithLock,StatefulService
 logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
@@ -130,7 +130,7 @@ class WorkManager(threading.Thread):
          ################################
          try:
             qmsg = self.queues['WorkManager'].get(block=False)
-         except SerialQueue.Empty():
+         except SerialQueue.Empty:
             logger.debug('WorkManager queue is empty')
          else:
             logger.debug('received message %s',qmsg)
@@ -163,6 +163,7 @@ class WorkManager(threading.Thread):
 
                   # place message back on queue for later processing
                   self.queues['WorkManager'].put(qmsg)
+                  time.sleep(self.loop_timeout)
                
                # if there are jobs, need to pick one.
                else:
@@ -236,7 +237,7 @@ class WorkManager(threading.Thread):
                # send the number of event ranges equal to the number of Athena workers
 
                # the droid sent the current running panda id, determine if there are events left for this panda job
-               droid_pandaid = msg['pandaID']
+               droid_pandaid = qmsg['pandaID']
 
                if str(droid_pandaid) not in eventranges:
                   logger.debug('droid rank %s is requesting events, but none for panda id %s have been received. Current ids: %s',qmsg['source_rank'],droid_pandaid,str(eventranges.keys()))
@@ -270,9 +271,9 @@ class WorkManager(threading.Thread):
                      logger.debug('Setting RequestHarvesterEventRanges state to REQUEST to trigger new request')
                      subthreads['RequestHarvesterEventRanges'].start_request(
                            {
-                            'pandaID':msg['pandaID'],
-                            'jobsetID':msg['jobsetID'],
-                            'taskID':msg['taskID'],
+                            'pandaID':qmsg['pandaID'],
+                            'jobsetID':qmsg['jobsetID'],
+                            'taskID':qmsg['taskID'],
                             'nRanges':self.request_n_eventranges,
                            }
                         )
@@ -285,7 +286,7 @@ class WorkManager(threading.Thread):
                      self.queues['MPIService'].put(outmsg)
 
             else:
-               logger.error('message type was not recognized: %s',msg['type'])
+               logger.error('message type was not recognized: %s',qmsg['type'])
          
          
          
@@ -330,29 +331,29 @@ class WorkManager(threading.Thread):
 
    def read_config(self):
       # get self.loop_timeout
-      if self.config.has_option(config_section,'self.loop_timeout'):
-         self.loop_timeout = self.config.getfloat(config_section,'self.loop_timeout')
+      if self.config.has_option(config_section,'loop_timeout'):
+         self.loop_timeout = self.config.getfloat(config_section,'loop_timeout')
       else:
-         logger.error('must specify "self.loop_timeout" in "%s" section of config file',config_section)
+         logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
          return
-      logger.info('self.loop_timeout: %d',self.loop_timeout)
+      logger.info('loop_timeout: %d',self.loop_timeout)
 
 
       # get self.send_n_eventranges
-      if self.config.has_option(config_section,'self.send_n_eventranges'):
-         self.send_n_eventranges = self.config.getint(config_section,'self.send_n_eventranges')
+      if self.config.has_option(config_section,'send_n_eventranges'):
+         self.send_n_eventranges = self.config.getint(config_section,'send_n_eventranges')
       else:
-         logger.error('must specify "self.send_n_eventranges" in "%s" section of config file',config_section)
+         logger.error('must specify "send_n_eventranges" in "%s" section of config file',config_section)
          return
-      logger.info('self.send_n_eventranges: %d',self.send_n_eventranges)
+      logger.info('send_n_eventranges: %d',self.send_n_eventranges)
 
       # get self.request_n_eventranges
-      if self.config.has_option(config_section,'self.request_n_eventranges'):
-         self.request_n_eventranges = self.config.getint(config_section,'self.request_n_eventranges')
+      if self.config.has_option(config_section,'request_n_eventranges'):
+         self.request_n_eventranges = self.config.getint(config_section,'request_n_eventranges')
       else:
-         logger.error('must specify "self.request_n_eventranges" in "%s" section of config file',config_section)
+         logger.error('must specify "request_n_eventranges" in "%s" section of config file',config_section)
          return
-      logger.info('self.request_n_eventranges: %d',self.request_n_eventranges)
+      logger.info('request_n_eventranges: %d',self.request_n_eventranges)
 
 
 

@@ -1,6 +1,5 @@
 import os,json,logging,ConfigParser,time,threading,shutil
-from mpi4py import MPI
-from pandayoda.common import exceptions,serializer
+from pandayoda.common import exceptions,serializer,MPIService
 logger = logging.getLogger(__name__)
 
 ''' 
@@ -160,7 +159,7 @@ def setup(config):
    global harvesterConfig,harConfLock
    harConfLock.acquire()
    if harvesterConfig is None:
-      logger.debug('Rank %05i: loading harvester configuration file',MPI.COMM_WORLD.Get_rank())
+      logger.debug('loading harvester configuration file')
       # get harvester config filename
       harv_config_file = config.get('shared_file_messenger','harvester_config_file')
 
@@ -170,9 +169,9 @@ def setup(config):
          harvesterConfig.read(harv_config_file)
       else:
          harConfLock.release()
-         raise Exception('Rank %05i: Failed to parse config file: %s' % (harv_config_file,MPI.COMM_WORLD.Get_rank()))
+         raise Exception('Rank %05i: Failed to parse config file: %s' % (MPIService.rank,harv_config_file))
    else:
-      logger.debug('Rank %05i: harvester configuration already loaded',MPI.COMM_WORLD.Get_rank())
+      logger.debug('harvester configuration already loaded')
 
    harConfLock.release()
 
@@ -180,7 +179,7 @@ def request_jobs():
    global harvesterConfig,harConfSect,harConfLock
    
    if harvesterConfig is None:
-      logger.error('Rank %05i: must first run setup before requestjobs',MPI.COMM_WORLD.Get_rank())
+      logger.error('must first run setup before requestjobs')
       return
    try:
       harConfLock.acquire()
@@ -188,9 +187,10 @@ def request_jobs():
       harConfLock.release()
    except ConfigParser.NoSectionError:
       harConfLock.release()
-      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPI.COMM_WORLD.Get_rank(),harConfSect,harvesterConfig.sections()))
+      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPIService.rank,harConfSect,harvesterConfig.sections()))
 
    if not os.path.exists(jobRequestFile):
+      logger.debug('writing jobRequestFile to signal Harvester: %s',jobRequestFile)
       open(jobRequestFile,'w').write('jobRequestFile')
    else:
       raise exceptions.MessengerJobAlreadyRequested
@@ -199,7 +199,7 @@ def pandajobs_ready():
    global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
    
    if harvesterConfig is None:
-      logger.error('Rank %05i: must first run setup before get_pandajobs',MPI.COMM_WORLD.Get_rank())
+      logger.error('must first run setup before get_pandajobs')
       return
 
    # the file in which job descriptions would be stored
@@ -209,11 +209,14 @@ def pandajobs_ready():
       harConfLock.release()
    except ConfigParser.NoSectionError:
       harConfLock.release()
-      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPI.COMM_WORLD.Get_rank(),harConfSect,harvesterConfig.sections()))
+      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPIService.rank,harConfSect,harvesterConfig.sections()))
 
    # check to see if a file exists.
    if os.path.exists(jobSpecFile):
+      logger.debug('found jobSpecFile file from Harvester: %s',jobSpecFile)
       return True
+   else:
+      logger.debug('did not find jobSpecFile file from Harvester: %s',jobSpecFile)
    return False
 
 
@@ -222,7 +225,7 @@ def get_pandajobs():
    global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
    
    if harvesterConfig is None:
-      logger.error('Rank %05i: must first run setup before get_pandajobs',MPI.COMM_WORLD.Get_rank())
+      logger.error('must first run setup before get_pandajobs')
       return
 
    # the file in which job descriptions would be stored
@@ -232,7 +235,7 @@ def get_pandajobs():
       harConfLock.release()
    except ConfigParser.NoSectionError:
       harConfLock.release()
-      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPI.COMM_WORLD.Get_rank(),harConfSect,harvesterConfig.sections()))
+      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPIService.rank,harConfSect,harvesterConfig.sections()))
 
    # first check to see if a file already exists.
    if os.path.exists(jobSpecFile):
@@ -248,7 +251,7 @@ def get_pandajobs():
          # return job definition
          return job_def
       except:
-         logger.exception('Rank %05i: failed to parse jobSpecFile: %s' % (MPI.COMM_WORLD.Get_rank(),jobSpecFile))
+         logger.exception('failed to parse jobSpecFile: %s' % (jobSpecFile))
          raise
    return {}
 
@@ -258,7 +261,7 @@ def request_eventranges(job_def):
    
    # check for harvester config file
    if harvesterConfig is None:
-      logger.error('Rank %05i: must first run setup before requesteventranges',MPI.COMM_WORLD.Get_rank())
+      logger.error('must first run setup before requesteventranges')
       return
 
    # retrieve event request file
@@ -270,14 +273,14 @@ def request_eventranges(job_def):
       eventRequestFile_tmp = eventRequestFile + '.tmp'
    except ConfigParser.NoSectionError:
       harConfLock.release()
-      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPI.COMM_WORLD.Get_rank(),harConfSect,harvesterConfig.sections()))
+      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPIService.rank,harConfSect,harvesterConfig.sections()))
    
    
    # crate event request file
    if not os.path.exists(eventRequestFile):
       # need to output a file containing:
       #   {'nRanges': ???, 'pandaID':???, 'taskID':???, 'jobsetID':???}
-      logger.debug('Rank %05i: requesting new event ranges with job_def = %s',MPI.COMM_WORLD.Get_rank(),job_def)
+      logger.debug('requesting new event ranges with job_def = %s',job_def)
       
       # get new job definition
       new_job_def = {job_def['pandaID']:job_def}
@@ -290,7 +293,7 @@ def request_eventranges(job_def):
       os.rename(eventRequestFile_tmp,eventRequestFile)
 
    else:
-      logger.debug('Rank %05i: request file already exists. Adding requests',MPI.COMM_WORLD.Get_rank())
+      logger.debug('request file already exists. Adding requests')
 
       # move current file to temp
       os.rename(eventRequestFile,eventRequestFile_tmp)
@@ -300,14 +303,14 @@ def request_eventranges(job_def):
 
       pandaID = job_def['pandaID']
       if pandaID in requests:
-         logger.debug('Rank %05i: adding event range count to existing request',MPI.COMM_WORLD.Get_rank())
+         logger.debug('adding event range count to existing request')
          thisjob = requests[pandaID]
          if thisjob['jobsetID'] == job_def['jobsetID'] and thisjob['taskID'] == job_def['taskID']:
             thisjob['nRanges'] += job_def['nRanges']
          else:
-            logger.warning('Rank %05i: existing request for PandaID %s does not match new request details %s',MPI.COMM_WORLD.Get_rank(),thisjob,job_def)
+            logger.warning('existing request for PandaID %s does not match new request details %s',thisjob,job_def)
       else:
-         logger.debug('Rank %05i: adding new job definition to existing request',MPI.COMM_WORLD.Get_rank())
+         logger.debug('adding new job definition to existing request')
          requests[pandaID] = job_def
 
       # output updated requests to file
@@ -324,7 +327,7 @@ def eventranges_ready():
    
    # check that harvester config is loaded
    if harvesterConfig is None:
-      logger.error('Rank %05i: must first run setup before get_eventranges',MPI.COMM_WORLD.Get_rank())
+      logger.error('must first run setup before get_eventranges')
       return
 
    # load name of events file
@@ -334,7 +337,7 @@ def eventranges_ready():
       harConfLock.release()
    except ConfigParser.NoSectionError:
       harConfLock.release()
-      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPI.COMM_WORLD.Get_rank(),harConfSect,harvesterConfig.sections()))
+      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPIService.rank,harConfSect,harvesterConfig.sections()))
 
    # check to see if a file exists.
    if os.path.exists(eventRangesFile):
@@ -346,7 +349,7 @@ def get_eventranges():
    
    # check that harvester config is loaded
    if harvesterConfig is None:
-      logger.error('Rank %05i: must first run setup before get_eventranges',MPI.COMM_WORLD.Get_rank())
+      logger.error('must first run setup before get_eventranges')
       return
 
    # load name of events file
@@ -356,7 +359,7 @@ def get_eventranges():
       harConfLock.release()
    except ConfigParser.NoSectionError:
       harConfLock.release()
-      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPI.COMM_WORLD.Get_rank(),harConfSect,harvesterConfig.sections()))
+      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (harConfSect,harvesterConfig.sections()))
 
    # first check to see if a file already exists.
    if os.path.exists(eventRangesFile):
@@ -372,7 +375,7 @@ def get_eventranges():
          # return event ranges
          return eventranges
       except:
-         logger.exception('Rank %05i: failed to parse eventRangesFile: %s',eventRangesFile)
+         logger.exception('failed to parse eventRangesFile: %s',eventRangesFile)
          raise
    return {}
 
@@ -385,14 +388,14 @@ def stage_out_file(output_type,output_path,eventRangeID,eventStatus,pandaID,chks
    global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
 
    if output_type not in ['output','es_output','log']:
-      raise Exception('Rank %05i: incorrect type provided: %s' % (MPI.COMM_WORLD.Get_rank(),output_type))
+      raise Exception('Rank %05i: incorrect type provided: %s' % (MPIService.rank,output_type))
 
    if not os.path.exists(output_path):
-      raise Exception('Rank %05i: output file not found: %s' % (MPI.COMM_WORLD.Get_rank(),output_path))
+      raise Exception('Rank %05i: output file not found: %s' % (MPIService.rank,output_path))
    
    # check that harvester config is loaded
    if harvesterConfig is None:
-      raise Exception('Rank %05i: must first run setup before get_eventranges' % MPI.COMM_WORLD.Get_rank())
+      raise Exception('Rank %05i: must first run setup before get_eventranges' % MPIService.rank)
 
    # make sure pandaID is a string
    pandaID = str(pandaID)
@@ -405,7 +408,7 @@ def stage_out_file(output_type,output_path,eventRangeID,eventStatus,pandaID,chks
       harConfLock.release()
    except ConfigParser.NoSectionError:
       harConfLock.release()
-      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPI.COMM_WORLD.Get_rank(),harConfSect,harvesterConfig.sections()))
+      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPIService.rank,harConfSect,harvesterConfig.sections()))
 
    # first create a temp file to place contents
    # this avoids Harvester trying to read the file while it is being written

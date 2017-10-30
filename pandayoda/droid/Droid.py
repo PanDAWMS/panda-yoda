@@ -1,13 +1,25 @@
 import logging,threading,os,time,socket,multiprocessing,platform
-from pandayoda.common import yoda_droid_messenger as ydm,SerialQueue,MessageTypes,MPIService
-from pandayoda.droid import JobManager,JobComm
+from pandayoda.common import SerialQueue,MessageTypes,MPIService,StatefulService
+from pandayoda.droid import TransformManager,JobComm
 logger = logging.getLogger(__name__)
 
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
-class Droid(threading.Thread):
+class Droid(StatefulService.StatefulService):
    ''' 1 Droid runs per node of a parallel job and launches the AthenaMP process '''
+
+   CREATED           = 'CREATED'
+   REQUEST_JOB       = 'REQUEST_JOB'
+   WAITING_FOR_JOB   = 'WAITING_FOR_JOB'
+   JOB_RECEIVED      = 'JOB_RECEIVED'
+   LAUNCHING_JOB     = 'LAUNCHING_JOB'
+   MONITORING        = 'MONITORING'
+   TRANSFORM_EXITED  = 'TRANSFORM_EXITED'
+   EXITING           = 'EXITING'
+
+   STATES=[CREATED,REQUEST_JOB,WAITING_FOR_JOB,JOB_RECEIVED,LAUNCHING_JOB,MONITORING,TRANSFORM_EXITED,EXITING]
+
    def __init__(self,config):
       ''' config: the ConfigParser handle for yoda '''
 
@@ -15,134 +27,216 @@ class Droid(threading.Thread):
       super(Droid,self).__init__()
 
       # configuration of Yoda
-      self.config                = config
+      self.config = config
 
-      # this is used to trigger the thread exit
-      self.exit                  = threading.Event()
-
-   def stop(self):
-      ''' this function can be called by outside threads to cause the Yoda thread to exit'''
-      self.exit.set()
+      self.set_state(Droid.CREATED)
 
 
    # this runs when 'droid_instance.start()' is called
    def run(self):
       ''' this is the function called when the user runs droid_instance.start() '''
       
-      if self.rank == 0:
+      if MPIService.rank == 0:
          logger.info('Droid Thread starting')
          logger.debug('config_section: %s',config_section)
       
-      logger.info('Droid running on hostname: %s, %s',socket.gethostname(),platform.node())
-      logger.info('Droid node has %d cpus',multiprocessing.cpu_count())
-      logger.info('Droid uname: %s',','.join(platform.uname()))
-      logger.info('Droid processor: %s',platform.processor())
+         logger.info('Droid running on hostname: %s, %s',socket.gethostname(),platform.node())
+         logger.info('Droid node has %d cpus',multiprocessing.cpu_count())
+         logger.info('Droid uname: %s',','.join(platform.uname()))
+         logger.info('Droid processor: %s',platform.processor())
 
-      # read droid loop timeout:
-      if self.config.has_option(config_section,'loop_timeout'):
-         loop_timeout = self.config.getfloat(config_section,'loop_timeout')
-      else:
-         logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
-         return
-      if self.rank == 0:
-         logger.info('%s loop_timeout: %d',config_section,loop_timeout)
+
+      # read in config variables inside the thread run function to avoid
+      # duplicating objects in memory across threads
+      self.read_config()
 
       # place holder for exit message in case there is an error
       exit_msg = ''
 
-      # change to custom droid working directory
-      droid_working_path = os.path.join(os.getcwd(),"droid_rank_%05i" % self.rank)
+      # create custom droid working directory
+      droid_working_path = os.path.join(os.getcwd(),self.working_path.format(rank='%05d' % MPIService.rank))
       if not os.path.exists(droid_working_path):
-         os.makedirs(droid_working_path)
+         os.makedirs(droid_working_path,0775)
 
       # create queues for subthreads to send messages out
       queues = {}
-      queues['JobManager']       = SerialQueue.SerialQueue()
       queues['JobComm']          = SerialQueue.SerialQueue()
       queues['Droid']            = SerialQueue.SerialQueue()
       queues['MPIService']       = SerialQueue.SerialQueue()
 
       # create forwarding map for MPIService
       forwarding_map = {
-         MessageTypes.NEW_JOB: 'JobManager',
+         MessageTypes.NEW_JOB: 'Droid',
          MessageTypes.NEW_EVENT_RANGES: 'JobComm',
          MessageTypes.WALLCLOCK_EXPIRING: 'Droid',
+         MessageTypes.DROID_EXIT: 'Droid',
       }
 
       # initialize MPI Service
       MPIService.mpiService.initialize(queues,forwarding_map)
+      # wait until MPI Service has started up
+      while not MPIService.mpiService.is_alive():
+         time.sleep(1)
       
       # a dictionary of subthreads
       subthreads = {}
-      
-      # create job manager thread
-      subthreads['JobManager']   = JobManager.JobManager(self.config,queues,droid_working_path)
-      subthreads['JobManager'].start()
 
       # create job comm thread
-      subthreads['JobComm']      = JobComm.JobComm(self.config,queues,droid_working_path)
+      subthreads['JobComm']      = JobComm.JobComm(self.config,queues,droid_working_path,self.yampl_socket_name)
       subthreads['JobComm'].start()
 
-      # begin while loop to monitor subthreads
+      # begin in the REQUEST_JOB state
+      self.set_state(Droid.REQUEST_JOB)
+      
+      logger.debug('cwd: %s',os.getcwd())
+
+      # begin while loop 
       while not self.exit.isSet():
-         logger.debug('droid start loop')
-         logger.debug('cwd: %s',os.getcwd())
+         state = self.get_state()
+         logger.debug('droid start loop, state = %s',state)
 
-         logger.debug(' MPI.Query_thread(): %s',MPI.Query_thread())
-         logger.debug(' MPI.THREAD_MULTIPLE: %s',MPI.THREAD_MULTIPLE)
-
+         ###############################
          # check for queue message
-         try:
-            qmsg = queues['Droid'].get(block=False)
+         qmsg = None
+         if not queues['Droid'].empty():
+            qmsg = queues['Droid'].get()
+            if 'type' not in qmsg:
+               logger.error('queue message has not "type" key so disregarding it, msg = %s',qmsg)
+               qmsg = None
+            # if these are exit messages, then exit
+            # otherwise continue
             logger.debug('received message: %s',qmsg)
+            
             if qmsg['type'] == MessageTypes.DROID_EXIT:
                logger.debug('received exit message signaling stop')
+               self.set_state(Droid.EXITING)
                self.stop()
                break
-            if qmsg['type'] == MessageTypes.WALLCLOCK_EXPIRING:
+            elif qmsg['type'] == MessageTypes.WALLCLOCK_EXPIRING:
                logger.debug('received wallclock expiring message')
-               # send message to other threads\
+               # send message to other threads
+               self.set_state(Droid.EXITING)
                self.stop()
                break
-            else:
-               logger.error('failed to parse message')
-         except SerialQueue.Empty():
-            logger.debug('no messages for Droid')
 
 
-         # check the status of each subthread
-         logger.debug('checking subthreads')
-         keys = subthreads.keys()
-         number_running = 0
-         for name in keys:
-            logger.debug('checking thread %s',name)
-            thread = subthreads[name]
-            # if the thread is not alive, throw an error
-            if not thread.isAlive():
-               logger.warning('%s is no longer running.',name)
-               if name == 'JobManager' and thread.no_more_jobs.get():
-                  logger.debug('JobManager reports no more jobs so it exited.')
-               elif name == 'JobComm' and thread.all_work_done.get():
-                  logger.debug('JobComm reports no more work so it exited.')
+
+         ###############################################
+         # Request a job definition from Yoda
+         #########
+         if self.get_state() == Droid.REQUEST_JOB:
+            self.request_job(queues)
+            self.set_state(Droid.WAITING_FOR_JOB)
+         ###############################################
+         # Waiting for a job definition from Yoda
+         #########
+         if self.get_state() == Droid.WAITING_FOR_JOB:
+            # check if message was received and was correct type
+            logger.debug('qmsg = %s',qmsg)
+            if qmsg is not None:
+               if qmsg['type'] == MessageTypes.NEW_JOB:
+                  if 'job' in qmsg:
+                     logger.debug('job received')
+                     new_job_msg = qmsg
+                     self.set_state(Droid.JOB_RECEIVED)
+                  else:
+                     logger.error('received NEW_JOB message but it did not contain a job description key, requesting new job, message = %s',qmsg)
+                     self.set_state(Droid.REQUEST_JOB)
                else:
-                  exit_msg += 'is no longer running.' % name
-                  self.stop()
+                  logger.debug('message type was not NEW_JOB: %s',qmsg)
             else:
-               number_running += 1
-         logger.debug('threads running %s',number_running)
+               # no message on queue, sleep for a bit
+               time.sleep(self.loop_timeout)
+        
 
-         # if no process are running, exit
-         if number_running == 0:
-            logger.info('no more processes running so exiting.')
-            self.stop()
+         ###############################################
+         # Job received
+         #########
+         if self.get_state() == Droid.JOB_RECEIVED:
+            # launch TransformManager to run job
+            transform = TransformManager.TransformManager(new_job_msg['job'],
+                                                          self.config,
+                                                          queues,
+                                                          droid_working_path,
+                                                          os.getcwd(),
+                                                          self.loop_timeout,
+                                                          self.stdout_filename,
+                                                          self.stderr_filename,
+                                                          self.yampl_socket_name)
+            transform.start()
 
-         if len(subthreads) == 0:
-            logger.info('no subthreads remaining, exiting')
-            exit_msg += ' no subthreads remaining, exiting.'
-            break
+            # send the job definition to the JobComm
+            logger.debug('sending new job to JobComm: %s',new_job_msg)
+            queues['JobComm'].put(new_job_msg)
 
-         logger.debug('sleeping %s',loop_timeout)
-         time.sleep(loop_timeout)
+            # transition to monitoring state
+            self.set_state(Droid.MONITORING)
+
+
+
+
+         ###############################################
+         # Monitoring a job
+         #    in this state, Droid should monitor the 
+         #  job subprocess and jobComm object to ensure
+         #  they are running. It should also respond to
+         #  queue messages if needed.
+         #########
+         if self.get_state() == Droid.MONITORING:
+            if transform.is_alive():
+               # if JobComm is not alive, we have a problem
+               if not subthreads['JobComm'].is_alive():
+                  # check to see if JobComm exited properly or if there is no more work.
+                  if subthreads['JobComm'].no_more_work():
+                     # JobComm received no more work message from Harvester so exiting
+                     self.set_state(Droid.EXITING)
+                     self.stop()
+                     break
+                  else:
+                     # log error
+                     logger.error('JobComm thread exited, but the not sure why')
+                     self.set_state(Droid.EXITING)
+                     self.stop()
+                     break
+               else:
+                  # sleep for a bit
+                  logger.debug('monitoring transform, sleep for %s',self.loop_timeout)
+                  time.sleep(self.loop_timeout)
+
+            else:
+               logger.debug('transform exited')
+               self.set_state(Droid.TRANSFORM_EXITED)
+
+
+         ###############################################
+         # The transform exited
+         #########
+         if self.get_state() == Droid.TRANSFORM_EXITED:
+
+            # transform has exited
+            if transform.in_state(transform.FINISHED):
+               # log transform output
+               logger.info('transform exited with return code: %s',transform.get_returncode())
+            else:
+               # log transform error
+               logger.error('transform exited but is not in FINISHED state, returncode = %s, see output files for details = [%s,%s]',transform.get_returncode(),self.stderr_filename,self.stdout_filename)
+
+
+            # if JobComm is still alive, request another job
+            if subthreads['JobComm'].is_alive():
+               self.set_state(Droid.REQUEST_JOB)
+            else:
+               # check to see if JobComm exited properly or if there is no more work.
+               if subthreads['JobComm'].no_more_work():
+                  # JobComm received no more work message from Harvester so exiting
+                  self.stop()
+                  break
+               else:
+                  # log error
+                  logger.error('JobComm thread exited, but the not sure why')
+                  self.stop()
+                  break
+
 
       # send the exit signal to all subthreads
       logger.info('sending exit signal to subthreads')
@@ -157,94 +251,71 @@ class Droid(threading.Thread):
 
       # send yoda message that Droid has exited
       logger.info('droid notifying yoda that it has exited')
-      ydm.send_droid_has_exited(exit_msg)
+      queues['MPIService'].put({'type':MessageTypes.DROID_HAS_EXITED,'destination_rank':0})
 
       logger.info('droid exiting')
 
 
+   def read_config(self):
+
+      # read droid loop timeout:
+      if self.config.has_option(config_section,'loop_timeout'):
+         self.loop_timeout = self.config.getfloat(config_section,'loop_timeout')
+      else:
+         logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
+         return
+      if MPIService.rank == 1:
+         logger.info('%s loop_timeout: %d',config_section,self.loop_timeout)
 
 
-# testing this thread
-if __name__ == '__main__':
-   try:
-      logging.basicConfig(level=logging.DEBUG,
-            format='%(asctime)s|%(process)s|%(levelname)s|%(name)s|%(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S')
-      logging.info('Start test of Droid')
-      import time
-      import argparse
-      import importlib
-      import ConfigParser
-      from pandayoda.common import serializer,MessageTypes
-      oparser = argparse.ArgumentParser()
-      oparser.add_argument('-y','--yoda-config', dest='yoda_config', help="The Yoda Config file where some configuration information is set.",default='yoda.cfg')
-      oparser.add_argument('-w','--jobWorkingDir',dest='jobWorkingDir',help='Where to run the job',required=True)
+      # read droid yampl_socket_name:
+      if self.config.has_option(config_section,'yampl_socket_name'):
+         self.yampl_socket_name = self.config.get(config_section,'yampl_socket_name')
+         self.yampl_socket_name = self.yampl_socket_name.format(rank=MPIService.rank)
+      else:
+         logger.error('must specify "yampl_socket_name" in "%s" section of config file',config_section)
+         return
+      if MPIService.rank == 1:
+         logger.info('%s yampl_socket_name: %s',config_section,self.yampl_socket_name)
 
-      args = oparser.parse_args()
+      # read droid subprocessStdout:
+      if self.config.has_option(config_section,'subprocessStdout'):
+         self.stdout_filename = self.config.get(config_section,'subprocessStdout')
+      else:
+         logger.error('must specify "subprocessStdout" in "%s" section of config file',config_section)
+         return
+      if MPIService.rank == 1:
+         logger.info('%s subprocessStdout: %s',config_section,self.stdout_filename)
 
-      if not os.path.exists(args.jobWorkingDir):
-         logger.error('working directory does not exist: %s',args.jobWorkingDir)
-         sys.exit(-1)
+      # read droid subprocessStderr:
+      if self.config.has_option(config_section,'subprocessStderr'):
+         self.stderr_filename = self.config.get(config_section,'subprocessStderr')
+      else:
+         logger.error('must specify "subprocessStderr" in "%s" section of config file',config_section)
+         return
+      if MPIService.rank == 1:
+         logger.info('%s subprocessStderr: %s',config_section,self.stderr_filename)
 
-      os.chdir(args.jobWorkingDir)
+      # read droid working_path:
+      if self.config.has_option(config_section,'working_path'):
+         self.working_path = self.config.get(config_section,'working_path')
+      else:
+         logger.error('must specify "working_path" in "%s" section of config file',config_section)
+         return
+      if MPIService.rank == 1:
+         logger.info('%s working_path: %s',config_section,self.working_path)
 
-      config = ConfigParser.ConfigParser()
-      config.read(args.yoda_config)
+   def request_job(self,queues):
+      qmsg = {'type': MessageTypes.REQUEST_JOB,'destination_rank':0}
+      queues['MPIService'].put(qmsg)
 
-
-      droid = Droid(config)
-
-      droid.start()
-
-      req = None
-      jobn = 0
-      evtrgn = 0
-      while droid.join(timeout=5) is None:
-         if not droid.isAlive(): break
-
-         if req is None:
-            # get message from droid
-            req = ydm.get_droid_message()
-
-         if req is not None:
-            # check if message has been received
-            status = MPI.Status()
-            flag,data = req.test(status=status)
-            if flag:
-               # message received
-               source_rank = status.Get_source()
-               logger.info('received message from droid rank %d: %s',source_rank,data)
-               req = None
-
-               if data['type'] == MessageTypes.REQUEST_JOB:
-                  logger.info('received request for job from rank %d',source_rank)
-                  jobn += 1
-                  job = serializer.deserialize(open(args.jobWorkingDir +'/pandajob.json').read())
-                  job['PandaID'] = job['PandaID'] + str(jobn)
-                  logger.info('sending job to droid rank %d',source_rank)
-                  ydm.send_droid_new_job(job,source_rank)
-               elif data['type'] == MessageTypes.REQUEST_EVENT_RANGES:
-                  logger.info('received request for event range from rank %d',source_rank)
-                  jobwise_evtrgs = serializer.deserialize(open(args.jobWorkingDir + '/JobsEventRanges.json').read())
-                  evtrgs = jobwise_evtrgs[jobwise_evtrgs.keys()[0]]
-                  if evtrgn < len(evtrgs):
-                     logger.info('sending event range to droid rank: %d',source_rank)
-                     ydm.send_droid_new_eventranges([evtrgs[evtrgn]],source_rank)
-                     evtrgn += 1
-                  else:
-                     logger.info('sending no more event range message to droid rank: %d',source_rank)
-                     ydm.send_droid_no_eventranges_left(source_rank)
-                     evtrgn += 1
+   def get_queue_message(self,queues,block=False,timeout=None):
+      try:
+         qmsg = queues['Droid'].get(block=block,timeout=timeout)
+         return qmsg
+      except SerialQueue.Empty:
+         logger.debug('no messages for Droid')
+         return None
 
 
-            else:
-               continue
-   except:
-      droid.stop()
 
-      droid.join()
-
-   logger.info('Droid test exiting')
-
-
-      

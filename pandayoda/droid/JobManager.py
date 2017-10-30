@@ -1,8 +1,6 @@
 import os,sys,logging,threading,subprocess,time,shutil
-from mpi4py import MPI
-from pandayoda.common import MessageTypes,SerialQueue,VariableWithLock
-from pandayoda.common import yoda_droid_messenger as ydm
 logger = logging.getLogger(__name__)
+from pandayoda.common import MessageTypes,SerialQueue,VariableWithLock,MPIService
 
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
@@ -183,8 +181,23 @@ class JobManager(threading.Thread):
             self.queues['MPIService'].put(msg)
 
             logger.debug('waiting for new panda job')
+            
             # wait for response with new job
-            msg = self.queues['JobManager'].get()
+            msg = None
+            # loop to keep checking for response, but can still exit if requested
+            while msg is None:
+               try:
+                  msg = self.queues['JobManager'].get(timeout=30)
+               except SerialQueue.Empty:
+                  # check to see if exit has been set, if not check again for message
+                  if not self.exit.isSet(): 
+                     continue
+                  else:
+                     break
+
+            if 'type' not in msg:
+               logger.error('received message on queue but there is no type key, message: %s',msg)
+               continue
 
             # check that the message type is correct
             if msg['type'] == MessageTypes.NEW_JOB:
@@ -205,7 +218,8 @@ class JobManager(threading.Thread):
                            jobPars = jobPars.replace("--preExec ", "--preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % self.yampl_socket_name)
                      msg['job']['jobPars'] = jobPars
                   else:
-                     logger.error('erorr in job format')
+                     logger.error('erorr in message format, no jobPars key, message: %s',msg)
+                     continue
 
 
                   logger.debug('running new job')
@@ -222,10 +236,8 @@ class JobManager(threading.Thread):
                   jobproc = JobSubProcess(msg['job'],self.working_path,self.droidSubprocessStdout,self.droidSubprocessStderr)
                   jobproc.start()
                   
-                  PANDA_JOB_REQUEST_SENT = False
                else:
                   logger.error('no job found in yoda response: %s',msg)
-                  PANDA_JOB_REQUEST_SENT = False
             elif msg['type'] == MessageTypes.NO_MORE_JOBS:
                logger.info('received NO_MORE_JOBS, exiting.')
                self.no_more_jobs.set(True)
@@ -236,7 +248,7 @@ class JobManager(threading.Thread):
                self.stop()
                break
             else:
-               logger.error('received message but type %s unexpected',msg['type'])
+               logger.error('received message but type %s unexpected, message: %s',msg['type'],msg)
             
          
       if jobproc is not None:
@@ -261,7 +273,7 @@ class JobManager(threading.Thread):
       else:
          logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
          return
-      if self.rank == 0:
+      if MPIService.rank == 0:
          logger.info('JobManager loop_timeout: %d',self.loop_timeout)
 
       # get droidSubprocessStdout
@@ -270,7 +282,7 @@ class JobManager(threading.Thread):
       else:
          logger.error('must specify "droidSubprocessStdout" in "%s" section of config file',config_section)
          return
-      if self.rank == 0:
+      if MPIService.rank == 0:
          logger.info('JobManager droidSubprocessStdout: %s',self.droidSubprocessStdout)
 
       # get droidSubprocessStderr
@@ -279,16 +291,16 @@ class JobManager(threading.Thread):
       else:
          logger.error('must specify "droidSubprocessStderr" in "%s" section of config file',config_section)
          return
-      if self.rank == 0:
+      if MPIService.rank == 0:
          logger.info('JobManager droidSubprocessStderr: %s',self.droidSubprocessStderr)
 
       # get yampl_socket_name
       if self.config.has_option('Droid','yampl_socket_name'):
-         self.yampl_socket_name = self.config.get('Droid','yampl_socket_name').format(rank_num='%03d' % self.rank)
+         self.yampl_socket_name = self.config.get('Droid','yampl_socket_name').format(rank_num='%03d' % MPIService.rank)
       else:
          logger.error('must specify "yampl_socket_name" in "Droid" section of config file')
          return
-      if self.rank == 0:
+      if MPIService.rank == 0:
          logger.info('Droid yampl_socket_name: %s',self.yampl_socket_name)
 
 
@@ -298,7 +310,7 @@ class JobManager(threading.Thread):
       else:
          logger.error('must specify "use_mock_athenamp" in "%s" section of config file',config_section)
          return
-      if self.rank == 0:
+      if MPIService.rank == 0:
          logger.info('JobManager use_mock_athenamp: %s',self.use_mock_athenamp)
 
 class JobSubProcess:
@@ -389,65 +401,50 @@ class JobSubProcess:
          raise Exception('specified template does not exist: %s',template_filename)
 
 
-
 # testing this thread
 if __name__ == '__main__':
    logging.basicConfig(level=logging.DEBUG,
-         format='%(asctime)s|%(process)s|%(levelname)s|%(name)s|%(message)s',
+         format='%(asctime)s|%(process)s|%(thread)s|%(levelname)s|%(name)s|%(funcName)s|%(message)s',
          datefmt='%Y-%m-%d %H:%M:%S')
-   logging.info('Start test of JobManager')
-   import time,argparse,ConfigParser
+   logging.info('Start test of JobComm')
+   import time
+   import argparse,ConfigParser
    oparser = argparse.ArgumentParser()
-   oparser.add_argument('-y','--yoda-config', dest='yoda_config', help="The Yoda Config file where some configuration information is set.",default='yoda.cfg')
-   oparser.add_argument('-w','--jobWorkingDir',dest='jobWorkingDir',help='Where to run the job',required=True)
-
+   oparser.add_argument('-c','--yoda-config', dest='yoda_config', help='The Yoda Config file is where most configuration information is set.',required=True)
+   oparser.add_argument('-d','--working-path', dest='working_path', help='The path to use for running this test.',default='./tmp_JobManager')
    args = oparser.parse_args()
 
+   # parse configuration file
+   if os.path.exists(args.yoda_config):
+      config = ConfigParser.ConfigParser()
+      config.read(args.yoda_config)
+   else:
+      logger.error('failed to parse config file: %s',args.yoda_config)
+      sys.exit(-1)
 
-   os.chdir(args.jobWorkingDir)
+   if not os.path.exists(args.working_path):
+      os.makedirs(args.working_path)
 
-   config = ConfigParser.ConfigParser()
-   config.read(args.yoda_config)
+   # create queues for subthreads to send messages out
+   queues = {}
+   queues['JobManager']       = SerialQueue.SerialQueue()
+   queues['JobComm']          = SerialQueue.SerialQueue()
+   queues['Droid']            = SerialQueue.SerialQueue()
+   queues['MPIService']       = SerialQueue.SerialQueue()
 
-   config.set('JobManager','use_mock_athenamp','true')
+   # create job manager thread
 
-   queues = {'JobComm':SerialQueue.SerialQueue(),'JobManager':SerialQueue.SerialQueue()}
+   jobMan   = JobManager(config,queues,args.working_path)
+   jobMan.start()
 
-   # create droid working path
-   droid_working_path = os.path.join(args.jobWorkingDir,'droid')
-   if not os.path.exists(droid_working_path):
-      os.makedirs(droid_working_path)
+   time.sleep(3)
 
-   jm = JobManager(config,queues,droid_working_path)
-   jm.start()
 
-   n = 0
-   while True:
-      logger.info('start loop')
-      if not jm.isAlive(): break
-      n+= 1
-
-      logger.info('Yoda receiving job request from JobManager')
-      status = MPI.Status()
-      request = ydm.recv_job_request()
-      msg = request.wait(status=status)
-      logger.info('msg = %s',str(msg))
-
-      if msg['type'] == MessageTypes.REQUEST_JOB:
-         logger.info('Yoda received request for new job')
-
-         if n > 1: # already sent a job, test exit
-            ydm.send_droid_no_job_left(status.Get_source())
-            break
-
-         # create a dummy input file
-         inputfilename = 'EVNT.06402143._000615.pool.root.1'
-         if not os.path.exists(inputfilename):
-            os.system('echo "dummy_data" > ' + inputfilename)
-         job = {
-      "PandaID": str(n), #str(int(time.time())), #"3298217817",
+   msg = {'type': NEW_PANDA_JOB,
+             'job': {
+      "PandaID":"3298217817",
       "GUID": "BEA4C016-E37E-0841-A448-8D664E8CD570",
-      #"PandaID": 3298217817,
+      "PandaID": 3298217817,
       "StatusCode": 0,
       "attemptNr": 3,
       "checksum": "ad:363a57ab",
@@ -498,20 +495,12 @@ if __name__ == '__main__':
       "taskID": 10919503,
       "transferType": "NULL",
       "transformation": "Sim_tf.py"
-         }
+             }
+            }
 
-      logger.info('Yoda sending new job message')
-      ydm.send_droid_new_job(job,status.Get_source())
+   queues['JobManager'].put(msg)
 
-
-
-   jm.stop()
-
-   jm.join()
-
-   logger.info('exiting test')
-
-
+   time.sleep(3)
 
 
 

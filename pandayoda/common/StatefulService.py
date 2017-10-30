@@ -1,5 +1,4 @@
 import threading,logging
-from mpi4py import MPI
 from pandayoda.common import VariableWithLock
 logger = logging.getLogger()
 
@@ -18,12 +17,6 @@ class StatefulService(threading.Thread):
 
       # current state of this process
       self.state                       = VariableWithLock.VariableWithLock()
-
-      # current rank
-      self.rank                        = MPI.COMM_WORLD.Get_rank()
-
-      # the prelog is just a string to attach before each log message
-      self.prelog                      = ''
 
       # this is used to trigger the thread exit
       self.exit                        = threading.Event()
@@ -59,4 +52,4 @@ class StatefulService(threading.Thread):
 
    def run(self):
       ''' run when obj.start() is called '''
-      logger.error('derived class should redefine this function')
+      raise Exception('derived class should redefine this function')

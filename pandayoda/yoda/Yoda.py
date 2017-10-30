@@ -1,6 +1,5 @@
 import logging,threading,time,os,datetime
 import WorkManager,FileManager
-from pandayoda.common import yoda_droid_messenger as ydm
 from pandayoda.common import SerialQueue,MessageTypes,MPIService
 logger = logging.getLogger(__name__)
 
@@ -60,21 +59,21 @@ class Yoda(threading.Thread):
 
       # read yoda loop timeout:
       if self.config.has_option(config_section,'loop_timeout'):
-         loop_timeout = self.config.getfloat(config_section,'loop_timeout')
+         self.loop_timeout = self.config.getfloat(config_section,'loop_timeout')
       else:
          logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
          return
-      logger.info('%s loop_timeout: %d',config_section,loop_timeout)
+      logger.info('%s loop_timeout: %d',config_section,self.loop_timeout)
 
       # read wallclock leadtime which sets how far from the end of 
       # the wallclock yoda should initiate droids to exit
       if self.config.has_option(config_section,'wallclock_expiring_leadtime'):
-         wallclock_expiring_leadtime = self.config.getfloat(config_section,'wallclock_expiring_leadtime')
-         wallclock_expiring_leadtime = datetime.timedelta(seconds=wallclock_expiring_leadtime)
+         self.wallclock_expiring_leadtime = self.config.getfloat(config_section,'wallclock_expiring_leadtime')
+         self.wallclock_expiring_leadtime = datetime.timedelta(seconds=self.wallclock_expiring_leadtime)
       else:
          logger.error('must specify "wallclock_expiring_leadtime" in "%s" section of config file',config_section)
          return
-      logger.info('%s wallclock_expiring_leadtime: %s',config_section,wallclock_expiring_leadtime)
+      logger.info('%s wallclock_expiring_leadtime: %s',config_section,self.wallclock_expiring_leadtime)
       wallclock_expired = False
 
       # create queues for subthreads to send messages out
@@ -92,7 +91,7 @@ class Yoda(threading.Thread):
       }
 
       # initialize the MPIService with the queues
-      MPIService.initialize(self.queues,forwarding_map)
+      MPIService.mpiService.initialize(self.queues,forwarding_map)
       
       # a dictionary of subthreads
       subthreads = {}
@@ -137,20 +136,20 @@ class Yoda(threading.Thread):
             self.stop()
             break
 
-         if (self.wall_clock_limit != -1 and timeTillSignal.total_seconds() < loop_timeout):
-            logger.debug('sleeping %s',timeTillSignal.total_seconds())
-            time.sleep(int(timeTillSignal.total_seconds())+1)
+         if (self.wall_clock_limit != -1 and self.timeTillSignal.total_seconds() < self.loop_timeout):
+            logger.debug('sleeping %s',self.timeTillSignal.total_seconds())
+            time.sleep(int(self.timeTillSignal.total_seconds())+1)
          else:
-            logger.debug('sleeping %s',loop_timeout)
-            time.sleep(loop_timeout)
+            logger.debug('sleeping %s',self.loop_timeout)
+            time.sleep(self.loop_timeout)
       
       # send the exit signal to all droid ranks
       logger.info('sending exit signal to droid ranks')
-      for ranknum in range(MPI.COMM_WORLD.Get_size()):
+      for ranknum in range(1,MPIService.nranks):
          if wallclock_expired:
-            ydm.send_droid_wallclock_expiring(ranknum).wait()
+            self.queues['MPIService'].put({'type':MessageTypes.WALLCLOCK_EXPIRING,'destination_rank':ranknum})
          else:
-            ydm.send_droid_exit(ranknum).wait()
+            self.queues['MPIService'].put({'type':MessageTypes.DROID_EXIT,'destination_rank':ranknum})
 
       # send the exit signal to all subthreads
       logger.info('sending exit signal to subthreads')
@@ -169,9 +168,9 @@ class Yoda(threading.Thread):
       if self.wall_clock_limit.total_seconds() > 0:
          running_time = datetime.datetime.now() - self.start_time
          timeleft = self.wall_clock_limit - running_time
-         timeTillSignal = timeleft - wallclock_expiring_leadtime
-         if timeleft < wallclock_expiring_leadtime:
-            logger.debug('time left %s is less than the leadtime %s, triggering exit.',timeleft,wallclock_expiring_leadtime)
+         self.timeTillSignal = timeleft - self.wallclock_expiring_leadtime
+         if timeleft < self.wallclock_expiring_leadtime:
+            logger.debug('time left %s is less than the leadtime %s, triggering exit.',timeleft,self.wallclock_expiring_leadtime)
             
             #exit this thread
             self.stop()
@@ -188,7 +187,7 @@ class Yoda(threading.Thread):
 
       try:
          qmsg = self.queues['Yoda'].get(block=False)
-      except SerialQueue.Empty():
+      except SerialQueue.Empty:
          logger.debug('yoda message queue empty')
 
       # process message

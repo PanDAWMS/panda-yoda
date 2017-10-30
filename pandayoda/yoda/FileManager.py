@@ -1,6 +1,5 @@
 import os,sys,threading,logging,shutil,importlib
 from pandayoda.common import MessageTypes,serializer,SerialQueue
-from pandayoda.common import yoda_droid_messenger as ydm
 logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
@@ -69,7 +68,7 @@ class FileManager(threading.Thread):
          # process incoming messages
          try:
             qmsg = self.queues['FileManager'].get(timeout=self.loop_timeout)
-         except SerialQueue.Empty():
+         except SerialQueue.Empty:
             logger.debug('queue is empty')
          else:
 
@@ -110,28 +109,28 @@ class FileManager(threading.Thread):
 
    def read_config(self):
       # get self.loop_timeout
-      if self.config.has_option(config_section,'self.loop_timeout'):
-         self.loop_timeout = self.config.getfloat(config_section,'self.loop_timeout')
+      if self.config.has_option(config_section,'loop_timeout'):
+         self.loop_timeout = self.config.getfloat(config_section,'loop_timeout')
       else:
-         logger.error('must specify "self.loop_timeout" in "%s" section of config file',config_section)
+         logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
          return
-      logger.info('%s self.loop_timeout: %d',config_section,self.loop_timeout)
+      logger.info('%s loop_timeout: %d',config_section,self.loop_timeout)
 
       # get self.output_file_type
-      if self.config.has_option(config_section,'self.output_file_type'):
-         self.output_file_type = self.config.get(config_section,'self.output_file_type')
+      if self.config.has_option(config_section,'output_file_type'):
+         self.output_file_type = self.config.get(config_section,'output_file_type')
       else:
-         logger.error('must specify "self.output_file_type" in "%s" section of config file',config_section)
+         logger.error('must specify "output_file_type" in "%s" section of config file',config_section)
          return
-      logger.info('%s self.output_file_type: %s',config_section,self.output_file_type)
+      logger.info('%s output_file_type: %s',config_section,self.output_file_type)
 
       # get self.yoda_working_path
-      if self.config.has_option(config_section,'self.yoda_working_path'):
-         self.yoda_working_path = self.config.get(config_section,'self.yoda_working_path')
+      if self.config.has_option(config_section,'yoda_working_path'):
+         self.yoda_working_path = self.config.get(config_section,'yoda_working_path')
       else:
-         logger.error('typically "self.yoda_working_path" is set by yoda_droid in the "%s" section of config',config_section)
+         logger.error('typically "yoda_working_path" is set by yoda_droid in the "%s" section of config',config_section)
          return
-      logger.info('%s self.yoda_working_path: %s',config_section,self.yoda_working_path)
+      logger.info('%s yoda_working_path: %s',config_section,self.yoda_working_path)
 
 
 

@@ -10,5 +10,6 @@ BASE_DIR=/projects/AtlasADSP/atlas/harvester
 echo Adding local harvester site-packages folder to head of python path
 export PYTHONPATH=$BASE_DIR/lib/python2.7/site-packages:$PYTHONPATH
 #echo Adding local yampl build to ld library path
-#export LD_LIBRARY_PATH=$BASE_DIR/yampl:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=$BASE_DIR/yampl:$LD_LIBRARY_PATH
+export PYTHONPATH=$PYTHONPATH:$BASE_DIR/python-yampl/build/lib.linux-x86_64-2.7
 

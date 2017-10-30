@@ -1,14 +1,11 @@
 #!/usr/bin/env python
 import argparse,logging,os,sys,importlib,datetime,time
 import ConfigParser
-import mpi4py
-mpi4py.rc(thread_level='multiple')
 
 from pandayoda.yoda import Yoda
 from pandayoda.droid import Droid
-from pandayoda.common import yoda_droid_messenger as ydm,MPIService
+from pandayoda.common import MPIService
 logger = logging.getLogger(__name__)
-
 
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
@@ -25,7 +22,7 @@ def yoda_droid(working_path,
    # get MPI world info
    try:
       mpirank = MPIService.rank
-      mpisize = MPIService.nrank
+      mpisize = MPIService.nranks
       logger.debug(' rank %10i of %10i',mpirank,mpisize)
    except:
       logger.error('Exception retrieving MPI rank information')
@@ -96,7 +93,7 @@ def yoda_droid(working_path,
          break
       time.sleep(loop_timeout)
 
-   if yoda and if yoda.isAlive():
+   if yoda and  yoda.isAlive():
       yoda.stop()
       yoda.join()
 
@@ -108,6 +105,7 @@ def yoda_droid(working_path,
    #MPI.COMM_WORLD.Barrier()
 
    logger.info('Rank %s: yoda_droid exiting',mpirank)
+   MPIService.MPI.COMM_WORLD.Abort()
       
 def main():
    start_time = datetime.datetime.now()

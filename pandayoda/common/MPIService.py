@@ -1,14 +1,8 @@
-import threading,logging
-from pandayoda.common import MPIRequest,MessageTypes
-logger = logging.getLogger()
+import threading,logging,time
+from pandayoda.common import MessageTypes
+logger = logging.getLogger('MPIService')
 
 from mpi4py import MPI
-
-# initialize the rank variables for other threads
-rank = MPI.COMM_WORLD.Get_rank()
-nranks = MPI.COMM_WORLD.Get_size()
-
-mpiService = MPIService()
 
 class MPIService(threading.Thread):
    ''' this thread class should be used for running MPI operations
@@ -72,7 +66,9 @@ class MPIService(threading.Thread):
          # if message received forward it on
          if message: 
             logger.debug('received MPI message: %s',message)
-            self.forward_message(source_rank,message)
+            self.forward_message(message)
+
+
          
          # check for messages on the queue that need to be sent
          while not self.queues['MPIService'].empty():
@@ -81,42 +77,47 @@ class MPIService(threading.Thread):
             logger.debug('received message: %s',qmsg)
 
             # determine if destination rank or tag was set
-            destination_rank = None
             if 'destination_rank' in qmsg:
                destination_rank = qmsg['destination_rank']
+            else:
+               logger.error('received message to send, but there is no destination_rank specified')
+               continue
             tag = None
             if 'tag' in qmsg:
                tag = qmsg['tag']
 
             # send message
             send_request = None
-            if destination_rank and tag:
-               send_request = MPI.COMM_WORLD.isend(qmsg['message'],dest=destination_rank,tag=tag)
-            elif destination_rank:
-               send_request = MPI.COMM_WORLD.isend(qmsg['message'],dest=destination_rank)
-            elif tag:
-               send_request = MPI.COMM_WORLD.isend(qmsg['message'],tag=tag)
-            else:
-               send_request = MPI.COMM_WORLD.isend(qmsg['message'])
+            if destination_rank is not None and tag is not None:
+               logger.debug('sending msg with destination and tag')
+               send_request = MPI.COMM_WORLD.isend(qmsg,dest=destination_rank,tag=tag)
+            elif destination_rank is not None:
+               logger.debug('sending msg with destination')
+               send_request = MPI.COMM_WORLD.isend(qmsg,dest=destination_rank)
 
             # wait for send to complete
             send_request.wait()
+
+         if not message and self.queues['MPIService'].empty():
+            time.sleep(2)
 
 
 
 
    def receive_message(self):
-      # there should always be a going for this rank to receive data
+      # there should always be a request waiting for this rank to receive data
       if self.receiveRequest is None:
-         self.receiveRequst = MPI.COMM_WORLD.irecv(source=MPI.ANY_SOURCE)
+         self.receiveRequest = MPI.COMM_WORLD.irecv(source=MPI.ANY_SOURCE)
       # check status of current request
-      if self.receiveRequst:
+      if self.receiveRequest:
+         logger.debug('check for MPI message')
          status = MPI.Status()
          # test to see if message was received
-         message_received,message = self.receiveRequst.test(status=status)
+         message_received,message = self.receiveRequest.test(status=status)
          # if received reset and return source rank and message content
          if message_received:
-            self.receiveRequst = None
+            logger.debug('MPI message received: %s',message)
+            self.receiveRequest = None
             # add source rank to the message
             message['source_rank'] = status.Get_source()
             return message
@@ -128,5 +129,12 @@ class MPIService(threading.Thread):
       thread_name = self.forwarding_map[message['type']]
       logger.debug('forwarding recieve MPI message to %s',thread_name)
       self.queues[thread_name].put(message)
+
+# initialize the rank variables for other threads
+rank = MPI.COMM_WORLD.Get_rank()
+nranks = MPI.COMM_WORLD.Get_size()
+
+mpiService = MPIService()
+mpiService.start()
 
 

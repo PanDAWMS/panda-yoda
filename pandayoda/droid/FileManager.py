@@ -1,7 +1,6 @@
 import os,sys,threading,logging,shutil
 from mpi4py import MPI
 from pandayoda.common import MessageTypes,serializer,SerialQueue
-from pandayoda.common import yoda_droid_messenger as ydm
 logger = logging.getLogger(__name__)
 
 
@@ -29,12 +28,6 @@ class FileManager(threading.Thread):
       # the path where yoda is running
       self.yoda_working_path     = yoda_working_path
 
-      # get current rank
-      self.rank                  = MPI.COMM_WORLD.Get_rank()
-
-      # the prelog is just a string to attach before each log message
-      self.prelog                = 'Rank %03i:' % self.rank
-
       # this is used to trigger the thread exit
       self.exit = threading.Event()
 
@@ -45,16 +38,14 @@ class FileManager(threading.Thread):
 
    def run(self):
       ''' this is the function run as a subthread when the user runs fileManager_instance.start() '''
-      if self.rank == 0:
-         logger.debug('%s config_section: %s',self.prelog,config_section)
-
+      
       # get loop_timeout
       if self.config.has_option(config_section,'loop_timeout'):
          loop_timeout = self.config.getfloat(config_section,'loop_timeout')
       else:
-         logger.error('%s must specify "loop_timeout" in "%s" section of config file',self.prelog,config_section)
+         logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
          return
-      logger.info('%s %s loop_timeout: %d',self.prelog,config_section,loop_timeout)
+      logger.info('%s loop_timeout: %d',config_section,loop_timeout)
 
 
       while not self.exit.isSet():
@@ -76,20 +67,20 @@ class FileManager(threading.Thread):
             if message['type'] == MessageTypes.OUTPUT_FILE:
                if os.path.exists(message['filename']) and os.path.exists(self.yoda_working_path):
                   
-                  logger.debug('%s copying %s to %s',self.prelog,message['filename'],self.yoda_working_path)
+                  logger.debug('copying %s to %s',message['filename'],self.yoda_working_path)
                   shutil.copy(message['filename'],self.yoda_working_path)
                elif not os.path.exists(message['filename']):
-                  logger.error('%s input filename does not exist: %s',self.prelog,message['filename'])
+                  logger.error('input filename does not exist: %s',message['filename'])
                elif not os.path.exists(self.yoda_working_path):
-                  logger.error('%s output file path does not exist: %s',self.prelog,self.yoda_working_path)
+                  logger.error('output file path does not exist: %s',self.yoda_working_path)
             elif message['type'] == MessageTypes.WALLCLOCK_EXPIRING:
-               logger.debug('%s received wallclock expiring message',self.prelog)
+               logger.debug('received wallclock expiring message')
                self.stop()
                break
             else:
                logger.error('%s message type is incorrect: %s ',message['type'])
 
-      logger.info('%s FileManager exiting',self.prelog)
+      logger.info('FileManager exiting')
 
    @staticmethod
    def md5sum(scope,filename):
@@ -122,50 +113,4 @@ class FileManager(threading.Thread):
                               str(md5sum[2:4])
                              )
       return filepath
-
-# testing this thread
-if __name__ == '__main__':
-   logging.basicConfig(level=logging.DEBUG,
-         format='%(asctime)s|%(process)s|%(levelname)s|%(name)s|%(message)s',
-         datefmt='%Y-%m-%d %H:%M:%S')
-   logging.info('Start test of FileManager')
-   import time
-   #import argparse
-   #oparser = argparse.ArgumentParser()
-   #oparser.add_argument('-l','--jobWorkingDir', dest="jobWorkingDir", default=None, help="Job's working directory.",required=True)
-   #args = oparser.parse_args()
-
-   queues = {'FileManager':SerialQueue.SerialQueue()}
-
-   fm = FileManager(queues,'/output/path')
-
-   fm.start()
-
-   while True:
-      logger.info('start loop')
-      if not fm.isAlive(): break
-
-      msg = {
-         'type':MessageTypes.OUTPUT_FILE,
-         'filename':'/build1/tsulaia/20.3.7.5/run-es/athenaMP-workers-AtlasG4Tf-sim/worker_1/myHITS.pool.root_000.Range-6',
-         'eventrangeid':'ID:Range-6',
-         'cpu':'CPU:1',
-         'wallclock':'WALL:1' 
-      }
-
-      queues['FileManager'].put(msg)
-
-      time.sleep(5)
-
-
-
-
-
-
-   fm.stop()
-
-   fm.join()
-
-   logger.info('exiting test')
-
 

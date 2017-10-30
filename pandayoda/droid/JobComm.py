@@ -1,8 +1,8 @@
 import os,sys,logging,threading,subprocess,time,multiprocessing
 logger = logging.getLogger(__name__)
 
-from pandayoda.payloadcommon import MessageTypes,serializer,SerialQueue,EventRangeList
-from pandayoda.payloadcommon import yoda_droid_messenger as ydm,VariableWithLock,StatefulService
+from pandayoda.common import MessageTypes,serializer,SerialQueue,EventRangeList
+from pandayoda.common import MPIService,VariableWithLock,StatefulService
 
 try:
    import yampl
@@ -30,11 +30,12 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
    '''
 
    
-   def __init__(self,config,queues,droid_working_path):
+   def __init__(self,config,queues,droid_working_path,yampl_socket_name):
       ''' 
         queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send 
                      messages to other Droid components about errors, etc.
         config: the ConfigParser handle for yoda
+        droid_working_path: The location of the Droid working area
         '''
       # call base class init function
       super(JobComm,self).__init__()
@@ -48,12 +49,18 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       # working path for droid, where AthenaMP output files will be located
       self.working_path                = droid_working_path
 
+      # socket name to pass to transform for use when communicating via yampl
+      self.yampl_socket_name           = yampl_socket_name
+
 
       # flag to set when all work is done and thread is exiting
       self.all_work_done               = VariableWithLock.VariableWithLock(False)
 
       # this is used to trigger the thread exit
       self.exit = threading.Event()
+
+   def no_more_work(self):
+      return self.all_work_done.get()
 
    def stop(self):
       ''' this function can be called by outside threads to cause the JobManager thread to exit'''
@@ -91,8 +98,23 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
          # check for messages
          try:
-            logger.debug('check for job definition from JobManager')
-            qmsg = self.queues['JobComm'].get(block=False)
+            logger.debug('check for queue message')
+
+            # if there is no current job, then there is nothing to do so block on queue message
+            if payloadcomm.get_job_def() is None:
+               logger.debug('waiting for job def message')
+               qmsg = self.queues['JobComm'].get(block=True,timeout=self.loop_timeout)
+            # have a current job, but no events
+            elif eventranges.number_ready() == 0:
+               # if request has been sent wait for a loop
+               if NEW_EVENT_RANGES_REQUEST_SENT:
+                  qmsg = self.queues['JobComm'].get(block=True,timeout=self.loop_timeout)
+               else:
+                  qmsg = self.queues['JobComm'].get(block=False)
+
+            if 'type' not in qmsg:
+               logger.error(' no "type" key in the message: %s',qmsg)
+               continue
             
             if qmsg['type'] == MessageTypes.NEW_JOB:
                logger.debug('got new job definition from JobManager')
@@ -113,6 +135,8 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                else:
                   logger.error('NEW_EVENT_RANGES message type, but no event ranges found.')
 
+               NEW_EVENT_RANGES_REQUEST_SENT = False
+
             elif qmsg['type'] == MessageTypes.WALLCLOCK_EXPIRING:
                logger.info('received wallclock expiring message')
                # set exit for loop and continue
@@ -121,8 +145,12 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
             else:
                logger.error('Received message of unknown type: %s',qmsg)
          except SerialQueue.Empty:
-            logger.debug('no jobs from JobManager')
-
+            logger.debug('no messages on queue')
+         
+         # if no job definition has been sent from JobManager, there is no reason to try
+         # and communicate with AthenaMP since it will not be running
+         if payloadcomm.get_job_def() is None:
+            continue
 
          
          # receive a message from AthenaMP if we are not already processing one
@@ -150,14 +178,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                   logger.debug('waiting for new event ranges to be received')
                else:
                   logger.debug('sending request for new events')
-                  msg={
-                     'type':MessageTypes.REQUEST_EVENT_RANGES,
-                     'PandaID':current_job['PandaID'],
-                     'taskID':current_job['taskID'],
-                     'jobsetID':current_job['jobsetID'],
-                     'destination_rank': 0, #YODA rank
-                  }
-                  self.queues['MPIService'].put(msg)
+                  self.request_events(current_job)
 
                   # set flag so we don't sent the same message again
                   NEW_EVENT_RANGES_REQUEST_SENT = True
@@ -199,6 +220,11 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
          else:
             logger.debug('PayloadMessenger has nothing to do')
 
+         # check number of event ranges left, if below some number send new request
+         if eventranges.number_ready() < self.get_more_events_threshold and not NEW_EVENT_RANGES_REQUEST_SENT:
+            logger.debug('requesting more event ranges')
+            self.request_events(current_job)
+            NEW_EVENT_RANGES_REQUEST_SENT=True
 
          # check if all work is done and can exit
          if eventranges.number_processing() == 0 and no_more_eventranges:
@@ -207,16 +233,13 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
             self.stop()
             break
 
-         # should sleep if JobManager has yet to send a job
-         if current_job is None and self.queues['JobComm'].empty():
-            logger.debug('no job and none queued, so sleeping %d',loop_timeout)
-            time.sleep(self.loop_timeout)
+         
          # no other work to do
-         elif (not NEW_EVENT_RANGES_REQUEST_SENT and
+         if (not NEW_EVENT_RANGES_REQUEST_SENT and
                self.queues['JobComm'].empty() and
                payloadcomm.not_waiting()):
             # so sleep 
-            logger.debug('no work on the queues, so sleeping %d',loop_timeout)
+            logger.debug('no work on the queues, so sleeping %d',self.loop_timeout)
             time.sleep(self.loop_timeout)
          elif not payloadcomm.not_waiting():
             logger.debug('waiting for eventRangeRetriever to receive data, sleeping')
@@ -239,17 +262,8 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       else:
          logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
          return
-      if self.rank == 0:
+      if MPIService.rank == 0:
          logger.info('JobComm loop_timeout: %d',self.loop_timeout)
-
-      # get yampl_socket_name
-      if self.config.has_option('Droid','yampl_socket_name'):
-         self.yampl_socket_name = self.config.get('Droid','yampl_socket_name').format(rank_num='%03d' % self.rank)
-      else:
-         logger.error('must specify "yampl_socket_name" in "Droid" section of config file')
-         return
-      if self.rank == 0:
-         logger.info('Droid yampl_socket_name: %s',self.yampl_socket_name)
 
       # get get_more_events_threshold
       if self.config.has_option(config_section,'get_more_events_threshold'):
@@ -257,9 +271,18 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       else:
          logger.error('must specify "get_more_events_threshold" in "%s" section of config file',config_section)
          return
-      if self.rank == 0:
+      if MPIService.rank == 0:
          logger.info('JobComm get_more_events_threshold: %d',self.get_more_events_threshold)
 
+   def request_events(self,current_job):
+      msg={
+         'type':MessageTypes.REQUEST_EVENT_RANGES,
+         'PandaID':current_job['PandaID'],
+         'taskID':current_job['taskID'],
+         'jobsetID':current_job['jobsetID'],
+         'destination_rank': 0, #YODA rank
+      }
+      self.queues['MPIService'].put(msg)
 
 
 
@@ -360,7 +383,7 @@ class PayloadMessenger(StatefulService.StatefulService):
       self.set_state(self.IDLE)
       
       logger.debug('start yampl payloadcommunicator')
-      athpayloadcomm = athena_payloadcommunicator(self.yampl_socket_name,prelog=self.prelog)
+      athpayloadcomm = athena_payloadcommunicator(self.yampl_socket_name)
       payload_msg = ''
 
       while not self.exit.wait(timeout=self.loop_timeout):
@@ -459,13 +482,7 @@ class athena_payloadcommunicator:
    NO_MORE_EVENTS          = 'No more events'
    FAILED_PARSE            = 'ERR_ATHENAMP_PARSE'
 
-   def __init__(self,socketname='EventService_EventRanges',context='local',prelog=''):
-
-      # get current rank
-      self.rank                        = MPI.COMM_WORLD.Get_rank()
-
-      # the prelog is just a string to attach before each log message
-      self.prelog                      = '%s| Rank %03i:' % (self.__class__.__name__,self.rank)
+   def __init__(self,socketname='EventService_EventRanges',context='local'):
       
       # create server socket for yampl
       try:
@@ -479,7 +496,7 @@ class athena_payloadcommunicator:
       try:
          self.socket.send_raw(message)
       except:
-         logger.exception("%s Failed to send yampl message: %s",message)
+         logger.exception("Failed to send yampl message: %s",message)
          raise
 
    def recv(self):
@@ -490,241 +507,6 @@ class athena_payloadcommunicator:
       return str(buf)
 
 
-
-# testing this thread
-if __name__ == '__main__':
-   logging.basicConfig(level=logging.DEBUG,
-         format='%(asctime)s|%(process)s|%(thread)s|%(levelname)s|%(name)s|%(funcName)s|%(message)s',
-         datefmt='%Y-%m-%d %H:%M:%S')
-   logging.info('Start test of JobComm')
-   import time
-   #import argparse
-   #oparser = argparse.ArgumentParser()
-   #oparser.add_argument('-l','--jobWorkingDir', dest="jobWorkingDir", default=None, help="Job's working directory.",required=True)
-   #args = oparser.parse_args()
-
-   queues = {'FileManager':SerialQueue.SerialQueue(),
-             'JobComm':SerialQueue.SerialQueue()
-            }
-
-   job_def = {
-      "GUID": "BEA4C016-E37E-0841-A448-8D664E8CD570",
-      "PandaID": 3298217817,
-      "StatusCode": 0,
-      "attemptNr": 3,
-      "checksum": "ad:363a57ab",
-      "cloud": "WORLD",
-      "cmtConfig": "x86_64-slc6-gcc47-opt",
-      "coreCount": 8,
-      "currentPriority": 851,
-      "ddmEndPointIn": "NERSC_DATADISK",
-      "ddmEndPointOut": "LRZ-LMU_DATADISK,NERSC_DATADISK",
-      "destinationDBlockToken": "dst:LRZ-LMU_DATADISK,dst:NERSC_DATADISK",
-      "destinationDblock": "mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.HITS.e4376_s3022_tid10919503_00_sub0384058277,mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.log.e4376_s3022_tid10919503_00_sub0384058278",
-      "destinationSE": "LRZ-LMU_C2PAP_MCORE",
-      "dispatchDBlockToken": "NULL",
-      "dispatchDBlockTokenForOut": "NULL,NULL",
-      "dispatchDblock": "panda.10919503.03.15.GEN.c2a897d6-ea51-4054-83a5-ce0df170c6e1_dis003287071386",
-      "eventService": "True",
-      "fileDestinationSE": "LRZ-LMU_C2PAP_MCORE,NERSC_Edison",
-      "fsize": "24805997",
-      "homepackage": "AtlasProduction/19.2.5.3",
-      "inFilePaths": "/scratch2/scratchdirs/dbenjami/harvester_edison/test-area/test-18/EVNT.06402143._000615.pool.root.1",
-      "inFiles": "EVNT.06402143._000615.pool.root.1",
-      "jobDefinitionID": 0,
-      "jobName": "mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.e4376_s3022.3268661856",
-      "jobPars": "--inputEVNTFile=EVNT.06402143._000615.pool.root.1 --AMITag=s3022 --DBRelease=\"default:current\" --DataRunNumber=222525 --conditionsTag \"default:OFLCOND-RUN12-SDR-19\" --firstEvent=1 --geometryVersion=\"default:ATLAS-R2-2015-03-01-00_VALIDATION\" --maxEvents=1000 --outputHITSFile=HITS.10919503._000051.pool.root.1 --physicsList=FTFP_BERT --postInclude \"default:PyJobTransforms/UseFrontier.py\" --preInclude \"EVNTtoHITS:SimulationJobOptions/preInclude.BeamPipeKill.py,SimulationJobOptions/preInclude.FrozenShowersFCalOnly.py,AthenaMP/AthenaMP_EventService.py\" --randomSeed=611 --runNumber=362002 --simulator=MC12G4 --skipEvents=0 --truthStrategy=MC15aPlus",
-      "jobsetID": 3287071385,
-      "logFile": "log.10919503._000051.job.log.tgz.1.3298217817",
-      "logGUID": "6872598f-658b-4ecb-9a61-0e1945e44dac",
-      "maxCpuCount": 46981,
-      "maxDiskCount": 323,
-      "maxWalltime": 46981,
-      "minRamCount": 23750,
-      "nSent": 1,
-      "nucleus": "LRZ-LMU",
-      "outFiles": "HITS.10919503._000051.pool.root.1,log.10919503._000051.job.log.tgz.1.3298217817",
-      "processingType": "validation",
-      "prodDBlockToken": "NULL",
-      "prodDBlockTokenForOutput": "NULL,NULL",
-      "prodDBlocks": "mc15_13TeV:mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.evgen.EVNT.e4376/",
-      "prodSourceLabel": "managed",
-      "prodUserID": "glushkov",
-      "realDatasets": "mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.HITS.e4376_s3022_tid10919503_00,mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.log.e4376_s3022_tid10919503_00",
-      "realDatasetsIn": "mc15_13TeV:mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.evgen.EVNT.e4376/",
-      "scopeIn": "mc15_13TeV",
-      "scopeLog": "mc15_13TeV",
-      "scopeOut": "mc15_13TeV",
-      "sourceSite": "NULL",
-      "swRelease": "Atlas-19.2.5",
-      "taskID": 10919503,
-      "transferType": "NULL",
-      "transformation": "Sim_tf.py"
-   }
-
-   eventranges = [
-      {
-         "GUID": "BEA4C016-E37E-0841-A448-8D664E8CD570",
-         "LFN": "EVNT.06402143._000615.pool.root.1",
-         "eventRangeID": "10919503-3298217817-8731829857-1-49",
-         "lastEvent": 1,
-         "scope": "mc15_13TeV",
-         "startEvent": 1
-      },
-      {
-         "GUID": "BEA4C016-E37E-0841-A448-8D664E8CD570",
-         "LFN": "EVNT.06402143._000615.pool.root.1",
-         "eventRangeID": "10919503-3298217817-8731829857-2-49",
-         "lastEvent": 2,
-         "scope": "mc15_13TeV",
-         "startEvent": 2
-      },
-      {
-         "GUID": "BEA4C016-E37E-0841-A448-8D664E8CD570",
-         "LFN": "EVNT.06402143._000615.pool.root.1",
-         "eventRangeID": "10919503-3298217817-8731829857-3-49",
-         "lastEvent": 3,
-         "scope": "mc15_13TeV",
-         "startEvent": 3
-      },
-      {
-         "GUID": "BEA4C016-E37E-0841-A448-8D664E8CD570",
-         "LFN": "EVNT.06402143._000615.pool.root.1",
-         "eventRangeID": "10919503-3298217817-8731829857-4-49",
-         "lastEvent": 4,
-         "scope": "mc15_13TeV",
-         "startEvent": 4
-      },
-      {
-         "GUID": "BEA4C016-E37E-0841-A448-8D664E8CD570",
-         "LFN": "EVNT.06402143._000615.pool.root.1",
-         "eventRangeID": "10919503-3298217817-8731829857-5-49",
-         "lastEvent": 5,
-         "scope": "mc15_13TeV",
-         "startEvent": 5
-      },
-      {
-         "GUID": "BEA4C016-E37E-0841-A448-8D664E8CD570",
-         "LFN": "EVNT.06402143._000615.pool.root.1",
-         "eventRangeID": "10919503-3298217817-8731829857-6-49",
-         "lastEvent": 6,
-         "scope": "mc15_13TeV",
-         "startEvent": 6
-      },
-      {
-         "GUID": "BEA4C016-E37E-0841-A448-8D664E8CD570",
-         "LFN": "EVNT.06402143._000615.pool.root.1",
-         "eventRangeID": "10919503-3298217817-8731829857-7-49",
-         "lastEvent": 7,
-         "scope": "mc15_13TeV",
-         "startEvent": 7
-      },
-      {
-         "GUID": "BEA4C016-E37E-0841-A448-8D664E8CD570",
-         "LFN": "EVNT.06402143._000615.pool.root.1",
-         "eventRangeID": "10919503-3298217817-8731829857-8-49",
-         "lastEvent": 8,
-         "scope": "mc15_13TeV",
-         "startEvent": 8
-      }
-   ]
-   
-   jc = JobComm(queues,5)
-
-   # setup payloadcommunicator
-   socket = yampl.ClientSocket('EventService_EventRanges', 'local')
-
-   jc.start()
-
-
-   ######
-   ## Test event range request and receive
-   ############
-
-   # acting like JobManager   
-   # put job message on queue
-   msg = {'type':MessageTypes.NEW_JOB,'job':job_def}
-   queues['JobComm'].put(msg)
-
-
-   # acting like AthenaMP
-   # wait for JobComm to start yampl server or else messages will be missed.
-   time.sleep(2)
-   # send the Ready for Events as many times as we have event ranges
-   logger.info('AthenaMP workers sending %d messages "Ready for Events"',len(eventranges))
-   for i in range(len(eventranges)):
-      socket.send_raw(JobComm.ATHENA_READY_FOR_EVENTS)
-
-   
-   # acting like Yoda/WorkManager
-   
-   # use mpi to wait for event range request
-   logger.info('wait for MPI mesage from JobComm sent to Yoda/WorkManager')
-   req = ydm.recv_eventranges_request()
-   status = MPI.Status()
-   msg = req.wait(status=status)
-   logger.info('received MPI message from JobComm: %s',msg)
-
-   if msg['type'] != MessageTypes.REQUEST_EVENT_RANGES:
-      raise Exception
-   # send event ranges in response and wait for send to complete
-   logger.info('Yoda/WorkManager is sending event ranges to JobComm')
-   ydm.send_droid_new_eventranges(eventranges,status.Get_source()).wait()
-
-   # acting like AthenaMP
-   
-   # receive event range on yampl
-   size,msg = socket.try_recv_raw()
-   while size == -1:
-      size,msg = socket.try_recv_raw()
-      time.sleep(1)
-   msg = serializer.deserialize(msg)
-   logger.info('AthenaMP worker received event range: %s',msg)
-
-
-
-   ######
-   ## Test output file messages
-   ############
-   for eventrange_index in range(len(eventranges)):
-
-      # acting like AthenaMP
-      logger.info('sending AthenaMP worker message for output file')
-      msg = "%s,%s,CPU:1,WALL:1" % (eventranges[eventrange_index]['LFN'].replace('EVNT','HITS'),eventranges[eventrange_index]['eventRangeID'])
-      socket.send_raw(msg)
-      eventrange_index += 1
-
-      # acting like FileManager
-      logger.info('FileManager is waiting for file output message from JobComm')
-      msg = queues['FileManager'].get()
-      logger.info('FileManager received message from JobComm: %s',msg)
-
-   
-   ######
-   ## Test sending JobComm NO_MORE_EVENTRANGES Message
-   ############
-
-   # acting like yoda
-
-   # use mpi to wait for event range request
-   logger.info('wait for MPI mesage from JobComm sent to Yoda/WorkManager')
-   req = ydm.recv_eventranges_request()
-   status = MPI.Status()
-   msg = req.wait(status=status)
-   logger.info('received MPI message from JobComm: %s',msg)
-
-   if msg['type'] != MessageTypes.REQUEST_EVENT_RANGES:
-      raise Exception
-   # send event ranges in response and wait for send to complete
-   logger.info('Yoda/WorkManager is sending event ranges to JobComm')
-   ydm.send_droid_no_eventranges_left(status.Get_source()).wait()
-
-
-   #jc.stop()
-
-   jc.join()
-
-   logger.info('exiting test')
 
 
 
