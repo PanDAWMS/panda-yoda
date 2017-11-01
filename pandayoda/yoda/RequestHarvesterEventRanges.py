@@ -7,19 +7,19 @@ config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.
 class RequestHarvesterEventRanges(StatefulService.StatefulService):
    ''' This thread is spawned to request event ranges from Harvester '''
 
-   IDLE                    = 'IDLE'
+   CREATED                 = 'CREATED'
    REQUEST                 = 'REQUEST'
-   REQUESTING              = 'REQUESTING'
-   NEW_EVENT_RANGES_READY  = 'NEW_EVENT_RANGES_READY'
+   WAITING                 = 'WAITING'
    EXITED                  = 'EXITED'
 
-   STATES = [IDLE,REQUEST,REQUESTING,NEW_EVENT_RANGES_READY,EXITED]
+   STATES = [CREATED,REQUEST,WAITING,EXITED]
+   RUNNING_STATES = [REQUEST,WAITING]
 
-   def __init__(self,config,loop_timeout=30):
-      super(RequestHarvesterEventRanges,self).__init__(loop_timeout)
+   def __init__(self,config,job_def):
+      super(RequestHarvesterEventRanges,self).__init__()
 
       # local config options
-      self.config             = config
+      self.config                      = config
 
       # set current state of the thread to IDLE
       self.state                       = VariableWithLock.VariableWithLock(self.IDLE)
@@ -31,33 +31,23 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
       self.no_more_eventranges_flag    = VariableWithLock.VariableWithLock(False)
 
       # set this to define which job definition will be used to request event ranges
-      self.job_def                     = VariableWithLock.VariableWithLock()
+      self.job_def                     = job_def
 
-      self.prelog                      = ''
+      self.set_state(self.CREATED)
 
-
-   def reset(self):
-      self.set_state(self.IDLE)
-   def idle(self):
-      return self.in_state(self.IDLE)
    def exited(self):
       return self.in_state(self.EXITED)
 
-   def start_request(self,job_def):
-      self.job_def.set(job_def)
-      self.set_state(self.REQUEST)
+   def running(self):
+      if self.get_state() is in self.RUNNING_STATES:
+         return True
+      return False
 
    def get_eventranges(self):
       ''' parent thread calls this function to retrieve the event ranges sent by Harevester '''
-      eventranges = self.new_eventranges.get()
-      self.new_eventranges.set(None)
-      self.set_state(self.IDLE)
-      return eventranges
+      return self.new_eventranges.get()
    def set_eventranges(self,eventranges):
       self.new_eventranges.set(eventranges)
-
-   def new_eventranges_ready(self):
-      return self.in_state(self.NEW_EVENT_RANGES_READY)
 
    def no_more_eventranges(self):
       return self.no_more_eventranges_flag.get()
@@ -87,51 +77,59 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
       messenger = self.get_messenger()
       messenger.setup(self.config)
 
+      # read in loop_timeout
+      if self.config.has_option(config_section,'loop_timeout'):
+         messenger_plugin_module = self.config.get(config_section,'loop_timeout')
+      
+
+      # start in the request state
+      self.set_state(self.REQUEST)
+
       while not self.exit.wait(timeout=self.loop_timeout):
          # get state
-         state = self.get_state()
-         logger.debug('%s start loop, current state: %s',self.prelog,state)
+         logger.debug('start loop, current state: %s',self.get_state())
          
          ########
          # REQUEST State
          ########################
-         if state == self.REQUEST:
-            logger.debug('%s making request for event ranges',self.prelog)
+         if self.get_state() == self.REQUEST:
+            logger.debug('making request for event ranges')
             # request event ranges from Harvester
             try:
                # use messenger to request event ranges from Harvester
-               messenger.request_eventranges(self.job_def.get())
+               messenger.request_eventranges(self.job_def)
             except exceptions.MessengerEventRangesAlreadyRequested:
                logger.warning('event ranges already requesting')
             
             # request events
-            self.set_state(self.REQUESTING)
+            self.set_state(self.WAITING)
 
          
          #########
          # REQUESTING State
          ########################
-         elif state == self.REQUESTING:
-            logger.debug('%s checking for event ranges',self.prelog)
+         elif self.get_state() == self.WAITING:
+            logger.debug('checking for event ranges')
             # use messenger to check if event ranges are ready
             if messenger.eventranges_ready():
-               logger.debug('%s event ranges are ready',self.prelog)
+               logger.debug('event ranges are ready')
                # use messenger to get event ranges from Harvester
                eventranges = messenger.get_eventranges()
 
                # set event ranges for parent and change state
                if len(eventranges) > 0:
-                  logger.debug('%s setting NEW_EVENT_RANGES variable with %d event ranges',self.prelog,len(eventranges))
+                  logger.debug('setting NEW_EVENT_RANGES variable with %d event ranges',len(eventranges))
                   self.set_eventranges(eventranges)
-                  self.set_state(self.NEW_EVENT_RANGES_READY)
+                  self.exit()
                else:
-                  logger.debug('%s received no eventranges',self.prelog)
+                  logger.debug('received no eventranges: %s',eventranges)
+                  self.exit()
             else:
-               logger.debug('%s no event ranges yet received.',self.prelog)
+               logger.debug('no event ranges yet received.')
 
          else:
-            logger.debug('%s nothing to do',self.prelog)
+            logger.debug('nothing to do')
 
       self.set_state(self.EXITED)
-      logger.debug('%s GetEventRanges thread is exiting',self.prelog)
+      logger.debug('GetEventRanges thread is exiting')
    

@@ -88,6 +88,7 @@ class Yoda(threading.Thread):
       forwarding_map = {
          MessageTypes.REQUEST_JOB: 'WorkManager',
          MessageTypes.REQUEST_EVENT_RANGES: 'WorkManager',
+         MessageTypes.OUTPUT_FILE: 'FileManger',
       }
 
       # initialize the MPIService with the queues

@@ -7,16 +7,16 @@ config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.
 class RequestHarvesterJob(StatefulService.StatefulService):
    ''' This thread is spawned to request jobs from Harvester '''
 
-   IDLE                 = 'IDLE'
+   CREATED              = 'CREATED'
    REQUEST              = 'REQUEST'
-   REQUESTING           = 'REQUESTING'
-   NEW_JOBS_READY       = 'NEW_JOBS_READY'
+   WAITING              = 'WAITING'
    EXITED               = 'EXITED'
 
-   STATES = [IDLE,REQUEST,REQUESTING,NEW_JOBS_READY,EXITED]
+   STATES = [CREATED,REQUEST,WAITING,EXITED]
+   RUNNING_STATES = [REQUEST,WAITING]
 
-   def __init__(self,config,loop_timeout=30):
-      super(RequestHarvesterJob,self).__init__(loop_timeout)
+   def __init__(self,config):
+      super(RequestHarvesterJob,self).__init__()
 
       # local config options
       self.config             = config
@@ -30,29 +30,24 @@ class RequestHarvesterJob(StatefulService.StatefulService):
       # set if there are no more jobs coming from Harvester
       self.no_more_jobs_flag  = VariableWithLock.VariableWithLock(False)
 
-      # the prelog is just a string to attach before each log message
-      self.prelog             = ''
+      # start in the requesting state
+      self.set_state(self.CREATED)
+
 
    def get_jobs(self):
       ''' parent thread calls this function to retrieve the jobs sent by Harevester '''
       jobs = self.new_jobs.get()
-      self.new_jobs.set(None)
-      self.set_state(self.IDLE)
       return jobs
    def set_jobs(self,job_descriptions):
       self.new_jobs.set(job_descriptions)
 
-   def new_jobs_ready(self):
-      return self.in_state(self.NEW_JOBS_READY)
+   def exited(self):
+      return self.in_state(self.EXITED)
 
-   def idle(self):
-      return self.in_state(self.IDLE)
-
-   def start_request(self):
-      self.set_state(self.REQUEST)
-
-   def reset(self):
-      self.set_state(self.IDLE)
+   def running(self):
+      if self.get_state() is in self.RUNNING_STATES:
+         return True
+      return False
 
    def no_more_jobs(self):
       return self.no_more_jobs_flag.get()
@@ -62,7 +57,7 @@ class RequestHarvesterJob(StatefulService.StatefulService):
       if self.config.has_option(config_section,'messenger_plugin_module'):
          messenger_plugin_module = self.config.get(config_section,'messenger_plugin_module')
       else:
-         raise Exception('%s Failed to retrieve messenger_plugin_module from config file section %s' % (self.prelog,config_section))
+         raise Exception('Failed to retrieve messenger_plugin_module from config file section %s' % (config_section))
 
 
       # try to import the module specified in the config
@@ -70,7 +65,7 @@ class RequestHarvesterJob(StatefulService.StatefulService):
       try:
          return importlib.import_module(messenger_plugin_module)
       except ImportError:
-         logger.exception('%s Failed to import messenger_plugin: %s',self.prelog,messenger_plugin_module)
+         logger.exception('Failed to import messenger_plugin: %s',messenger_plugin_module)
          raise
 
 
@@ -80,50 +75,58 @@ class RequestHarvesterJob(StatefulService.StatefulService):
       # get the messenger for communicating with Harvester
       messenger = self.get_messenger()
       messenger.setup(self.config)
+      
+      # read in loop_timeout
+      if self.config.has_option(config_section,'loop_timeout'):
+         messenger_plugin_module = self.config.get(config_section,'loop_timeout')
+
+      # start in the request state
+      self.set_state(self.REQUEST)
 
       while not self.exit.wait(timeout=self.loop_timeout):
          # get state
-         state = self.get_state()
-         logger.debug('%s start loop, current state: %s',self.prelog,state)
+         logger.debug('start loop, current state: %s',self.get_state())
          
          #########
          # REQUEST State
          ########################
-         if state == self.REQUEST:
-            logger.debug('%s making request for job',self.prelog)
+         if self.get_state() == self.REQUEST:
+            logger.debug('making request for job')
             try:
                # use messenger to request jobs from Harvester
                messenger.request_jobs()
             except exceptions.MessengerJobAlreadyRequested:
                logger.warning('job already requested.')
-            # request events
-            self.set_state(self.REQUESTING)
+
+            # wait for events
+            self.set_state(self.WAITING)
          
 
          #########
          # REQUESTING State
          ########################
-         elif state == self.REQUESTING:
-            logger.debug('%s checking if request is complete',self.prelog)
+         elif self.get_state() == self.WAITING:
+            logger.debug('checking if request is complete')
             # use messenger to check if jobs are ready
             if messenger.pandajobs_ready():
-               logger.debug('%s jobs are ready',self.prelog)
+               logger.debug('jobs are ready')
                # use messenger to get jobs from Harvester
                pandajobs = messenger.get_pandajobs()
                
                # set jobs for parent and change state
                if len(pandajobs) > 0:
-                  logger.debug('%s setting NEW_JOBS variable',self.prelog)
+                  logger.debug('setting NEW_JOBS variable')
                   self.set_jobs(pandajobs)
-                  self.set_state(self.NEW_JOBS_READY)
+                  self.stop()
                else:
-                  logger.debug('%s no jobs returned.',self.prelog)
+                  logger.debug('no jobs returned: %s',pandajobs)
+                  self.stop()
             else:
-               logger.debug('%s no jobs ready yet.',self.prelog)
+               logger.debug('no jobs ready yet.')
 
          else:
-            logger.debug('%s nothing to do',self.prelog)
+            logger.debug('nothing to do')
          
 
       self.set_state(self.EXITED)
-      logger.debug('%s RequestHarvesterJob thread is exiting',self.prelog)
+      logger.debug('RequestHarvesterJob thread is exiting')
