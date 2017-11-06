@@ -48,10 +48,10 @@ class WorkManager(threading.Thread):
       droid_msg_request          = None
 
       # pending requests from droid ranks
-      self.pending_requests      = SerialQueue.SerialQueue()
+      pending_requests           = SerialQueue.SerialQueue()
 
       # start a Request Havester Job thread to begin getting a job
-      requestHarvesterJob = RequestHarvesterJob.RequestHarvesterJob(self.config,self.loop_timeout)
+      requestHarvesterJob        = RequestHarvesterJob.RequestHarvesterJob(self.config)
       requestHarvesterJob.start()
 
       # place holder for Request Harevester Event Ranges instance (wait for job definition before launching)
@@ -123,10 +123,21 @@ class WorkManager(threading.Thread):
          ################################
          qmsg = None
          if not self.queues['WorkManager'].empty():
+            logger.debug('queue has messages')
             qmsg = self.queues['WorkManager'].get(block=False)
          # if main queue is empty, process pending message queues
          elif not pending_requests.empty():
+            logger.debug('pending queue has messages')
             qmsg = pending_requests.get(block=False)
+         elif not ( 
+              (requestHarvesterJob is not None and requestHarvesterJob.jobs_ready()) 
+              and 
+              (requestHarvesterEventRanges is not None and requestHarvesterEventRanges.eventranges_ready())
+              ):
+            try:
+               qmsg = self.queues['WorkManager'].get(block=True,timeout=self.loop_timeout)
+            except SerialQueue.Empty:
+               logger.debug('no messages on queue after blocking')
          
          if qmsg:
             logger.debug('received message %s',qmsg)
@@ -145,8 +156,10 @@ class WorkManager(threading.Thread):
                   logger.debug('There are no panda jobs')
                   if requestHarvesterJob is None:
                      logger.info('launching new job request')
-                     requestHarvesterJob = RequestHarvesterJob.RequestHarvesterJob(self.config,self.loop_timeout)
+                     requestHarvesterJob = RequestHarvesterJob.RequestHarvesterJob(self.config)
                      requestHarvesterJob.start()
+                     # place request on pending_requests queue and reprocess again when job is ready
+                     pending_requests.put(qmsg)
                   else:
                      if requestHarvesterJob.running():
                         logger.debug('request is running, adding message to pending and will process again later')
@@ -155,9 +168,12 @@ class WorkManager(threading.Thread):
                         logger.debug('request has exited')
                         jobs = requestHarvesterJob.get_jobs()
                         if jobs is None:
-                           logger.info(' request has exited and returned no events, restarting request')
-                           requestHarvesterJob = RequestHarvesterJob.RequestHarvesterJob(self.config,self.loop_timeout)
-                           requestHarvesterJob.start()
+                           logger.error('request has exited and returned no events, reseting request object')
+                           if requestHarvesterJob.is_alive():
+                              requestHarvesterJob.stop()
+                              logger.info('waiting for requestHarvesterJob to join')
+                              requestHarvesterJob.join()
+                           requestHarvesterJob = None
                            pending_requests.put(qmsg)
                         else:
                            logger.debug('new jobs ready, adding to PandaJobDict, then add to pending requests')
@@ -166,10 +182,16 @@ class WorkManager(threading.Thread):
                            # section of code below which sends the job based on the event ranges on hand
                            pending_requests.put(qmsg)
 
+                           # reset job request
+                           requestHarvesterJob = None
+
                      else:
                         logger.error('request is stuck in state %s recreating it.',requestHarvesterJob.get_state())
-                        requestHarvesterJob = RequestHarvesterJob.RequestHarvesterJob(self.config,self.loop_timeout)
-                        requestHarvesterJob.start()
+                        if requestHarvesterJob.is_alive():
+                           requestHarvesterJob.stop()
+                           logger.info('waiting for requestHarvesterJob to join')
+                           requestHarvesterJob.join()
+                        requestHarvesterJob = None
                         pending_requests.put(qmsg)
                
                # There are jobs in the list so choose one to send
@@ -183,7 +205,7 @@ class WorkManager(threading.Thread):
 
                   # send it to droid rank
                   logger.debug('sending droid rank %s panda id %s which has the most ready events %s',
-                              request.get_droid_rank(),pandaid,job.events_ready())
+                              qmsg['source_rank'],pandaid,job.events_ready())
                   outmsg = {
                      'type':MessageTypes.NEW_JOB,
                      'job':job.job_def,
@@ -209,11 +231,12 @@ class WorkManager(threading.Thread):
                logger.debug('droid requesting event ranges')
 
                # the droid sent the current running panda id, determine if there are events left for this panda job
-               droid_pandaid = qmsg['pandaID']
+               droid_pandaid = str(qmsg['PandaID'])
                # get eventranges for this pandaID
                eventranges = pandajobs.get_eventranges(droid_pandaid)
+               logger.debug(' got eventrange %s for id %s',eventranges,droid_pandaid)
                # event ranges found for pandaID
-               if eventranges:
+               if eventranges is not None:
                   logger.debug('retrieved eventranges for pandaID %s, events ready %s',droid_pandaid,eventranges.number_ready())
                   if eventranges.number_ready() > 0:
                      # get a  subset of ready eventranges up to the send_n_eventranges value
@@ -232,54 +255,12 @@ class WorkManager(threading.Thread):
                   else:
                      logger.debug('no eventranges remain for pandaID: %s',droid_pandaid)
                      
-                     if requestHarvesterEventRanges:
-                        logger.debug('requestHarvesterEventRanges exists')
-                        if requestHarvesterEventRanges.running():
-                           logger.debug('requestHarvesterEventRanges is running, will pend this request and check again')
-                           pending_requests.put(qmsg)
-                        elif requestHarvesterEventRanges.exited():
-                           logger.debug('requestHarvesterEventRanges exited, will check for new event ranges')
-                           eventranges = requestHarvesterEventRanges.get_eventranges()
-                           if eventranges:
-                              pandaID = requestHarvesterEventRanges.job_def['pandaID']
-                              if pandaID not in pandajobs:
-                                 logger.error('received Droid request for event ranges using pandaID %s but this ID is not in the pandajobs list %s, this should not be possible.',pandaID,pandajobs.keys())
-                              else:
-                                 pandajobs[pandaID].eventranges += EventRangeList.EventRangeList(eventranges)
-                                 pending_requests.put(qmsg)
-                           else:
-                              logger.error('no eventranges after requestHarvesterEventRanges exited, starting new request')
-                              requestHarvesterEventRanges = RequestHarvesterEventRanges.RequestHarvesterEventRanges(
-                                    self.config,
-                                    {
-                                     'pandaID':pandajobs[droid_pandaid]['pandaID'],
-                                     'jobsetID':pandajobs[droid_pandaid]['jobsetID'],
-                                     'taskID':pandajobs[droid_pandaid]['taskID'],
-                                     'nRanges':self.request_n_eventranges,
-                                    }
-                                 )
-                              requestHarvesterEventRanges.start()
-                              pending_requests.put(qmsg)
-                        else:
-                           logger.error('requestHarvesterEventRanges is in strange state %s, restarting',requestHarvesterEventRanges.get_state())
-                           requestHarvesterEventRanges = RequestHarvesterEventRanges.RequestHarvesterEventRanges(
-                                 self.config,
-                                 {
-                                  'pandaID':pandajobs[droid_pandaid]['pandaID'],
-                                  'jobsetID':pandajobs[droid_pandaid]['jobsetID'],
-                                  'taskID':pandajobs[droid_pandaid]['taskID'],
-                                  'nRanges':self.request_n_eventranges,
-                                 }
-                              )
-                           requestHarvesterEventRanges.start()
-                           pending_requests.put(qmsg)
-
-                     else:
+                     if requestHarvesterEventRanges is  None:
                         logger.debug('requestHarvesterEventRanges does not exist, creating new request')
                         requestHarvesterEventRanges = RequestHarvesterEventRanges.RequestHarvesterEventRanges(
                               self.config,
                               {
-                               'pandaID':pandajobs[droid_pandaid]['pandaID'],
+                               'pandaID':pandajobs[droid_pandaid]['PandaID'],
                                'jobsetID':pandajobs[droid_pandaid]['jobsetID'],
                                'taskID':pandajobs[droid_pandaid]['taskID'],
                                'nRanges':self.request_n_eventranges,
@@ -288,9 +269,41 @@ class WorkManager(threading.Thread):
                         requestHarvesterEventRanges.start()
                         pending_requests.put(qmsg)
 
+                     else:
+                        logger.debug('requestHarvesterEventRanges exists')
+                        if requestHarvesterEventRanges.running():
+                           logger.debug('requestHarvesterEventRanges is running, will pend this request and check again')
+                           pending_requests.put(qmsg)
+                        elif requestHarvesterEventRanges.exited():
+                           logger.debug('requestHarvesterEventRanges exited, will check for new event ranges')
+                           eventranges = requestHarvesterEventRanges.get_eventranges()
+                           logger.debug('received eventranges: %s',eventranges)
+                           if eventranges is not None:
+
+                              # add event ranges to pandajobs dict
+                              for jobid,ers in eventranges.iteritems():
+                                 pandajobs[jobid].eventranges += EventRangeList.EventRangeList(ers)
+
+                              pandaID = requestHarvesterEventRanges.job_def['pandaID']
+                              # place job back on queue
+                              pending_requests.put(qmsg)
+
+                              # reset request
+                              requestHarvesterEventRanges = None
+                           else:
+                              logger.error('no eventranges after requestHarvesterEventRanges exited, starting new request')
+                              requestHarvesterEventRanges = None
+                              pending_requests.put(qmsg)
+                        else:
+                           logger.error('requestHarvesterEventRanges is in strange state %s, restarting',requestHarvesterEventRanges.get_state())
+                           requestHarvesterEventRanges = None
+                           pending_requests.put(qmsg)
+
+                        
+
 
                else:
-                  logger.error('there is no eventrange for pandaID %s, this should be impossible since every pandaID in the pandajobs dictionary gets an empty EventRangeList object. Something is amiss.',droid_pandaid)
+                  logger.error('there is no eventrange for pandaID %s, this should be impossible since every pandaID in the pandajobs dictionary gets an empty EventRangeList object. Something is amiss. panda job ids: %s',droid_pandaid,pandajobs.keys())
 
             else:
                logger.error('message type was not recognized: %s',qmsg['type'])
@@ -299,26 +312,31 @@ class WorkManager(threading.Thread):
          
 
          # if there is nothing to be done, sleep
-         if ( requestHarvesterJob and requestHarvesterJob.running() ) and \
-            ( requestHarvesterEventRanges and requestHarvesterEventRanges.running() ) and \
+
+         if ( requestHarvesterJob is not None and requestHarvesterJob.running() ) and \
+            ( requestHarvesterEventRanges is not None and requestHarvesterEventRanges.running() ) and \
                self.queues['WorkManager'].empty() and pending_requests.empty():
             time.sleep(self.loop_timeout)
          else:
             logger.debug('continuing loop')
+            if requestHarvesterJob is not None:
+               logger.debug('RequestHarvesterJob: %s',requestHarvesterJob.get_state())
+            if requestHarvesterEventRanges is not None:
+               logger.debug('requestHarvesterEventRanges: %s',requestHarvesterEventRanges.get_state())
             #time.sleep(1)
 
       logger.info('signaling exit to threads')
-      if requestHarvesterJob and requestHarvesterJob.is_alive():
+      if requestHarvesterJob is not None and requestHarvesterJob.is_alive():
          logger.debug('signaling requestHarvesterJob to stop')
          requestHarvesterJob.stop()
-      if requestHarvesterEventRanges and requestHarvesterEventRanges.is_alive():
+      if requestHarvesterEventRanges is not None and requestHarvesterEventRanges.is_alive():
          logger.debug('signaling requestHarvesterEventRanges to stop')
          requestHarvesterEventRanges.stop()
 
-      if requestHarvesterJob and requestHarvesterJob.is_alive():
+      if requestHarvesterJob is not None and requestHarvesterJob.is_alive():
          logger.debug('waiting for requestHarvesterJob to join')
          requestHarvesterJob.join()
-      if requestHarvesterEventRanges and requestHarvesterEventRanges.is_alive():
+      if requestHarvesterEventRanges is not None and requestHarvesterEventRanges.is_alive():
          logger.debug('waiting for requestHarvesterEventRanges to join')
          requestHarvesterEventRanges.join()
 

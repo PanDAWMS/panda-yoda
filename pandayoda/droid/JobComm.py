@@ -104,16 +104,18 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
             logger.debug('check for queue message')
 
             # if there is no current job, then there is nothing to do so block on queue message
+            qmsg = None
+            SENT_EVENTS=False
             if payloadcomm.get_job_def() is None:
                logger.debug('waiting for job def message')
                qmsg = self.queues['JobComm'].get(block=True,timeout=self.loop_timeout)
             # have a current job, but no events
-            elif eventranges.number_ready() == 0:
-               # if request has been sent wait for a loop
-               if NEW_EVENT_RANGES_REQUEST_SENT:
+            elif eventranges.number_ready() == 0 and NEW_EVENT_RANGES_REQUEST_SENT:
+                  logger.debug('waiting for new event ranges to arrive')
                   qmsg = self.queues['JobComm'].get(block=True,timeout=self.loop_timeout)
-               else:
-                  qmsg = self.queues['JobComm'].get(block=False)
+            else:
+               logger.debug('non-blocking message check')
+               qmsg = self.queues['JobComm'].get(block=False)
 
             if 'type' not in qmsg:
                logger.error(' no "type" key in the message: %s',qmsg)
@@ -199,6 +201,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                logger.debug('sending eventranges to AthenaMP: %s',local_eventranges)
                # send AthenaMP the new event ranges
                payloadcomm.send_events(local_eventranges)
+               SENT_EVENTS = True
          
          # if output file is available, send it to Yoda/FileManager 
          elif payloadcomm.has_output_file():
@@ -245,7 +248,8 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
          # no other work to do
          if (not NEW_EVENT_RANGES_REQUEST_SENT and
                self.queues['JobComm'].empty() and
-               payloadcomm.not_waiting()):
+               payloadcomm.not_waiting()
+               and not SENT_EVENTS):
             # so sleep 
             logger.debug('no work on the queues, so sleeping %d',self.loop_timeout)
             time.sleep(self.loop_timeout)
@@ -318,7 +322,7 @@ class PayloadMessenger(StatefulService.StatefulService):
    # or has exited or is idle.
    NOT_WAITING_FOR_RESPONSE_STATES = [IDLE,REQUEST,MESSAGE_RECEIVED,SENDING_EVENTS,EXITED]
 
-   def __init__(self,yampl_socket_name,loop_timeout = 5):
+   def __init__(self,yampl_socket_name,loop_timeout = 1):
       super(PayloadMessenger,self).__init__(loop_timeout)
 
       # yample socket name, must be the same as athena
@@ -394,7 +398,7 @@ class PayloadMessenger(StatefulService.StatefulService):
       athpayloadcomm = athena_payloadcommunicator(self.yampl_socket_name)
       payload_msg = ''
 
-      while not self.exit.wait(timeout=self.loop_timeout):
+      while not self.exit.isSet():
          state = self.get_state()
          logger.debug('start loop, current state: %s',state)
 
@@ -417,6 +421,7 @@ class PayloadMessenger(StatefulService.StatefulService):
                self.set_state(PayloadMessenger.MESSAGE_RECEIVED)
             else:
                logger.debug('did not receive message from payload')
+               time.sleep(self.loop_timeout)
          
          ##################
          # MESSAGE_RECEIVED: this state indicates that a message has been
@@ -475,7 +480,8 @@ class PayloadMessenger(StatefulService.StatefulService):
          elif state == PayloadMessenger.SENDING_EVENTS:
             logger.debug('sending AthenaMP more eventranges')
             athpayloadcomm.send(serializer.serialize(self.eventranges.get()))
-            self.set_state(PayloadMessenger.IDLE)
+            # try another request
+            self.set_state(PayloadMessenger.REQUEST)
 
 
       logger.info('PayloadMessenger is exiting')

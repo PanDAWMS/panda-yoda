@@ -1,8 +1,10 @@
-import threading,logging,time
+import threading,logging,time,os
 from pandayoda.common import MessageTypes
 logger = logging.getLogger('MPIService')
 
 from mpi4py import MPI
+
+config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
 class MPIService(threading.Thread):
    ''' this thread class should be used for running MPI operations
@@ -35,10 +37,13 @@ class MPIService(threading.Thread):
       ''' this function can be called by outside threads to cause the service thread to exit'''
       self.exit.set()
 
-   def initialize(self,queues,forwarding_map,loop_timeout=30):
+   def initialize(self,config,queues,forwarding_map,loop_timeout=30):
       # dictionary of the queues for all running threads
       # inputs come via "self.queues['MPIService']" 
       self.queues                      = queues
+
+      # configuration of Yoda
+      self.config                      = config
 
       # this map should have keys from the MessageTypes, and the value should be the thread queue name
       # to which to forward the message of that type. This must be overridden by the parent thread
@@ -46,6 +51,9 @@ class MPIService(threading.Thread):
 
       # loop_timeout decided loop sleep times
       self.loop_timeout                = loop_timeout
+
+      # read config file
+      self.read_config()
 
       self.init_done.set()
 
@@ -107,7 +115,7 @@ class MPIService(threading.Thread):
    def receive_message(self):
       # there should always be a request waiting for this rank to receive data
       if self.receiveRequest is None:
-         self.receiveRequest = MPI.COMM_WORLD.irecv(source=MPI.ANY_SOURCE)
+         self.receiveRequest = MPI.COMM_WORLD.irecv(self.default_message_buffer_size,MPI.ANY_SOURCE)
       # check status of current request
       if self.receiveRequest:
          logger.debug('check for MPI message')
@@ -129,6 +137,16 @@ class MPIService(threading.Thread):
       thread_name = self.forwarding_map[message['type']]
       logger.debug('forwarding recieve MPI message to %s',thread_name)
       self.queues[thread_name].put(message)
+
+
+   def read_config(self):
+      # get self.default_message_buffer_size
+      if self.config.has_option(config_section,'default_message_buffer_size'):
+         self.default_message_buffer_size = self.config.getint(config_section,'default_message_buffer_size')
+      else:
+         logger.error('must specify "default_message_buffer_size" in "%s" section of config file',config_section)
+         return
+      logger.info('default_message_buffer_size: %d',self.default_message_buffer_size)
 
 # initialize the rank variables for other threads
 rank = MPI.COMM_WORLD.Get_rank()

@@ -92,7 +92,7 @@ class Yoda(threading.Thread):
       }
 
       # initialize the MPIService with the queues
-      MPIService.mpiService.initialize(self.queues,forwarding_map)
+      MPIService.mpiService.initialize(self.config,self.queues,forwarding_map)
       
       # a dictionary of subthreads
       subthreads = {}

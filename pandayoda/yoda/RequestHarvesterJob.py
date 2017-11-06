@@ -21,8 +21,8 @@ class RequestHarvesterJob(StatefulService.StatefulService):
       # local config options
       self.config             = config
 
-      # set current state of the thread to IDLE
-      self.state              = VariableWithLock.VariableWithLock(self.IDLE)
+      # set current state of the thread to CREATED
+      self.state              = VariableWithLock.VariableWithLock(self.CREATED)
 
       # if in state REQUEST_COMPLETE, this variable holds the job retrieved
       self.new_jobs           = VariableWithLock.VariableWithLock()
@@ -30,8 +30,6 @@ class RequestHarvesterJob(StatefulService.StatefulService):
       # set if there are no more jobs coming from Harvester
       self.no_more_jobs_flag  = VariableWithLock.VariableWithLock(False)
 
-      # start in the requesting state
-      self.set_state(self.CREATED)
 
 
    def get_jobs(self):
@@ -40,12 +38,16 @@ class RequestHarvesterJob(StatefulService.StatefulService):
       return jobs
    def set_jobs(self,job_descriptions):
       self.new_jobs.set(job_descriptions)
+   def jobs_ready(self):
+      if self.new_jobs.get() is not None:
+         return True
+      return False
 
    def exited(self):
       return self.in_state(self.EXITED)
 
    def running(self):
-      if self.get_state() is in self.RUNNING_STATES:
+      if self.get_state() in self.RUNNING_STATES:
          return True
       return False
 

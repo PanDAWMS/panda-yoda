@@ -21,8 +21,8 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
       # local config options
       self.config                      = config
 
-      # set current state of the thread to IDLE
-      self.state                       = VariableWithLock.VariableWithLock(self.IDLE)
+      # set current state of the thread to CREATED
+      self.state                       = VariableWithLock.VariableWithLock(self.CREATED)
 
       # if in state REQUEST_COMPLETE, this variable holds the event ranges retrieved
       self.new_eventranges             = VariableWithLock.VariableWithLock()
@@ -33,13 +33,12 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
       # set this to define which job definition will be used to request event ranges
       self.job_def                     = job_def
 
-      self.set_state(self.CREATED)
 
    def exited(self):
       return self.in_state(self.EXITED)
 
    def running(self):
-      if self.get_state() is in self.RUNNING_STATES:
+      if self.get_state() in self.RUNNING_STATES:
          return True
       return False
 
@@ -48,6 +47,10 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
       return self.new_eventranges.get()
    def set_eventranges(self,eventranges):
       self.new_eventranges.set(eventranges)
+   def eventranges_ready(self):
+      if self.new_eventranges.get() is not None:
+         return True
+      return False
 
    def no_more_eventranges(self):
       return self.no_more_eventranges_flag.get()
@@ -120,10 +123,10 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
                if len(eventranges) > 0:
                   logger.debug('setting NEW_EVENT_RANGES variable with %d event ranges',len(eventranges))
                   self.set_eventranges(eventranges)
-                  self.exit()
+                  self.stop()
                else:
                   logger.debug('received no eventranges: %s',eventranges)
-                  self.exit()
+                  self.stop()
             else:
                logger.debug('no event ranges yet received.')
 

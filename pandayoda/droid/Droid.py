@@ -73,7 +73,7 @@ class Droid(StatefulService.StatefulService):
       }
 
       # initialize MPI Service
-      MPIService.mpiService.initialize(queues,forwarding_map)
+      MPIService.mpiService.initialize(self.config,queues,forwarding_map)
       # wait until MPI Service has started up
       while not MPIService.mpiService.is_alive():
          time.sleep(1)

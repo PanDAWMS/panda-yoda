@@ -1,5 +1,5 @@
 import os,sys
-from pandayoda.common import PandaJob
+from pandayoda.yoda import PandaJob
 
 class PandaJobDict:
    ''' a list of PandaJob objects '''
@@ -16,7 +16,7 @@ class PandaJobDict:
 
    def append_from_dict(self,pandajobs):
       for id,job in pandajobs.iteritems():
-         self.jobs[id] = job
+         self.jobs[str(id)] = PandaJob.PandaJob(job)
 
    def get_job_with_most_ready_events(self):
       # if there are no jobs, return None
@@ -49,7 +49,8 @@ class PandaJobDict:
       return max_id
 
    def get_eventranges(self,pandaID):
-      if pandaID in self.jobs:
+      pandaID = str(pandaID)
+      if pandaID in self.jobs.keys():
          return self.jobs[pandaID].eventranges
       return None
 
