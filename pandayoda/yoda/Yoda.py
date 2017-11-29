@@ -39,7 +39,7 @@ class Yoda(threading.Thread):
       if wall_clock_limit > 0:
          self.wall_clock_limit = datetime.timedelta(minutes=wall_clock_limit)
       else:
-         self.wall_clock_limit = -1
+         self.wall_clock_limit = datetime.timedelta(minutes=99999)
 
       # this is used to trigger the thread exit
       self.exit               = threading.Event()
@@ -88,7 +88,8 @@ class Yoda(threading.Thread):
       forwarding_map = {
          MessageTypes.REQUEST_JOB: 'WorkManager',
          MessageTypes.REQUEST_EVENT_RANGES: 'WorkManager',
-         MessageTypes.OUTPUT_FILE: 'FileManger',
+         MessageTypes.OUTPUT_FILE: 'FileManager',
+         MessageTypes.DROID_HAS_EXITED: 'DROID_HAS_EXITED',
       }
 
       # initialize the MPIService with the queues
@@ -128,7 +129,9 @@ class Yoda(threading.Thread):
             # if the thread is not alive, throw an error
             if not thread.isAlive():
                logger.warning('%s is no longer running.',name)
-               #del subthreads[name]
+               del subthreads[name]
+               if name == 'WorkManager':
+                  self.stop()
             #else:
                #logger.debug('%s %s is running.',self.prelog,name)
 

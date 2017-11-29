@@ -1,7 +1,7 @@
 import os,sys,threading,logging,importlib,time
 import RequestHarvesterJob,RequestHarvesterEventRanges,PandaJobDict
 from pandayoda.common import MessageTypes,SerialQueue,EventRangeList,exceptions
-from pandayoda.common import VariableWithLock,StatefulService
+from pandayoda.common import VariableWithLock,StatefulService,MPIService
 logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
@@ -48,7 +48,9 @@ class WorkManager(threading.Thread):
       droid_msg_request          = None
 
       # pending requests from droid ranks
-      pending_requests           = SerialQueue.SerialQueue()
+      self.pending_requests      = []
+      # helps track which request I am processing
+      self.pending_index         = 0
 
       # start a Request Havester Job thread to begin getting a job
       requestHarvesterJob        = RequestHarvesterJob.RequestHarvesterJob(self.config)
@@ -56,66 +58,13 @@ class WorkManager(threading.Thread):
 
       # place holder for Request Harevester Event Ranges instance (wait for job definition before launching)
       requestHarvesterEventRanges = None
+
+      # set MPIService to block on incoming MPI traffic
+      MPIService.mpiService.set_mpi_blocking()
       
 
       while not self.exit.isSet():
          logger.debug('start loop')
-
-         '''
-         ###############
-         # check for a new job
-         ################################
-         logger.debug('checking for new job')
-         if requestHarvesterJob is not None and not requestHarvesterJob.is_alive():
-            logger.debug('retrieving new job from requestHarvesterJob')
-            jobs = requestHarvesterJob.get_jobs()
-            if jobs is not None:
-               # add new_jobs to list
-               for jobid,job in new_jobs.iteritems():
-                  # add job to list of jobs keyed by job id
-                  pandajobs[jobid] = job
-
-            elif requestHarvesterJob.no_more_jobs():
-               logger.debug('there are no more jobs')
-
-            # reset request object
-            requestHarvesterJob = None
-            
-            else:
-               logger.debug('RequestHarvesterJob state is %s',requestHarvesterJob.get_state())
-         else:
-            logger.debug('job request is %s',)
-         '''
-
-         '''
-         ###############
-         # check for a new event range
-         ################################
-         logger.debug('checking for event range')
-         if requestHarvesterEventRanges is not None and not requestHarvesterEventRanges.is_alive():
-            logger.debug('retrieving event range from RequestHarvesterEventRanges')
-            new_eventranges = requestHarvesterEventRanges.get_eventranges()
-            if new_eventranges is None:
-               logger.error('new eventranges ready set, but none available. Should not happen.')
-            else:
-               # parse event ranges if they were returned
-               if len(new_eventranges) > 0: 
-                  # add new event ranges to the list
-                  for jobid,list_of_eventranges in new_eventranges.iteritems():
-                     logger.debug('Adding %d event ranges to the list for job id %s',len(list_of_eventranges),jobid)
-                     if jobid in eventranges:
-                        eventranges[str(jobid)] += EventRangeList.EventRangeList(list_of_eventranges)
-                     else:
-                        eventranges[str(jobid)] = EventRangeList.EventRangeList(list_of_eventranges)
-               else:
-                  logger.error('no event ranges returned: %s',new_eventranges)
-            # reset variable
-            requestHarvesterEventRanges = None
-         elif requestHarvesterEventRanges.no_more_eventranges():
-            logger.debug('there are no more event ranges')
-         else:
-            logger.debug('RequestHarvesterEventRanges state is %s',requestHarvesterEventRanges.get_state())
-         '''
 
 
          ################
@@ -125,16 +74,28 @@ class WorkManager(threading.Thread):
          if not self.queues['WorkManager'].empty():
             logger.debug('queue has messages')
             qmsg = self.queues['WorkManager'].get(block=False)
+            # any time I get a message from this queue, I reset the index of the pending request list
+            # this way, I cycle through the pending requests once per new message
+            self.pending_index = 0
          # if main queue is empty, process pending message queues
-         elif not pending_requests.empty():
-            logger.debug('pending queue has messages')
-            qmsg = pending_requests.get(block=False)
+         elif len(self.pending_requests) > 0:
+            if self.pending_index < len(self.pending_requests):
+               logger.debug('pending queue has %s messages processing %s',len(self.pending_requests),self.pending_index)
+               qmsg = self.pending_requests[self.pending_index]
+            else:
+               logger.debug('have cycled through all pending requests without a change, will sleep')
+               try:
+                  self.pending_index = 0
+                  qmsg = self.queues['WorkManager'].get(block=True,timeout=self.loop_timeout)
+               except SerialQueue.Empty:
+                  logger.debug('no messages on queue after blocking')
          elif not ( 
               (requestHarvesterJob is not None and requestHarvesterJob.jobs_ready()) 
               and 
               (requestHarvesterEventRanges is not None and requestHarvesterEventRanges.eventranges_ready())
               ):
             try:
+               self.pending_index = 0
                qmsg = self.queues['WorkManager'].get(block=True,timeout=self.loop_timeout)
             except SerialQueue.Empty:
                logger.debug('no messages on queue after blocking')
@@ -158,12 +119,9 @@ class WorkManager(threading.Thread):
                      logger.info('launching new job request')
                      requestHarvesterJob = RequestHarvesterJob.RequestHarvesterJob(self.config)
                      requestHarvesterJob.start()
-                     # place request on pending_requests queue and reprocess again when job is ready
-                     pending_requests.put(qmsg)
                   else:
                      if requestHarvesterJob.running():
                         logger.debug('request is running, adding message to pending and will process again later')
-                        pending_requests.put(qmsg)
                      elif requestHarvesterJob.exited():
                         logger.debug('request has exited')
                         jobs = requestHarvesterJob.get_jobs()
@@ -174,13 +132,11 @@ class WorkManager(threading.Thread):
                               logger.info('waiting for requestHarvesterJob to join')
                               requestHarvesterJob.join()
                            requestHarvesterJob = None
-                           pending_requests.put(qmsg)
                         else:
                            logger.debug('new jobs ready, adding to PandaJobDict, then add to pending requests')
                            pandajobs.append_from_dict(jobs)
                            # add to pending requests because the job to send will be chose by another
                            # section of code below which sends the job based on the event ranges on hand
-                           pending_requests.put(qmsg)
 
                            # reset job request
                            requestHarvesterJob = None
@@ -192,7 +148,11 @@ class WorkManager(threading.Thread):
                            logger.info('waiting for requestHarvesterJob to join')
                            requestHarvesterJob.join()
                         requestHarvesterJob = None
-                        pending_requests.put(qmsg)
+                  
+                  logger.info('pending message')
+                  # place request on pending_requests queue and reprocess again when job is ready
+                  self.pend_request(qmsg)
+
                
                # There are jobs in the list so choose one to send
                # The choice depends on numbers of events available for each job
@@ -213,7 +173,10 @@ class WorkManager(threading.Thread):
                   }
                   self.queues['MPIService'].put(outmsg)
                      
+                  if qmsg in self.pending_requests:
+                     self.pending_requests.remove(qmsg)
                   qmsg = None
+
 
                
                # There are jobs in the list so choose one to send
@@ -240,7 +203,7 @@ class WorkManager(threading.Thread):
                   logger.debug('retrieved eventranges for pandaID %s, events ready %s',droid_pandaid,eventranges.number_ready())
                   if eventranges.number_ready() > 0:
                      # get a  subset of ready eventranges up to the send_n_eventranges value
-                     local_eventranges = eventranges.get_next(max(eventranges.number_ready(),self.send_n_eventranges))
+                     local_eventranges = eventranges.get_next(min(eventranges.number_ready(),self.send_n_eventranges))
                      
                      # send event ranges to Droid
                      logger.debug('sending %d new event ranges to droid rank %d',len(local_eventranges),qmsg['source_rank'])
@@ -251,6 +214,9 @@ class WorkManager(threading.Thread):
                      }
                      self.queues['MPIService'].put(outmsg)
 
+                     
+                     if qmsg in self.pending_requests:
+                        self.pending_requests.remove(qmsg)
                      qmsg = None
                   else:
                      logger.debug('no eventranges remain for pandaID: %s',droid_pandaid)
@@ -267,13 +233,11 @@ class WorkManager(threading.Thread):
                               }
                            )
                         requestHarvesterEventRanges.start()
-                        pending_requests.put(qmsg)
 
                      else:
                         logger.debug('requestHarvesterEventRanges exists')
                         if requestHarvesterEventRanges.running():
                            logger.debug('requestHarvesterEventRanges is running, will pend this request and check again')
-                           pending_requests.put(qmsg)
                         elif requestHarvesterEventRanges.exited():
                            logger.debug('requestHarvesterEventRanges exited, will check for new event ranges')
                            eventranges = requestHarvesterEventRanges.get_eventranges()
@@ -285,21 +249,17 @@ class WorkManager(threading.Thread):
                                  pandajobs[jobid].eventranges += EventRangeList.EventRangeList(ers)
 
                               pandaID = requestHarvesterEventRanges.job_def['pandaID']
-                              # place job back on queue
-                              pending_requests.put(qmsg)
 
                               # reset request
                               requestHarvesterEventRanges = None
                            else:
                               logger.error('no eventranges after requestHarvesterEventRanges exited, starting new request')
                               requestHarvesterEventRanges = None
-                              pending_requests.put(qmsg)
                         else:
                            logger.error('requestHarvesterEventRanges is in strange state %s, restarting',requestHarvesterEventRanges.get_state())
                            requestHarvesterEventRanges = None
-                           pending_requests.put(qmsg)
 
-                        
+                     self.pend_request(qmsg)   
 
 
                else:
@@ -389,7 +349,12 @@ class WorkManager(threading.Thread):
          return
       logger.info('request_n_eventranges: %d',self.request_n_eventranges)
 
-
+   def pend_request(self,msg):
+      if msg in self.pending_requests:
+         self.pending_index += 1
+      else:
+         self.pending_requests.append(msg)
+         self.pending_index = 0
 
 
 

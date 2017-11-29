@@ -1,19 +1,35 @@
 import threading,logging,time,os
-from pandayoda.common import MessageTypes
+from pandayoda.common import MessageTypes,StatefulService,SerialQueue
 logger = logging.getLogger('MPIService')
 
 from mpi4py import MPI
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
-class MPIService(threading.Thread):
+class MPIService(StatefulService.StatefulService):
    ''' this thread class should be used for running MPI operations
        within a single MPI rank '''
 
+   CREATED                    = 'CREATED'
+   INITILIZED                 = 'INITILIZED'
    
-   def __init__(self):
+   # equal priority given to MPI and Message Queues
+   BALANCED_MODE              = 'BALANCED_MODE'
+   # block on receiving MPI messages
+   MPI_BLOCKING_MODE          = 'MPI_BLOCKING_MODE'
+   # block on receiving Queue messages
+   QUEUE_BLOCKING_MODE        = 'QUEUE_BLOCKING_MODE'
+
+   EXITED                     = 'EXITED'
+
+   STATES = [CREATED,INITILIZED,BALANCED_MODE,MPI_BLOCKING_MODE,QUEUE_BLOCKING_MODE,EXITED]
+
+
+
+   
+   def __init__(self,loop_timeout=1):
       # call init of Thread class
-      super(MPIService,self).__init__()
+      super(MPIService,self).__init__(loop_timeout)
 
       # dictionary of the queues for all running threads
       # inputs come via "self.queues['MPIService']" 
@@ -29,13 +45,23 @@ class MPIService(threading.Thread):
       # this is set when the thread should continue on to the full loop
       self.init_done                   = threading.Event()
 
-      # loop_timeout decided loop sleep times
-      self.loop_timeout                = 30
+      self.set_state(self.CREATED)
 
+   def set_balanced(self):
+      self.set_state(self.BALANCED_MODE)
+   def in_balanced(self):
+      return self.in_state(self.BALANCED_MODE)
 
-   def stop(self):
-      ''' this function can be called by outside threads to cause the service thread to exit'''
-      self.exit.set()
+   def set_mpi_blocking(self):
+      self.set_state(self.MPI_BLOCKING_MODE)
+   def in_mpi_blocking(self):
+      return self.in_state(self.MPI_BLOCKING_MODE)
+
+   def set_queue_blocking(self):
+      self.set_state(self.QUEUE_BLOCKING_MODE)
+   def in_queue_blocking(self):
+      return self.in_state(self.QUEUE_BLOCKING_MODE)
+
 
    def initialize(self,config,queues,forwarding_map,loop_timeout=30):
       # dictionary of the queues for all running threads
@@ -55,7 +81,9 @@ class MPIService(threading.Thread):
       # read config file
       self.read_config()
 
+      self.set_state(self.BALANCED_MODE)
       self.init_done.set()
+
 
    def run(self):
       ''' run when obj.start() is called '''
@@ -65,23 +93,43 @@ class MPIService(threading.Thread):
       self.init_done.wait()
 
       self.receiveRequest = None
+
+      logger.info('loop_timeout = %s',self.loop_timeout)
       
       while not self.exit.isSet():
-         logger.debug('starting loop, queue size = %s',self.queues['MPIService'].qsize())
+         logger.debug('starting loop, queue size = %s, state = %s',self.queues['MPIService'].qsize(),self.get_state())
 
          # check for incoming message
-         message = self.receive_message()
+         message = None
+         if self.in_mpi_blocking():
+            logger.debug('block on mpi for %s',self.loop_timeout)
+            message = self.receive_message(block=True,timeout=self.loop_timeout)
+         elif self.in_balanced() and self.queues['MPIService'].empty():
+            logger.debug('block on mpi for %s',self.loop_timeout/2)
+            message = self.receive_message(block=True,timeout=self.loop_timeout/2)
+         else:
+            message = self.receive_message()
+         
          # if message received forward it on
          if message: 
             logger.debug('received MPI message: %s',message)
             self.forward_message(message)
+         else:
+            logger.debug('no message from MPI')
 
 
          
          # check for messages on the queue that need to be sent
-         while not self.queues['MPIService'].empty():
-            qmsg = self.queues['MPIService'].get()
-            
+         try:
+            if self.in_queue_blocking():
+               logger.debug('block on queue for %s',self.loop_timeout)
+               qmsg = self.queues['MPIService'].get(block=True,timeout=self.loop_timeout)
+            elif self.in_balanced():
+               logger.debug('block on queue for %s',self.loop_timeout/2)
+               qmsg = self.queues['MPIService'].get(block=True,timeout=self.loop_timeout/2)
+            else:
+               qmsg = self.queues['MPIService'].get(block=False)
+         
             logger.debug('received message: %s',qmsg)
 
             # determine if destination rank or tag was set
@@ -105,30 +153,43 @@ class MPIService(threading.Thread):
 
             # wait for send to complete
             send_request.wait()
-
-         if not message and self.queues['MPIService'].empty():
-            time.sleep(2)
-
-
+         except SerialQueue.Empty:
+            logger.debug('no message from message queue')
+         
 
 
-   def receive_message(self):
+
+
+   def receive_message(self,block=False,timeout=None):
       # there should always be a request waiting for this rank to receive data
       if self.receiveRequest is None:
          self.receiveRequest = MPI.COMM_WORLD.irecv(self.default_message_buffer_size,MPI.ANY_SOURCE)
       # check status of current request
       if self.receiveRequest:
-         logger.debug('check for MPI message')
-         status = MPI.Status()
-         # test to see if message was received
-         message_received,message = self.receiveRequest.test(status=status)
-         # if received reset and return source rank and message content
-         if message_received:
-            logger.debug('MPI message received: %s',message)
-            self.receiveRequest = None
-            # add source rank to the message
-            message['source_rank'] = status.Get_source()
-            return message
+         starttime = time.clock()
+         while True:
+            #logger.debug('check for MPI message')
+            status = MPI.Status()
+            # test to see if message was received
+            message_received,message = self.receiveRequest.test(status=status)
+            # if received reset and return source rank and message content
+            if message_received:
+               #logger.debug('MPI message received: %s',message)
+               self.receiveRequest = None
+               # add source rank to the message
+               message['source_rank'] = status.Get_source()
+               return message
+
+
+            if not block or (time.clock() - starttime) > timeout:
+               logger.debug('receive timed out')
+               break
+            elif not self.queues['MPIService'].empty():
+               logger.debug(' message queue has input')
+               break
+            else:
+               logger.debug('sleep 1')
+               time.sleep(1)
       # no message received return nothing
       return None
 

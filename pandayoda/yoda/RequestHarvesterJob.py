@@ -75,7 +75,9 @@ class RequestHarvesterJob(StatefulService.StatefulService):
       ''' overriding base class function '''
 
       # get the messenger for communicating with Harvester
+      logger.debug('getting messenger')
       messenger = self.get_messenger()
+      logger.debug('configuring messenger')
       messenger.setup(self.config)
       
       # read in loop_timeout
@@ -85,7 +87,7 @@ class RequestHarvesterJob(StatefulService.StatefulService):
       # start in the request state
       self.set_state(self.REQUEST)
 
-      while not self.exit.wait(timeout=self.loop_timeout):
+      while not self.exit.isSet():
          # get state
          logger.debug('start loop, current state: %s',self.get_state())
          
@@ -125,9 +127,11 @@ class RequestHarvesterJob(StatefulService.StatefulService):
                   self.stop()
             else:
                logger.debug('no jobs ready yet.')
+               self.exit.wait(timeout=self.loop_timeout)
 
          else:
             logger.debug('nothing to do')
+            self.exit.wait(timeout=self.loop_timeout)
          
 
       self.set_state(self.EXITED)

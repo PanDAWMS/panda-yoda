@@ -77,18 +77,21 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
       ''' overriding base class function '''
 
       # get the messenger for communicating with Harvester
+      logger.debug('starting requestHarvesterEventRanges thread')
       messenger = self.get_messenger()
       messenger.setup(self.config)
-
+      logger.debug('got messenger')
+      
       # read in loop_timeout
       if self.config.has_option(config_section,'loop_timeout'):
-         messenger_plugin_module = self.config.get(config_section,'loop_timeout')
+         self.loop_timeout = self.config.get(config_section,'loop_timeout')
+      logger.debug('got timeout: %s',self.loop_timeout)
       
-
+      
       # start in the request state
       self.set_state(self.REQUEST)
 
-      while not self.exit.wait(timeout=self.loop_timeout):
+      while not self.exit.isSet():
          # get state
          logger.debug('start loop, current state: %s',self.get_state())
          
@@ -111,7 +114,7 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
          #########
          # REQUESTING State
          ########################
-         elif self.get_state() == self.WAITING:
+         if self.get_state() == self.WAITING:
             logger.debug('checking for event ranges')
             # use messenger to check if event ranges are ready
             if messenger.eventranges_ready():
@@ -132,6 +135,7 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
 
          else:
             logger.debug('nothing to do')
+            self.exit.wait(timeout=self.loop_timeout)
 
       self.set_state(self.EXITED)
       logger.debug('GetEventRanges thread is exiting')

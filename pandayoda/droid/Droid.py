@@ -13,12 +13,11 @@ class Droid(StatefulService.StatefulService):
    REQUEST_JOB       = 'REQUEST_JOB'
    WAITING_FOR_JOB   = 'WAITING_FOR_JOB'
    JOB_RECEIVED      = 'JOB_RECEIVED'
-   LAUNCHING_JOB     = 'LAUNCHING_JOB'
    MONITORING        = 'MONITORING'
    TRANSFORM_EXITED  = 'TRANSFORM_EXITED'
    EXITING           = 'EXITING'
 
-   STATES=[CREATED,REQUEST_JOB,WAITING_FOR_JOB,JOB_RECEIVED,LAUNCHING_JOB,MONITORING,TRANSFORM_EXITED,EXITING]
+   STATES=[CREATED,REQUEST_JOB,WAITING_FOR_JOB,JOB_RECEIVED,MONITORING,TRANSFORM_EXITED,EXITING]
 
    def __init__(self,config):
       ''' config: the ConfigParser handle for yoda '''
@@ -73,7 +72,8 @@ class Droid(StatefulService.StatefulService):
       }
 
       # initialize MPI Service
-      MPIService.mpiService.initialize(self.config,queues,forwarding_map)
+      MPIService.mpiService.initialize(self.config,queues,forwarding_map,self.loop_timeout)
+      MPIService.mpiService.set_queue_blocking()
       # wait until MPI Service has started up
       while not MPIService.mpiService.is_alive():
          time.sleep(1)
@@ -118,7 +118,14 @@ class Droid(StatefulService.StatefulService):
                self.set_state(Droid.EXITING)
                self.stop()
                break
-
+         elif self.get_state() == Droid.WAITING_FOR_JOB:
+            try:
+               logger.debug('blocking on message queue for %s',self.loop_timeout)
+               qmsg = queues['Droid'].get(block=True,timeout=self.loop_timeout)
+            except:
+               logger.debug('no queue message')
+         else:
+            logger.debug('no message and not waiting for job')
 
 
          ###############################################
@@ -127,12 +134,16 @@ class Droid(StatefulService.StatefulService):
          if self.get_state() == Droid.REQUEST_JOB:
             self.request_job(queues)
             self.set_state(Droid.WAITING_FOR_JOB)
+            # wait for MPIService to get message
+            while not queues['MPIService'].empty(): time.sleep(1)
+            # set MPIService to be MPI focused
+            MPIService.mpiService.set_mpi_blocking()
          ###############################################
          # Waiting for a job definition from Yoda
          #########
-         if self.get_state() == Droid.WAITING_FOR_JOB:
+         elif self.get_state() == Droid.WAITING_FOR_JOB:
             # check if message was received and was correct type
-            logger.debug('qmsg = %s',qmsg)
+            logger.debug('waiting for job')
             if qmsg is not None:
                if qmsg['type'] == MessageTypes.NEW_JOB:
                   if 'job' in qmsg:
@@ -142,17 +153,18 @@ class Droid(StatefulService.StatefulService):
                   else:
                      logger.error('received NEW_JOB message but it did not contain a job description key, requesting new job, message = %s',qmsg)
                      self.set_state(Droid.REQUEST_JOB)
+                  # set MPIService to be Queue focused
+                  MPIService.mpiService.set_queue_blocking()
                else:
                   logger.debug('message type was not NEW_JOB: %s',qmsg)
             else:
-               # no message on queue, sleep for a bit
-               time.sleep(self.loop_timeout)
+               logger.debug('no message received')
         
 
          ###############################################
          # Job received
          #########
-         if self.get_state() == Droid.JOB_RECEIVED:
+         elif self.get_state() == Droid.JOB_RECEIVED:
             # launch TransformManager to run job
             transform = TransformManager.TransformManager(new_job_msg['job'],
                                                           self.config,
@@ -172,6 +184,9 @@ class Droid(StatefulService.StatefulService):
             # transition to monitoring state
             self.set_state(Droid.MONITORING)
 
+            # set MPIService to be balanced
+            MPIService.mpiService.set_balanced()
+
 
 
 
@@ -182,7 +197,7 @@ class Droid(StatefulService.StatefulService):
          #  they are running. It should also respond to
          #  queue messages if needed.
          #########
-         if self.get_state() == Droid.MONITORING:
+         elif self.get_state() == Droid.MONITORING:
             if transform.is_alive():
                # if JobComm is not alive, we have a problem
                if not subthreads['JobComm'].is_alive():
@@ -211,7 +226,7 @@ class Droid(StatefulService.StatefulService):
          ###############################################
          # The transform exited
          #########
-         if self.get_state() == Droid.TRANSFORM_EXITED:
+         elif self.get_state() == Droid.TRANSFORM_EXITED:
 
             # transform has exited
             if transform.in_state(transform.FINISHED):
@@ -228,6 +243,8 @@ class Droid(StatefulService.StatefulService):
             # if JobComm is still alive, request another job
             if subthreads['JobComm'].is_alive():
                self.set_state(Droid.REQUEST_JOB)
+               # set MPIService to block on queue messages
+               MPIService.mpiService.set_queue_blocking()
             else:
                # check to see if JobComm exited properly or if there is no more work.
                if subthreads['JobComm'].no_more_work():

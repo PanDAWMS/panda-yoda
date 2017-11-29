@@ -1,12 +1,17 @@
 #!/usr/bin/env python
-import argparse,logging,os,sys,importlib,datetime,time
-import ConfigParser
+try:
+   import argparse,logging,os,sys,importlib,datetime,time
+   import ConfigParser
 
-from pandayoda.yoda import Yoda
-from pandayoda.droid import Droid
-from pandayoda.common import MPIService
-logger = logging.getLogger(__name__)
-
+   from pandayoda.yoda import Yoda
+   from pandayoda.droid import Droid
+   from pandayoda.common import MPIService
+   logger = logging.getLogger(__name__)
+except:
+   from mpi4py import MPI
+   MPI.COMM_WORLD.Abort()
+   import sys
+   sys.exit(-1)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
@@ -104,9 +109,14 @@ def yoda_droid(working_path,
    #logger.info('Rank %s: waiting for other ranks to reach MPI Barrier',mpirank)
    #MPI.COMM_WORLD.Barrier()
 
-   logger.info('Rank %s: yoda_droid exiting',mpirank)
+   logger.info('yoda_droid aborting all MPI ranks')
    MPIService.MPI.COMM_WORLD.Abort()
-      
+
+   logger.info(' yoda_droid waiting for MPIService to join')
+   MPIService.mpiService.stop()
+   MPIService.mpiService.join()
+   logger.info(' yoda_droid exiting')
+
 def main():
    start_time = datetime.datetime.now()
    logging_format = '%(asctime)s|%(process)s|%(thread)s|' + ('%05d' % MPIService.rank) +'|%(levelname)s|%(name)s|%(message)s' 
@@ -165,4 +175,10 @@ def main():
 
 
 if __name__ == "__main__":
-   main()
+   try:
+      main()
+   except:
+      from mpi4py import MPI
+      MPI.COMM_WORLD.Abort()
+      import sys
+      sys.exit(-1)

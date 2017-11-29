@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#COBALT -n 2
+#COBALT -n 8
 #COBALT -q debug-flat-quad
 #COBALT -t 60
 #COBALT --attrs mcdram=cache:numa=quad
@@ -31,7 +31,7 @@ echo [$SECONDS] RUNTIME=$RUNTIME
 
 echo [$SECONDS] Starting yoda_droid
 #aprun -n  $(( COBALT_PARTSIZE * $MPI_RANKS_PER_NODE )) -N $MPI_RANKS_PER_NODE ../yoda_droid.py -w $WORK_DIR --debug -c $YODADIR/pandayoda/yoda.cfg
-aprun -n $COBALT_PARTSIZE -N 1 -d 64 -j 1 --cc depth -e KMP_AFFINITY=none python -u ../yoda_droid.py -w $WORK_DIR --debug -c $YODADIR/pandayoda/yoda.cfg -t $RUNTIME
+aprun -n $COBALT_PARTSIZE -N 1 -d 64 -j 1 --cc depth -e KMP_AFFINITY=none python -u ../yoda_droid.py -w $WORK_DIR --debug -c $YODADIR/pandayoda/yoda.cfg #-t $RUNTIME
 EXIT_CODE=$?
 echo [$SECONDS] yoda_droid exit code = $EXIT_CODE
 exit $EXIT_CODE
