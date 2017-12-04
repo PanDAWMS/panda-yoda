@@ -367,7 +367,7 @@ class PayloadMessenger(StatefulService.StatefulService):
             else:
                logger.debug('%s: sending eventranges to AthenaMP: %s',self.prelog,local_eventranges)
                # send AthenaMP the new event ranges
-               athpayloadcomm.send(serializer.serialize(local_eventranges.get_dict()))
+               athpayloadcomm.send(serializer.serialize(local_eventranges))
 
                # return to state requesting a message
                self.set_state(self.WAIT_FOR_PAYLOAD_MESSAGE)
