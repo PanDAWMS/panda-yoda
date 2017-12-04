@@ -1,4 +1,3 @@
-import os,sys
 from pandayoda.yoda import PandaJob
 
 class PandaJobDict:

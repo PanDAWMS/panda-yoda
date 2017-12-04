@@ -1,7 +1,7 @@
-import os,sys,threading,logging,importlib,time
+import os,threading,logging,time
 import RequestHarvesterJob,RequestHarvesterEventRanges,PandaJobDict
-from pandayoda.common import MessageTypes,SerialQueue,EventRangeList,exceptions
-from pandayoda.common import VariableWithLock,StatefulService,MPIService
+from pandayoda.common import MessageTypes,SerialQueue,EventRangeList
+from pandayoda.common import MPIService
 logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
@@ -40,12 +40,6 @@ class WorkManager(threading.Thread):
       
       # list of all jobs received from Harvester key-ed by panda id
       pandajobs                  = PandaJobDict.PandaJobDict()
-
-      
-      # flag to indicate there are no more event ranges
-      no_more_event_ranges       = False
-      # this is a place holder for the droid message request
-      droid_msg_request          = None
 
       # pending requests from droid ranks
       self.pending_requests      = []
@@ -248,8 +242,6 @@ class WorkManager(threading.Thread):
                               for jobid,ers in eventranges.iteritems():
                                  pandajobs[jobid].eventranges += EventRangeList.EventRangeList(ers)
 
-                              pandaID = requestHarvesterEventRanges.job_def['pandaID']
-
                               # reset request
                               requestHarvesterEventRanges = None
                            else:
@@ -275,7 +267,7 @@ class WorkManager(threading.Thread):
 
          if ( requestHarvesterJob is not None and requestHarvesterJob.running() ) and \
             ( requestHarvesterEventRanges is not None and requestHarvesterEventRanges.running() ) and \
-               self.queues['WorkManager'].empty() and pending_requests.empty():
+               self.queues['WorkManager'].empty() and self.pending_requests.empty():
             time.sleep(self.loop_timeout)
          else:
             logger.debug('continuing loop')

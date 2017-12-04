@@ -1,5 +1,5 @@
 import threading,logging,time,os
-from pandayoda.common import MessageTypes,StatefulService,SerialQueue
+from pandayoda.common import StatefulService,SerialQueue
 logger = logging.getLogger('MPIService')
 
 from mpi4py import MPI
@@ -35,8 +35,9 @@ class MPIService(StatefulService.StatefulService):
       # inputs come via "self.queues['MPIService']" 
       self.queues                      = None
 
-      # this map should have keys from the MessageTypes, and the value should be the thread queue name
+      # this map should have keys from the MessageTypes, and the value should be a list of the thread queue names
       # to which to forward the message of that type. This must be overridden by the parent thread
+      # example: {MessageType.NEW_JOB: ['JobComm','Droid']}
       self.forwarding_map              = None
 
       # this is used to trigger the thread exit
@@ -195,9 +196,10 @@ class MPIService(StatefulService.StatefulService):
 
          
    def forward_message(self,message):
-      thread_name = self.forwarding_map[message['type']]
-      logger.debug('forwarding recieve MPI message to %s',thread_name)
-      self.queues[thread_name].put(message)
+      
+      for thread_name in self.forwarding_map[message['type']]:
+         logger.debug('forwarding recieve MPI message to %s',thread_name)
+         self.queues[thread_name].put(message)
 
 
    def read_config(self):

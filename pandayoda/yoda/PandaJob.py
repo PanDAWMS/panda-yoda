@@ -1,4 +1,3 @@
-import os,sys
 from pandayoda.common import EventRangeList
 
 class PandaJob:

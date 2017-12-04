@@ -1,4 +1,4 @@
-import logging,os,sys,importlib
+import logging,os,importlib
 logger = logging.getLogger(__name__)
 from pandayoda.common import StatefulService,VariableWithLock,exceptions
 
@@ -115,9 +115,9 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
          # REQUESTING State
          ########################
          if self.get_state() == self.WAITING:
-            logger.debug('checking for event ranges')
+            logger.debug('checking for event ranges, will block for %s',self.loop_timeout)
             # use messenger to check if event ranges are ready
-            if messenger.eventranges_ready():
+            if messenger.eventranges_ready(block=True,timeout=self.loop_timeout):
                logger.debug('event ranges are ready')
                # use messenger to get event ranges from Harvester
                eventranges = messenger.get_eventranges()

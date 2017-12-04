@@ -1,4 +1,4 @@
-import os,json,logging,ConfigParser,time,threading,shutil
+import os,json,logging,ConfigParser,time,threading
 from pandayoda.common import exceptions,serializer,MPIService
 logger = logging.getLogger(__name__)
 
@@ -322,7 +322,7 @@ def request_eventranges(job_def):
 
       
 
-def eventranges_ready():
+def eventranges_ready(block=False,timeout=60):
    global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
    
    # check that harvester config is loaded
@@ -340,8 +340,18 @@ def eventranges_ready():
       raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPIService.rank,harConfSect,harvesterConfig.sections()))
 
    # check to see if a file exists.
-   if os.path.exists(eventRangesFile):
-      return True
+   start = time.time()
+   while True:
+      if os.path.exists(eventRangesFile):
+         return True
+      else:
+         if block and timeout > (time.time() - start):
+            time.sleep(1)
+            continue
+         else:
+            break
+
+
    return False
 
 def get_eventranges():

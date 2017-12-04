@@ -1,5 +1,5 @@
 from mpi4py import MPI
-import os,logging,array,threading
+import logging,threading
 from pandayoda.common import MessageTypes
 logger = logging.getLogger(__name__)
 ''' 

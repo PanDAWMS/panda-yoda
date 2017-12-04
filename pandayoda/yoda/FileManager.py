@@ -1,5 +1,5 @@
-import os,sys,threading,logging,shutil,importlib
-from pandayoda.common import MessageTypes,serializer,SerialQueue
+import os,threading,logging,shutil,importlib
+from pandayoda.common import MessageTypes,SerialQueue
 logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]

@@ -1,6 +1,5 @@
-import os,sys,threading,logging,shutil
-from mpi4py import MPI
-from pandayoda.common import MessageTypes,serializer,SerialQueue
+import os,sys,threading,logging,shutil,subprocess
+from pandayoda.common import MessageTypes,SerialQueue
 logger = logging.getLogger(__name__)
 
 
@@ -97,7 +96,7 @@ class FileManager(threading.Thread):
    def get_file_path(scope,path,filename):
 
       # get md5sum
-      md5sum = self.md5sum(scope,filename)
+      md5sum = FileManager.md5sum(scope,filename)
 
       filepath = ''
       if path is not None:

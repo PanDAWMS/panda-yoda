@@ -60,7 +60,7 @@ class EventRange:
 
 # testing this thread
 if __name__ == '__main__':
-   import logging,time
+   import logging
    logging.basicConfig(level=logging.DEBUG,
          format='%(asctime)s|%(process)s|%(levelname)s|%(name)s|%(message)s',
          datefmt='%Y-%m-%d %H:%M:%S')

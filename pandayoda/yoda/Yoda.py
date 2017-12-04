@@ -86,10 +86,10 @@ class Yoda(threading.Thread):
 
       # create forwarding map for Yoda:
       forwarding_map = {
-         MessageTypes.REQUEST_JOB: 'WorkManager',
-         MessageTypes.REQUEST_EVENT_RANGES: 'WorkManager',
-         MessageTypes.OUTPUT_FILE: 'FileManager',
-         MessageTypes.DROID_HAS_EXITED: 'DROID_HAS_EXITED',
+         MessageTypes.REQUEST_JOB: ['WorkManager'],
+         MessageTypes.REQUEST_EVENT_RANGES: ['WorkManager'],
+         MessageTypes.OUTPUT_FILE: ['FileManager'],
+         MessageTypes.DROID_HAS_EXITED: ['DROID_HAS_EXITED'],
       }
 
       # initialize the MPIService with the queues
@@ -105,10 +105,6 @@ class Yoda(threading.Thread):
       # create FileManager thread
       subthreads['FileManager']  = FileManager.FileManager(self.config,self.queues)
       subthreads['FileManager'].start()
-
-
-      # handle for droid messages
-      droid_msg_request = None
 
       # start message loop
       while not self.exit.isSet():
@@ -178,8 +174,6 @@ class Yoda(threading.Thread):
             
             #exit this thread
             self.stop()
-            # set this flag so that the additional exit signal is not sent to droid ranks
-            wallclock_expired = True
             
          else:
             logger.debug('time left %s before wall clock expires.',timeleft)
@@ -198,10 +192,10 @@ class Yoda(threading.Thread):
       else:
          logger.debug('received message: %s',qmsg)
          
-         if msg['type'] == MessageTypes.DROID_HAS_EXITED:
-            logger.debug(' droid rank %d has exited',status.Get_source())
+         if qmsg['type'] == MessageTypes.DROID_HAS_EXITED:
+            logger.debug(' droid rank %d has exited',qmsg['source_rank'])
          else:
-            logger.error(' could not interpret message: %s',msg)
+            logger.error(' could not interpret message: %s',qmsg)
 
 
       

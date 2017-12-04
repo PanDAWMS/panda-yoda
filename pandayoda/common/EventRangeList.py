@@ -108,7 +108,7 @@ class EventRangeList(object):
 
          return newone
       else:
-         raise TypeError('other is not of type EventRangeList: %s' % type(eventRange).__name__)
+         raise TypeError('other is not of type EventRangeList: %s' % type(other).__name__)
 
 
    def append(self,eventRange):
@@ -151,7 +151,7 @@ class EventRangeList(object):
 
 # testing this thread
 if __name__ == '__main__':
-   import logging,time
+   import logging
    logging.basicConfig(level=logging.DEBUG,
          format='%(asctime)s|%(process)s|%(levelname)s|%(name)s|%(message)s',
          datefmt='%Y-%m-%d %H:%M:%S')

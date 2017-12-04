@@ -1,4 +1,4 @@
-import logging,threading,os,time,socket,multiprocessing,platform
+import logging,os,time,socket,multiprocessing,platform
 from pandayoda.common import SerialQueue,MessageTypes,MPIService,StatefulService
 from pandayoda.droid import TransformManager,JobComm
 logger = logging.getLogger(__name__)
@@ -49,8 +49,6 @@ class Droid(StatefulService.StatefulService):
       # duplicating objects in memory across threads
       self.read_config()
 
-      # place holder for exit message in case there is an error
-      exit_msg = ''
 
       # create custom droid working directory
       droid_working_path = os.path.join(os.getcwd(),self.working_path.format(rank='%05d' % MPIService.rank))
@@ -65,10 +63,10 @@ class Droid(StatefulService.StatefulService):
 
       # create forwarding map for MPIService
       forwarding_map = {
-         MessageTypes.NEW_JOB: 'Droid',
-         MessageTypes.NEW_EVENT_RANGES: 'JobComm',
-         MessageTypes.WALLCLOCK_EXPIRING: 'Droid',
-         MessageTypes.DROID_EXIT: 'Droid',
+         MessageTypes.NEW_JOB: ['Droid','JobComm'],
+         MessageTypes.NEW_EVENT_RANGES: ['JobComm'],
+         MessageTypes.WALLCLOCK_EXPIRING: ['Droid'],
+         MessageTypes.DROID_EXIT: ['Droid'],
       }
 
       # initialize MPI Service
@@ -176,10 +174,6 @@ class Droid(StatefulService.StatefulService):
                                                           self.stderr_filename,
                                                           self.yampl_socket_name)
             transform.start()
-
-            # send the job definition to the JobComm
-            logger.debug('sending new job to JobComm: %s',new_job_msg)
-            queues['JobComm'].put(new_job_msg)
 
             # transition to monitoring state
             self.set_state(Droid.MONITORING)

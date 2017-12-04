@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 try:
-   import argparse,logging,os,sys,importlib,datetime,time
+   import argparse,logging,os,sys,datetime,time
    import ConfigParser
 
    from pandayoda.yoda import Yoda
