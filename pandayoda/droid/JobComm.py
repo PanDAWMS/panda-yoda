@@ -293,15 +293,15 @@ class PayloadMessenger(StatefulService.StatefulService):
          #          a request for a message from the payload
          ######################################################################
          if self.get_state() == self.WAIT_FOR_PAYLOAD_MESSAGE:
-            logger.debug('%s: checking for message from payload',self.prelog)
-            payload_msg = athpayloadcomm.recv()
+            logger.debug('%s: checking for message from payload, block for %s',self.prelog,self.loop_timeout)
+            payload_msg = athpayloadcomm.recv(self.loop_timeout)
 
             if len(payload_msg) > 0:
                logger.debug('%s: received message: %s',self.prelog,payload_msg)
                self.set_state(self.MESSAGE_RECEIVED)
             else:
-               logger.debug('%s: did not receive message from payload, sleeping %s',self.prelog,self.loop_timeout)
-               time.sleep(self.loop_timeout)
+               logger.debug('%s: did not receive message from payload',self.prelog)
+               #time.sleep(self.loop_timeout)
          
          ##################
          # MESSAGE_RECEIVED: this state indicates that a message has been
@@ -467,9 +467,9 @@ class athena_payloadcommunicator:
          logger.exception("Failed to send yampl message: %s",message)
          raise
 
-   def recv(self):
+   def recv(self,timeout=0):
       # receive yampl message
-      size, buf = self.socket.try_recv_raw()
+      size, buf = self.socket.try_recv_raw(timeout)
       if size == -1:
          return ''
       return str(buf)
