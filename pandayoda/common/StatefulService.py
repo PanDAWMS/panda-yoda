@@ -40,7 +40,7 @@ class StatefulService(threading.Thread):
       if state in self.STATES:
          self.state.set(state)
       else:
-         logger.error('%s tried to set state %s which is not supported',self.prelog,state)
+         logger.error('tried to set state %s which is not supported',state)
 
    def in_state(self,state):
       ''' test if current in state '''

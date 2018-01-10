@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-#COBALT -n 8
+#COBALT -n 3
 #COBALT -q debug-flat-quad
-#COBALT -t 60
+#COBALT -t 40
 #COBALT --attrs mcdram=cache:numa=quad
 #COBALT -A AtlasADSP
+
+
+
+
 
 echo [$SECONDS] Setting up yoda environment
 MPI_RANKS_PER_NODE=1
@@ -17,21 +21,18 @@ echo [$SECONDS] WORK_DIR = $WORK_DIR
 # copy input files that Harvester would provide
 cp /projects/AtlasADSP/atlas/tests/yodajob_input/* $WORK_DIR/
 
-#module load atp
-#export ATP_ENABLED=1
-
 ulimit -c unlimited
-
-echo [$SECONDS] env
-env | sort
 
 RUNTIME=$(( $COBALT_ENDTIME - $COBALT_STARTTIME ))
 RUNTIME=$(( $RUNTIME / 60 ))
 echo [$SECONDS] RUNTIME=$RUNTIME
 
+echo [$SECONDS] start environment dump
+env | sort
+echo [$SECONDS] end environment dump
+
 echo [$SECONDS] Starting yoda_droid
-#aprun -n  $(( COBALT_PARTSIZE * $MPI_RANKS_PER_NODE )) -N $MPI_RANKS_PER_NODE ../yoda_droid.py -w $WORK_DIR --debug -c $YODADIR/pandayoda/yoda.cfg
-aprun -n $COBALT_PARTSIZE -N 1 -d 64 -j 1 --cc depth -e KMP_AFFINITY=none python -u ../yoda_droid.py -w $WORK_DIR --debug -c $YODADIR/pandayoda/yoda.cfg #-t $RUNTIME
+aprun -n $COBALT_PARTSIZE -N 1 -d 64 -j 1 --cc depth -e KMP_AFFINITY=none python -u $YODA_DIR/pandayoda/yoda_droid.py -w $WORK_DIR --debug -c $YODA_DIR/pandayoda/yoda.cfg #-t $RUNTIME
 EXIT_CODE=$?
 echo [$SECONDS] yoda_droid exit code = $EXIT_CODE
 exit $EXIT_CODE

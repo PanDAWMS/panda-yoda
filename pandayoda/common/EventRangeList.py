@@ -18,6 +18,9 @@ class EventRangeList(object):
 
       # internal list of EventRange objects key-ed by id
       self.eventranges = {}
+
+      #  flag to track if no events remain
+      self.no_more_event_ranges = False
       
       # internal list of indices of those ranges which have already been assigned to droid ranks
       # indices point back to self.eventranges

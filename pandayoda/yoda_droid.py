@@ -91,31 +91,28 @@ def yoda_droid(working_path,
       logger.debug('yoda_droid start loop')
       logger.debug('cwd: %s',os.getcwd())
       if droid and not droid.isAlive():
-         logger.info('Rank %s: droid has finished',mpirank)
+         logger.debug('droid has finished')
+         if droid.get_state() == droid.EXITED:
+            logger.info('droid exited cleanly')
+         else:
+            logger.error('droid exited uncleanly, killing all ranks')
+            MPIService.MPI.COMM_WORLD.Abort()
          break
       if yoda and not yoda.isAlive():
-         logger.info('Rank %s: yoda has finished',mpirank)
+         logger.info('yoda has finished')
          break
       time.sleep(loop_timeout)
 
-   if yoda and  yoda.isAlive():
-      yoda.stop()
-      yoda.join()
-
-   if droid and droid.isAlive():
-      droid.stop()
-      droid.join()
 
    #logger.info('Rank %s: waiting for other ranks to reach MPI Barrier',mpirank)
    #MPI.COMM_WORLD.Barrier()
-
-   logger.info('yoda_droid aborting all MPI ranks')
-   MPIService.MPI.COMM_WORLD.Abort()
+   #logger.info('yoda_droid aborting all MPI ranks')
+   #MPIService.MPI.COMM_WORLD.Abort()
 
    logger.info(' yoda_droid waiting for MPIService to join')
    MPIService.mpiService.stop()
    MPIService.mpiService.join()
-   logger.info(' yoda_droid exiting')
+   logger.info('yoda_droid exiting')
 
 def main():
    start_time = datetime.datetime.now()

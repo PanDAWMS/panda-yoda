@@ -9,8 +9,11 @@ class PandaJob:
 
       self.eventranges     = EventRangeList.EventRangeList()
 
-   def events_ready(self):
+   def number_ready(self):
       return self.eventranges.number_ready()
+
+   def get_next(self,number_of_ranges=1):
+      return self.eventranges.get_next(number_of_ranges)
 
    def __str__(self):
       return str(self.job_def)

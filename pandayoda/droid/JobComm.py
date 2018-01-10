@@ -1,8 +1,8 @@
 import os,logging,threading,time
-logger = logging.getLogger(__name__)
-
 from pandayoda.common import MessageTypes,SerialQueue,EventRangeList,serializer
 from pandayoda.common import MPIService,VariableWithLock,StatefulService
+
+logger = logging.getLogger(__name__)
 
 try:
    import yampl
@@ -12,9 +12,12 @@ except:
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
-class NoEventRangeDefined(Exception): pass
-class NoMoreEventsToProcess(Exception): pass
-class FailedToParseYodaMessage(Exception): pass
+class NoEventRangeDefined(Exception): 
+   pass
+class NoMoreEventsToProcess(Exception): 
+   pass
+class FailedToParseYodaMessage(Exception): 
+   pass
 
 class JobComm(StatefulService.StatefulService):
    '''  JobComm: This thread handles all the AthenaMP related payloadcommunication
@@ -60,15 +63,13 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       self.yampl_socket_name           = yampl_socket_name
 
       # flag to set when all work is done and thread is exiting
-      #self.all_work_done               = VariableWithLock.VariableWithLock(False)
+      self.all_work_done               = VariableWithLock.VariableWithLock(False)
 
       # set initial state
       self.set_state(self.WAITING_FOR_JOB)
 
-
    def no_more_work(self):
       return self.all_work_done.get()
-
 
    def run(self):
       ''' this is the function run as a subthread when the user runs jobComm_instance.start() '''
@@ -84,6 +85,10 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       while not self.exit.isSet():
          logger.debug('start loop: state: %s',self.get_state())
 
+         ##################
+         # WAITING_FOR_JOB: waiting for the job definition to arrive, before
+         #        it does, it is assumed that there is no payload running
+         ######################################################################
          if self.get_state() == self.WAITING_FOR_JOB:
             logger.debug(' waiting for job definition, blocking on message queue for %s ',self.loop_timeout)
             try:
@@ -109,12 +114,23 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                   self.set_state(self.REQUEST_EVENT_RANGES)
             qmsg = None
 
+         ##################
+         # REQUEST_EVENT_RANGES: Request event ranges from Yoda
+         ######################################################################
          elif self.get_state() == self.REQUEST_EVENT_RANGES:
             logger.debug('requesting event ranges')
-            # send MPI message to Yoda for more event ranges
-            self.request_events(current_job)
-            # change state
-            self.set_state(self.WAITING_FOR_EVENT_RANGES)
+            if payloadcomm.no_more_events():
+               logger.debug('no more event ranges flag is set, going to MONITORING state')
+               self.set_state(self.MONITORING)
+            else:
+               # send MPI message to Yoda for more event ranges
+               self.request_events(current_job)
+               # change state
+               self.set_state(self.WAITING_FOR_EVENT_RANGES)
+         
+         ##################
+         # WAITING_FOR_EVENT_RANGES: Waiting for event ranges from Yoda
+         ######################################################################
          elif self.get_state() == self.WAITING_FOR_EVENT_RANGES:
             logger.debug('waiting for event ranges, blocking on message queue for %s',self.loop_timeout)
             try:
@@ -123,27 +139,55 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                logger.debug('no message on queue')
             else:
                logger.debug('received message: %s',qmsg)
-               if 'type' not in qmsg or qmsg['type'] != MessageTypes.NEW_EVENT_RANGES or 'eventranges' not in qmsg:
+               if 'type' not in qmsg:
                   logger.error('received unexpected message format: %s',qmsg)
-               else:
+               elif qmsg['type'] == MessageTypes.NEW_EVENT_RANGES:
                   logger.debug('received event ranges')
                   eventranges = EventRangeList.EventRangeList(qmsg['eventranges'])
                   # add event ranges to payload messenger list
                   payloadcomm.add_eventranges(eventranges)
                   # change state
                   self.set_state(self.MONITORING)
+               elif qmsg['type'] == MessageTypes.NO_MORE_EVENT_RANGES:
+                  logger.debug('no more event ranges for PandaID %s going to MONITORING state',qmsg['PandaID'])
+                  payloadcomm.set_no_more_events()
+                  # if there are no more event ranges, tell payload to stop
+                  if payloadcomm.get_number_eventranges() - payloadcomm.get_ready_eventranges() == 0:
+                     payloadcomm.stop()
+                     self.stop()
+                     self.all_work_done.set(True)
+                  else:
+                     self.set_state(self.MONITORING)
+               else:
+                  logger.error('unknown message type: %s',qmsg['type'])
+
+
             qmsg = None
          elif self.get_state() == self.MONITORING:
             logger.debug('monitoring payload')
 
             ## check if running low on event ranges
             ready_events = payloadcomm.get_ready_eventranges()
-            if ready_events < self.get_more_events_threshold:
+            number_completed = payloadcomm.get_completed_eventranges()
+            total = payloadcomm.get_number_eventranges()
+            logger.debug('number of ready events %s; number of completed events %s; total events %s',ready_events,number_completed,total)
+               
+            # if ready_events is below the threshold and the no more events flag has not been set
+            # request more event ranges
+            if ready_events < self.get_more_events_threshold and not payloadcomm.no_more_events():
                logger.debug('number of ready events %s below request threshold %s, asking for more.',ready_events,self.get_more_events_threshold)
                # change state to request event ranges
                self.set_state(self.REQUEST_EVENT_RANGES)
+            
+            # if the number of completed events equals the number of event ranges
+            # available, and no more events flag is set, then kill subprocess and exit.
+            elif ready_events == 0 and number_completed == total and payloadcomm.no_more_events():
+               logger.debug('no more events to process, exiting')
+               payloadcomm.stop()
+               self.stop()
+               self.all_work_done.set(True)
             else:
-               logger.debug('number of ready events: %s sleeping for %s',ready_events,self.loop_timeout)
+               logger.debug('sleeping for %s',self.loop_timeout)
                time.sleep(self.loop_timeout)
 
 
@@ -176,12 +220,12 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
          logger.info('JobComm get_more_events_threshold: %d',self.get_more_events_threshold)
 
    def request_events(self,current_job):
-      msg={
-         'type':MessageTypes.REQUEST_EVENT_RANGES,
-         'PandaID':current_job['PandaID'],
-         'taskID':current_job['taskID'],
-         'jobsetID':current_job['jobsetID'],
-         'destination_rank': 0, #YODA rank
+      msg = {
+            'type':MessageTypes.REQUEST_EVENT_RANGES,
+            'PandaID':current_job['PandaID'],
+            'taskID':current_job['taskID'],
+            'jobsetID':current_job['jobsetID'],
+            'destination_rank': 0,  # YODA rank
       }
       self.queues['MPIService'].put(msg)
 
@@ -202,7 +246,7 @@ class PayloadMessenger(StatefulService.StatefulService):
              SEND_EVENT_RANGE,SEND_OUTPUT_FILE]
 
 
-   def __init__(self,yampl_socket_name,queues,loop_timeout = 1):
+   def __init__(self,yampl_socket_name,queues,loop_timeout=1):
       super(PayloadMessenger,self).__init__(loop_timeout)
 
       # yampl socket name, must be the same as athena
@@ -228,6 +272,10 @@ class PayloadMessenger(StatefulService.StatefulService):
 
    def get_ready_eventranges(self):
       return self.eventranges.get().number_ready()
+   def get_completed_eventranges(self):
+      return self.eventranges.get().number_completed()
+   def get_number_eventranges(self):
+      return len(self.eventranges.get())
 
    def add_eventranges(self,eventranges):
       # acquire lock  
@@ -272,9 +320,13 @@ class PayloadMessenger(StatefulService.StatefulService):
       ''' retrieve the current job definition '''
       return self.job_def.get()
 
-   def send_no_more_events(self):
-      ''' test if in SEND_NO_MORE_EVENTS state '''
-      self.set_state(PayloadMessenger.SEND_NO_MORE_EVENTS)
+   def set_no_more_events(self):
+      ''' test if no_more_eventranges set '''
+      self.no_more_eventranges.set()
+   def no_more_events(self):
+      ''' return value of flag '''
+      return self.no_more_eventranges.isSet()
+
 
 
    def run(self):
@@ -283,6 +335,8 @@ class PayloadMessenger(StatefulService.StatefulService):
       logger.debug('%s: start yampl payloadcommunicator',self.prelog)
       athpayloadcomm = athena_payloadcommunicator(self.yampl_socket_name)
       payload_msg = ''
+
+      event_range_request_counter = 0
 
       while not self.exit.isSet():
          logger.debug('%s: start loop, current state: %s',self.prelog,self.get_state())
@@ -293,14 +347,25 @@ class PayloadMessenger(StatefulService.StatefulService):
          #          a request for a message from the payload
          ######################################################################
          if self.get_state() == self.WAIT_FOR_PAYLOAD_MESSAGE:
-            logger.debug('%s: checking for message from payload, block for %s',self.prelog,self.loop_timeout)
-            payload_msg = athpayloadcomm.recv(self.loop_timeout)
+            
+            # if requests for events have been sent and we are waiting for event ranges
+            # do not block
+            temp_timeout = self.loop_timeout
+            if event_range_request_counter > 0:
+               temp_timeout = 1
+            
+            logger.debug('%s: checking for message from payload, block for %s, event range requests: %s',self.prelog,self.loop_timeout,event_range_request_counter)
+
+            payload_msg = athpayloadcomm.recv(temp_timeout)
 
             if len(payload_msg) > 0:
                logger.debug('%s: received message: %s',self.prelog,payload_msg)
                self.set_state(self.MESSAGE_RECEIVED)
             else:
                logger.debug('%s: did not receive message from payload',self.prelog)
+               if event_range_request_counter > 0:
+                  logger.debug('%s: have %s pending event range requests so will try sending one.',self.prelog,event_range_request_counter)
+                  self.set_state(self.SEND_EVENT_RANGE)
                #time.sleep(self.loop_timeout)
          
          ##################
@@ -313,6 +378,8 @@ class PayloadMessenger(StatefulService.StatefulService):
             if athena_payloadcommunicator.READY_FOR_EVENTS in payload_msg:
                logger.debug('%s: received "%s" from payload',self.prelog,payload_msg)
                self.set_state(self.SEND_EVENT_RANGE)
+               # increment counter to keep track of how many requests are queued
+               event_range_request_counter += 1
 
 
             #### OUTPUT File received
@@ -334,26 +401,23 @@ class PayloadMessenger(StatefulService.StatefulService):
             # if event ranges available, send one
             try:
                local_eventranges = self.get_next_eventrange()
-               logger.debug('%s: have %d new event ranges to send to AthenaMP',self.prelog,len(self.eventranges.get()))
+               logger.debug('%s: have %d ready event ranges to send to AthenaMP',self.prelog,self.eventranges.get().number_ready())
             # no more event ranges available
             except EventRangeList.NoMoreEventRanges:
                logger.debug('%s: there are no more event ranges to process',self.prelog)
                # if we have been told there are no more eventranges, then tell the AthenaMP worker there are no more events
                if self.no_more_eventranges.isSet():
                   logger.debug('%s: sending AthenaMP NO_MORE_EVENTS',self.prelog)
-                  self.send_no_more_events()
-
-                  # return to state requesting a message
-                  self.set_state(self.WAIT_FOR_PAYLOAD_MESSAGE)
+                  athpayloadcomm.send(athena_payloadcommunicator.NO_MORE_EVENTS)
 
                # otherwise wait for more events
                else:
-                  logger.debug('%s: waiting for more events for %s',self.prelog,self.loop_timeout)
-                  if self.eventranges.wait(self.loop_timeout):
-                     logger.debug('%s: eventranges set, check again',self.prelog)
-                     self.eventranges.clear()
-                  else:
-                     logger.debug('%s: eventranges not yet set, looping again',self.prelog)
+                  logger.debug('%s: waiting for more events for',self.prelog)
+               
+
+               # return to state requesting a message
+               self.set_state(self.WAIT_FOR_PAYLOAD_MESSAGE)
+
 
 
             # something wrong with the index in the EventRangeList index
@@ -368,6 +432,8 @@ class PayloadMessenger(StatefulService.StatefulService):
                logger.debug('%s: sending eventranges to AthenaMP: %s',self.prelog,local_eventranges)
                # send AthenaMP the new event ranges
                athpayloadcomm.send(serializer.serialize(local_eventranges))
+               # decrement counter since we sent some events
+               event_range_request_counter -= 1
 
                # return to state requesting a message
                self.set_state(self.WAIT_FOR_PAYLOAD_MESSAGE)
@@ -382,7 +448,8 @@ class PayloadMessenger(StatefulService.StatefulService):
                self.eventranges.clear()
                self.set_state(self.SEND_EVENT_RANGE)
             else:
-               logger.debug('%s: eventranges not yet set, looping again',self.prelog)
+               logger.debug('%s: eventranges not yet set, incrementing ',self.prelog)
+               
 
 
          ##################
@@ -434,6 +501,7 @@ class PayloadMessenger(StatefulService.StatefulService):
                logger.error('%s: failed to parse output file',self.prelog)
                self.set_state(self.WAIT_FOR_PAYLOAD_MESSAGE)
 
+            
          else:
             logger.error('state not recognized')
 
@@ -468,8 +536,8 @@ class athena_payloadcommunicator:
          raise
 
    def recv(self,timeout=0):
-      # receive yampl message
-      size, buf = self.socket.try_recv_raw(timeout)
+      # receive yampl message, timeout is in milliseconds
+      size, buf = self.socket.try_recv_raw(timeout * 1000)
       if size == -1:
          return ''
       return str(buf)

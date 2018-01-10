@@ -1,4 +1,4 @@
-import os,sys,threading,logging,shutil,subprocess
+import os,threading,logging,shutil,subprocess
 from pandayoda.common import MessageTypes,SerialQueue
 logger = logging.getLogger(__name__)
 
@@ -87,7 +87,7 @@ class FileManager(threading.Thread):
       p = subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,shell=True)
       p.wait()
       if p.returncode != 0:
-         raise Exception('md5sum returned non-zero code: '+ str(p.returncode))
+         raise Exception('md5sum returned non-zero code: ' + str(p.returncode))
       stdout,stderr = p.communicate()
 
       return stdout.split()[0]

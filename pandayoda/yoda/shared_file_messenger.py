@@ -1,4 +1,4 @@
-import os,json,logging,ConfigParser,time,threading
+import os,json,logging,ConfigParser,time,threading,glob
 from pandayoda.common import exceptions,serializer,MPIService
 logger = logging.getLogger(__name__)
 
@@ -280,7 +280,7 @@ def request_eventranges(job_def):
    if not os.path.exists(eventRequestFile):
       # need to output a file containing:
       #   {'nRanges': ???, 'pandaID':???, 'taskID':???, 'jobsetID':???}
-      logger.debug('requesting new event ranges with job_def = %s',job_def)
+      logger.debug('requesting new event ranges by writing to file "%s" with this content: %s',eventRequestFile,job_def)
       
       # get new job definition
       new_job_def = {job_def['pandaID']:job_def}
@@ -324,6 +324,7 @@ def request_eventranges(job_def):
 
 def eventranges_ready(block=False,timeout=60):
    global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
+   logger.debug('eventranges_ready start')
    
    # check that harvester config is loaded
    if harvesterConfig is None:
@@ -341,22 +342,27 @@ def eventranges_ready(block=False,timeout=60):
 
    # check to see if a file exists.
    start = time.time()
+   logger.debug('checking for eventRangesFile')
    while True:
+      logger.debug('checking for eventRangesFile')
       if os.path.exists(eventRangesFile):
+         logger.debug('eventRangesFile exists, exiting')
          return True
       else:
          if block and timeout > (time.time() - start):
+            logger.debug('no eventRangesFile so sleeping 1 second and checking again')
             time.sleep(1)
             continue
          else:
             break
 
 
+   logger.debug('no eventRangesFile, exiting')
    return False
 
 def get_eventranges():
    global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
-   
+   logger.debug('getting eventranges')
    # check that harvester config is loaded
    if harvesterConfig is None:
       logger.error('must first run setup before get_eventranges')
@@ -377,8 +383,12 @@ def get_eventranges():
          logger.debug('eventRangesFile is present, parsing event ranges')
          # read in event range file
          eventranges = json.load(open(eventRangesFile))
+         for jobid,ranges in eventranges.iteritems():
+            logger.debug('received %s ranges for Panda ID: %s',len(ranges),jobid)
+
          # remove this file now that we are done with it
-         os.remove(eventRangesFile)
+         newtmp = glob.glob(eventRangesFile + '.old*')
+         os.rename(eventRangesFile,eventRangesFile + ('.old.%02i' % len(newtmp)))
          # remove the request file if harvester has not already
          #if os.path.exists(harvesterConfig.get(harConfSect,'eventRangesFile')):
             #os.remove(harvesterConfig.get(harConfSect,'eventRangesFile'))

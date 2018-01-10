@@ -43,7 +43,7 @@ make -j 10 install
 cd ..
 
 # now you need to install the python bindings for yampl
-git clone git@github.com:vitillo/python-yampl.git
+git clone git@github.com:jtchilders/python-yampl.git
 cd python-yampl
 # edit setup.py such that inside the 'include_dirs' inside the 'Extension' have
 # both the path to the '/path/to/yampl/install/include/yampl' 

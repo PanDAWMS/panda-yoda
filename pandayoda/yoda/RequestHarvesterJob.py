@@ -1,6 +1,6 @@
 import logging,os,importlib
+from pandayoda.common import StatefulService,VariableWithLock,exceptions,MessageTypes
 logger = logging.getLogger(__name__)
-from pandayoda.common import StatefulService,VariableWithLock,exceptions
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
@@ -15,11 +15,14 @@ class RequestHarvesterJob(StatefulService.StatefulService):
    STATES = [CREATED,REQUEST,WAITING,EXITED]
    RUNNING_STATES = [REQUEST,WAITING]
 
-   def __init__(self,config):
+   def __init__(self,config,queues):
       super(RequestHarvesterJob,self).__init__()
 
       # local config options
       self.config             = config
+
+      # dictionary of queues for sending messages to Droid components
+      self.queues                = queues
 
       # set current state of the thread to CREATED
       self.state              = VariableWithLock.VariableWithLock(self.CREATED)
@@ -96,11 +99,14 @@ class RequestHarvesterJob(StatefulService.StatefulService):
          ########################
          if self.get_state() == self.REQUEST:
             logger.debug('making request for job')
-            try:
-               # use messenger to request jobs from Harvester
-               messenger.request_jobs()
-            except exceptions.MessengerJobAlreadyRequested:
-               logger.warning('job already requested.')
+            
+            # first check that there is not a job ready
+            if not messenger.pandajobs_ready():
+               try:
+                  # use messenger to request jobs from Harvester
+                  messenger.request_jobs()
+               except exceptions.MessengerJobAlreadyRequested:
+                  logger.warning('job already requested.')
 
             # wait for events
             self.set_state(self.WAITING)
@@ -121,17 +127,20 @@ class RequestHarvesterJob(StatefulService.StatefulService):
                if len(pandajobs) > 0:
                   logger.debug('setting NEW_JOBS variable')
                   self.set_jobs(pandajobs)
+                  logger.debug('sending WorkManager WAKE_UP message')
+                  self.queues['WorkManager'].put({'type':MessageTypes.WAKE_UP})
+                  logger.debug('triggering exit')
                   self.stop()
                else:
                   logger.debug('no jobs returned: %s',pandajobs)
                   self.stop()
             else:
                logger.debug('no jobs ready yet.')
-               self.exit.wait(timeout=self.loop_timeout)
+               self.exit.wait(timeout=loop_timeout)
 
          else:
             logger.debug('nothing to do')
-            self.exit.wait(timeout=self.loop_timeout)
+            self.exit.wait(timeout=loop_timeout)
          
 
       self.set_state(self.EXITED)

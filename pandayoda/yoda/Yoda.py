@@ -89,11 +89,14 @@ class Yoda(threading.Thread):
          MessageTypes.REQUEST_JOB: ['WorkManager'],
          MessageTypes.REQUEST_EVENT_RANGES: ['WorkManager'],
          MessageTypes.OUTPUT_FILE: ['FileManager'],
-         MessageTypes.DROID_HAS_EXITED: ['DROID_HAS_EXITED'],
+         MessageTypes.DROID_HAS_EXITED: ['Yoda'],
       }
 
       # initialize the MPIService with the queues
       MPIService.mpiService.initialize(self.config,self.queues,forwarding_map)
+
+      # a list of ranks that have exited
+      self.exited_droids = []
       
       # a dictionary of subthreads
       subthreads = {}
@@ -116,6 +119,12 @@ class Yoda(threading.Thread):
          # process incoming messages from other threads or ranks
          self.process_incoming_messages()
 
+         # check if all droids have exited
+         if len(self.exited_droids) == (MPIService.nranks - 1):
+            logger.debug('all droids have exited, exiting yoda')
+            self.stop()
+            break
+
 
          # check the status of each subthread
          logger.debug('checking all threads still alive')
@@ -128,6 +137,7 @@ class Yoda(threading.Thread):
                del subthreads[name]
                if name == 'WorkManager':
                   self.stop()
+                  continue
             #else:
                #logger.debug('%s %s is running.',self.prelog,name)
 
@@ -138,7 +148,7 @@ class Yoda(threading.Thread):
 
          if (self.wall_clock_limit != -1 and self.timeTillSignal.total_seconds() < self.loop_timeout):
             logger.debug('sleeping %s',self.timeTillSignal.total_seconds())
-            time.sleep(int(self.timeTillSignal.total_seconds())+1)
+            time.sleep(int(self.timeTillSignal.total_seconds()) + 1)
          else:
             logger.debug('sleeping %s',self.loop_timeout)
             time.sleep(self.loop_timeout)
@@ -194,6 +204,7 @@ class Yoda(threading.Thread):
          
          if qmsg['type'] == MessageTypes.DROID_HAS_EXITED:
             logger.debug(' droid rank %d has exited',qmsg['source_rank'])
+            self.exited_droids.append(qmsg['source_rank'])
          else:
             logger.error(' could not interpret message: %s',qmsg)
 

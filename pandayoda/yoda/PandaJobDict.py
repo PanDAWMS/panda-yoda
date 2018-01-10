@@ -53,6 +53,12 @@ class PandaJobDict:
          return self.jobs[pandaID].eventranges
       return None
 
+   def have_pandaID(self,pandaID):
+      pandaID = str(pandaID)
+      if pandaID in self.jobs.keys():
+         return True
+      return False
+
    def pop(self,key,default=None):
       return self.jobs.pop(key,default)
    def iteritems(self):
@@ -64,7 +70,7 @@ class PandaJobDict:
    def get(self,key,default=None):
       return self.jobs.get(key,default)
    def has_key(self,key):
-      return self.jobs.has_key(key)
+      return key in self.jobs
 
    def __iter__(self,key):
       return iter(self.jobs)
