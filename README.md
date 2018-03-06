@@ -76,7 +76,7 @@ module swap PrgEnv-intel PrgEnv-gnu
 # Custom build Cython with local compilers for Theta worker nodes
 git clone git@github.com:cython/cython.git
 cd cython
-git checkout tags/0.25.2 # or the latest tag
+git checkout tags/0.25.2 # later tags seem to break (haven't investigated further)
 CC=cc CXX=CC python setup.py build
 export PYTHONPATH=$INSTALL_AREA/lib64/python2.7/site-packages
 CC=cc CXX=CC python setup.py install --prefix=$INSTALL_AREA
@@ -86,7 +86,7 @@ cd ../
 # Custom build mpi4py with local compilers for Theta worker nodes
 git clone git@github.com:mpi4py/mpi4py.git
 cd mpi4py
-git checkout tags/2.0.0 # or latest tag
+git checkout tags/2.0.0 # later tags seem to break (haven't investigated further)
 ##  edit mpi.cfg
 ##  under [mpi]
 ##  uncomment mpicc = cc
@@ -97,30 +97,47 @@ CC=cc CXX=CC python setup.py install --prefix=/path/to/yoda
 # Custom build yampl library
 git clone git@github.com:vitillo/yampl.git
 cd yampl
-./configure --prefix=$INSTALL_AREA CC=cc CXX=CC LDFLAGS=-dynamic
+./configure --prefix=$INSTALL_AREA CC=cc CXX=CC
 make -j 10 install
 # in my case this fails in the zeromq folder
 # so I did this
 cd zeromq
 ./configure --prefix=$INSTALL_AREA CC=cc CXX=CC LDFLAGS=-dynamic
 make -j 10 install
+# this will also fail to build the shared library because it is trying
+# to include the static library from zeromq so edit the Makefile to 
+# LIBZMQ = ./zeromq/src/.libs/libzmq.so
+# if that library does not exist, you may need to re-run the configure
+# step in the zeromq folder with the option --enable-shared
+# after you have zeromq build go back to yampl directory and build
 cd ..
 make -j 10 install
 cd ..
 
 # Custom build yampl python bindings
-git clone git@github.com:tsulaiav/python-yampl.git
+git clone git@github.com:vitillo/python-yampl.git
 cd python-yampl
 ##  edit setup.py such that inside the 'include_dirs' inside the 'Extension' have
 ##  both the path to the '$INSTALL_AREA/yampl/install/include/yampl' 
-##  and '$INSTALL_AREA/yampl/install/include' and the 'extra_link_args' has 
-##  '-L$INSTALL_AREA/yampl/install/lib'
+##  and '$INSTALL_AREA/yampl/install/include'
+##  in my case, I also had to add to the setup.py, at the top:
+##  yampl_lib_path = subprocess.check_output(['pkg-config','--libs-only-L','yampl']).decode('utf-8')[:-2]
+##  then the extension declaration looks like this:
+##    Extension("yampl",
+##              sources=["yampl.pyx"],
+##              libraries=["yampl"],
+##              library_dirs=[yampl_lib_path.replace('-L','')],
+##              include_dirs=[yampl_include,yampl_include.replace('/yampl','')],
+##              extra_link_args=[yampl_libs],
+##              language="c++"),
 python setup.py build_ext
 python setup.py install
 cd ..
 
-# grab yoda
-git clone git@github.com:PanDAWMS/panda-yoda.git
+# install yoda
+pip install git+git://github.com:PanDAWMS/panda-yoda.git
+# to later update yoda you must delete the $VIRTUAL_ENV/lib/python2.7/site-packages/pandayoda 
+# and panda_yoda-0.0.1... folders by hand, then rerun the pip install command
 ```
 
 Installing Yoda on NERSC/Cori, follow directions
