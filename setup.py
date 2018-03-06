@@ -24,7 +24,7 @@ setup(
            'console_scripts': ['yoda_droid=pandayoda.yoda_droid:main'],
                },
    data_files = [
-      ('etc/panda',['pandayoda/yoda_droid.cfg'])
+      ('etc/panda',['pandayoda/yoda.cfg'])
       ],
    classifiers=[
       'Development Status :: 3 - Alpha',
