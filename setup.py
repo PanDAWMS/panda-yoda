@@ -19,6 +19,7 @@ setup(
               'pandayoda/yoda',
               'pandayoda/droid',
               'pandayoda/test',
+              'pandayoda/common',
               ],
    entry_points = {
            'console_scripts': ['yoda_droid=pandayoda.yoda_droid:main'],

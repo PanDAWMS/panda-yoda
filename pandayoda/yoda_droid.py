@@ -7,7 +7,10 @@ try:
    from pandayoda.droid import Droid
    from pandayoda.common import MPIService
    logger = logging.getLogger(__name__)
-except:
+except Exception,e:
+   print('Exception received during import: %s' % str(e))
+   import traceback
+   traceback.print_exc()
    from mpi4py import MPI
    MPI.COMM_WORLD.Abort()
    import sys
