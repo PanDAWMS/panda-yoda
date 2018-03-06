@@ -23,7 +23,9 @@ setup(
    entry_points = {
            'console_scripts': ['yoda_droid=pandayoda.yoda_droid:main'],
                },
-   data_files = [],
+   data_files = [
+      ('etc/panda',['pandayoda/yoda_droid.cfg'])
+      ],
    classifiers=[
       'Development Status :: 3 - Alpha',
       'Environment :: Console',
