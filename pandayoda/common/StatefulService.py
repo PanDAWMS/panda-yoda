@@ -17,7 +17,7 @@ class StatefulService(threading.Thread):
 
       # current state of this process
       self.state                       = VariableWithLock.VariableWithLock()
-      self.state_time                  = VariableWithLock.VariableWithLock()
+      self.state_time                  = VariableWithLock.VariableWithLock(time.clock())
 
       # this is used to trigger the thread exit
       self.exit                        = threading.Event()

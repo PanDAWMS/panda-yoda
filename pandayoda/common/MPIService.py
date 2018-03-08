@@ -94,30 +94,41 @@ class MPIService(StatefulService.StatefulService):
       self.init_done.wait()
 
       self.receiveRequest = None
+      self.loop_timeout = 2
 
       logger.info('loop_timeout = %s',self.loop_timeout)
+
+      # keep track of when a message arrived previously
+      # Only perform blocking receives when no message was 
+      # received during the previous loop
+      no_message_on_last_loop = False
       
       while not self.exit.isSet():
          logger.debug('starting loop, queue size = %s, state = %s',self.queues['MPIService'].qsize(),self.get_state())
 
          # check for incoming message
-         message = None
-         if self.in_mpi_blocking():
+         logger.debug('check for MPI message')
+         if no_message_on_last_loop and self.in_mpi_blocking():
             logger.debug('block on mpi for %s',self.loop_timeout)
             message = self.receive_message(block=True,timeout=self.loop_timeout)
-         elif self.in_balanced() and self.queues['MPIService'].empty():
+         elif no_message_on_last_loop and self.in_balanced() and self.queues['MPIService'].empty() and no_message_on_last_loop:
             logger.debug('block on mpi for %s',self.loop_timeout/2)
             message = self.receive_message(block=True,timeout=self.loop_timeout/2)
          else:
             message = self.receive_message()
          
          # if message received forward it on
-         if message:
-            tmpmsg = message
-            if  len(message) > 100:
-               tmpslice = slice(0,100)
-               tmpmsg = message[tmpslice] + '...'
-            logger.debug('received MPI message: %s',tmpmsg)
+         if message is not None:
+            # record that we received a message this loop
+            no_message_on_last_loop = False
+            # shorten our message for printing
+            if logger.getEffectiveLevel() == logging.DEBUG:
+               tmpmsg = str(message)
+               if  len(tmpmsg) > 100:
+                  tmpslice = slice(0,100)
+                  tmpmsg = tmpmsg[tmpslice] + '...'
+               logger.debug('received mpi message: %s',tmpmsg)
+            # forward message
             self.forward_message(message)
          else:
             logger.debug('no message from MPI')
@@ -126,16 +137,25 @@ class MPIService(StatefulService.StatefulService):
          
          # check for messages on the queue that need to be sent
          try:
-            if self.in_queue_blocking():
+            if no_message_on_last_loop and self.in_queue_blocking():
                logger.debug('block on queue for %s',self.loop_timeout)
                qmsg = self.queues['MPIService'].get(block=True,timeout=self.loop_timeout)
-            elif self.in_balanced():
+            elif no_message_on_last_loop and self.in_balanced():
                logger.debug('block on queue for %s',self.loop_timeout/2)
                qmsg = self.queues['MPIService'].get(block=True,timeout=self.loop_timeout/2)
             else:
                qmsg = self.queues['MPIService'].get(block=False)
-         
-            #logger.debug('received message: %s',qmsg)
+
+            # record that we received a message this loop
+            no_message_on_last_loop = False
+            
+            # shorten our message for printing
+            if logger.getEffectiveLevel() == logging.DEBUG:
+               tmpmsg = str(qmsg)
+               if  len(tmpmsg) > 100:
+                  tmpslice = slice(0,100)
+                  tmpmsg = tmpmsg[tmpslice] + '...'
+               logger.debug('received queue message: %s',tmpmsg)
 
             # determine if destination rank or tag was set
             if 'destination_rank' in qmsg:
@@ -157,10 +177,15 @@ class MPIService(StatefulService.StatefulService):
                send_request = MPI.COMM_WORLD.isend(qmsg,dest=destination_rank)
 
             # wait for send to complete
+            logger.debug('wait for send to complete')
             send_request.wait()
          except SerialQueue.Empty:
             logger.debug('no message from message queue')
-         
+
+            # record no messages received
+            if message is None:
+               logger.debug('no messages received this loop')
+               no_message_on_last_loop = True
 
 
 
@@ -172,7 +197,7 @@ class MPIService(StatefulService.StatefulService):
       # check status of current request
       if self.receiveRequest:
          starttime = time.time()
-         logger.debug('blocking on MPI receive for %s seconds',timeout)
+         logger.debug('receive_message: enter block loop, block = %s, timeout = %s',block,timeout)
          while True:
             #logger.debug('check for MPI message')
             status = MPI.Status()
@@ -188,11 +213,11 @@ class MPIService(StatefulService.StatefulService):
 
             duration = time.time() - starttime
             if not block or duration > timeout:
-               logger.debug('receive timed out')
-               break
+               logger.debug('receive_message: receive timed out exiting blocking MPI receive loop')
+               return None
             elif not self.queues['MPIService'].empty():
-               logger.debug(' message queue has input')
-               break
+               logger.debug('receive_message: message queue has input exiting blocking MPI receive loop')
+               return None
             else:
                #logger.debug('sleep 1 second: block=%s timeout=%s time=%s',block,timeout,duration)
                time.sleep(1)
