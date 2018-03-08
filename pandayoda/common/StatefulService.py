@@ -1,4 +1,4 @@
-import threading,logging
+import threading,logging,time
 from pandayoda.common import VariableWithLock
 logger = logging.getLogger()
 
@@ -17,6 +17,7 @@ class StatefulService(threading.Thread):
 
       # current state of this process
       self.state                       = VariableWithLock.VariableWithLock()
+      self.state_time                  = VariableWithLock.VariableWithLock()
 
       # this is used to trigger the thread exit
       self.exit                        = threading.Event()
@@ -39,6 +40,7 @@ class StatefulService(threading.Thread):
       ''' set current state '''
       if state in self.STATES:
          self.state.set(state)
+         self.state_time.set(time.clock())
       else:
          logger.error('tried to set state %s which is not supported',state)
 
@@ -47,6 +49,9 @@ class StatefulService(threading.Thread):
       if state == self.get_state():
          return True
       return False
+
+   def state_lifetime(self):
+      return time.clock() - self.state_time.get()
 
 
 

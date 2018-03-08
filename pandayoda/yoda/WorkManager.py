@@ -145,12 +145,15 @@ class WorkManager(threading.Thread):
                            self.pending_index += -1
 
                      else:
-                        logger.error('request is stuck in state %s recreating it.',requestHarvesterJob.get_state())
-                        if requestHarvesterJob.is_alive():
-                           requestHarvesterJob.stop()
-                           logger.info('waiting for requestHarvesterJob to join')
-                           requestHarvesterJob.join()
-                        requestHarvesterJob = None
+                        if requestHarvesterJob.state_lifetime() > 60:
+                           logger.error('request is stuck in state %s recreating it.',requestHarvesterJob.get_state())
+                           if requestHarvesterJob.is_alive():
+                              requestHarvesterJob.stop()
+                              logger.info('waiting for requestHarvesterJob to join')
+                              requestHarvesterJob.join()
+                           requestHarvesterJob = None
+                        else:
+                           logger.debug('request is in %s state, waiting',requestHarvesterJob.get_state())
                   
                   logger.info('pending message')
                   # place request on pending_requests queue and reprocess again when job is ready
