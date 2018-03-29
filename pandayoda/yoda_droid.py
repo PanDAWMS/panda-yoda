@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 try:
-   import argparse,logging,os,sys,datetime,time
+   import argparse,logging,os,sys,datetime,time,socket
    import ConfigParser
 
    from pandayoda.yoda import Yoda
@@ -41,6 +41,8 @@ def yoda_droid(working_path,
       logger.info('config_filename:             %s',config_filename)
       logger.info('starting_path:               %s',os.getcwd())
       logger.info('wall_clock_limit:            %d',wall_clock_limit)
+   
+   logger.info('running on hostname: %s',socket.gethostname())
       
 
    # parse configuration file

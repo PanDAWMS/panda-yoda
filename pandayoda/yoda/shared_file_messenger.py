@@ -177,7 +177,7 @@ def setup(config):
 
 def request_jobs():
    global harvesterConfig,harConfSect,harConfLock
-   
+   logger.debug('requesting job')
    if harvesterConfig is None:
       logger.error('must first run setup before requestjobs')
       return
@@ -197,7 +197,7 @@ def request_jobs():
 
 def pandajobs_ready():
    global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
-   
+   logger.debug('check if panda jobs exist')
    if harvesterConfig is None:
       logger.error('must first run setup before get_pandajobs')
       return
@@ -223,7 +223,7 @@ def pandajobs_ready():
 # this function should return a job description or nothing
 def get_pandajobs():
    global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
-   
+   logger.debug('reading job data')
    if harvesterConfig is None:
       logger.error('must first run setup before get_pandajobs')
       return
@@ -342,11 +342,10 @@ def eventranges_ready(block=False,timeout=60):
 
    # check to see if a file exists.
    start = time.time()
-   logger.debug('checking for eventRangesFile')
    while True:
       logger.debug('checking for eventRangesFile')
       if os.path.exists(eventRangesFile):
-         logger.debug('eventRangesFile exists, exiting')
+         logger.debug('eventRangesFile exists')
          return True
       else:
          if block and timeout > (time.time() - start):
@@ -383,6 +382,7 @@ def get_eventranges():
          logger.debug('eventRangesFile is present, parsing event ranges')
          # read in event range file
          eventranges = json.load(open(eventRangesFile))
+         logger.debug('received json object with size %s bytes',sys.getsizeof(eventranges))
          for jobid,ranges in eventranges.iteritems():
             logger.debug('received %s ranges for Panda ID: %s',len(ranges),jobid)
 
@@ -396,7 +396,12 @@ def get_eventranges():
          return eventranges
       except:
          logger.exception('failed to parse eventRangesFile: %s',eventRangesFile)
-         raise
+         # if the event range file is present, rename it as failedread for debugging
+         if os.path.exists(eventRangesFile):
+            newtmp = glob.glob(eventRangesFile + '.old*')
+            newname = eventRangesFile + ('.old.%02i.failedread' % len(newtmp))
+            os.rename(eventRangesFile,newname)
+         raise exceptions.MessengerFailedToParse('failed to parse event file, find it here %s' % newname )
    return {}
 
 

@@ -193,6 +193,7 @@ class MPIService(StatefulService.StatefulService):
    def receive_message(self,block=False,timeout=None):
       # there should always be a request waiting for this rank to receive data
       if self.receiveRequest is None:
+         logger.debug('receive_message: creating request')
          self.receiveRequest = MPI.COMM_WORLD.irecv(self.default_message_buffer_size,MPI.ANY_SOURCE)
       # check status of current request
       if self.receiveRequest:
@@ -227,9 +228,12 @@ class MPIService(StatefulService.StatefulService):
          
    def forward_message(self,message):
       
-      for thread_name in self.forwarding_map[message['type']]:
-         logger.debug('forwarding recieve MPI message to %s',thread_name)
-         self.queues[thread_name].put(message)
+      if message['type'] in self.forwarding_map:
+         for thread_name in self.forwarding_map[message['type']]:
+            logger.debug('forwarding recieve MPI message to %s',thread_name)
+            self.queues[thread_name].put(message)
+      else:
+         logger.warning('received message type with no forwarding defined: %s',message['type'])
 
 
    def read_config(self):

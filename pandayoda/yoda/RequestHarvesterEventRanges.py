@@ -135,21 +135,25 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
          if self.get_state() == self.RETRIEVE_EVENTS:
             logger.debug('reading event ranges')
             # use messenger to get event ranges from Harvester
-            eventranges = messenger.get_eventranges()
+            try:
+               eventranges = messenger.get_eventranges()
 
-            # set event ranges for parent and change state
-            if len(eventranges) > 0:
-               logger.debug('setting NEW_EVENT_RANGES variable with %d event ranges',len(eventranges))
-               self.set_eventranges(eventranges)
-               
-               # if Harvester provided no event ranges for this panda ID, then set the no more events flag
-               if len(eventranges[str(self.job_def['pandaID'])]) == 0:
-                  logger.debug('no new event ranges received. setting flag')
-                  self.no_more_eventranges_flag.set(True)
+               # set event ranges for parent and change state
+               if len(eventranges) > 0:
+                  logger.debug('setting NEW_EVENT_RANGES variable with %d event ranges',len(eventranges))
+                  self.set_eventranges(eventranges)
+                  
+                  # if Harvester provided no event ranges for this panda ID, then set the no more events flag
+                  if len(eventranges[str(self.job_def['pandaID'])]) == 0:
+                     logger.debug('no new event ranges received. setting flag')
+                     self.no_more_eventranges_flag.set(True)
 
-               self.stop()
-            else:
-               logger.debug('received no eventranges: %s',eventranges)
+                  self.stop()
+               else:
+                  logger.debug('received no eventranges: %s',eventranges)
+                  self.stop()
+            except exceptions.MessengerFailedToParse,e:
+               logger.error('failed to parse an event file: %s',str(e))
                self.stop()
 
       self.set_state(self.EXITED)
