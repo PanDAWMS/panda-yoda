@@ -388,18 +388,19 @@ def get_eventranges():
          except:
             # try again if the files modify time is within 10 seconds
             succeeded = False
-            while (fstat.st_mtime - time.time()) < 10:
+            time_since_last_modified = fstat.st_mtime - time.time()
+            while time_since_last_modified < 10:
                try:
                   logger.debug(' trying again to open eventRangesFile: %s', str(fstat))
                   eventranges = json.load(open(eventRangesFile))
                   succeeded = True
                except:
-                  logger.debug(' failed to open ')
+                  logger.debug(' failed to open, time since last modified is %d seconds',time_since_last_modified)
                   time.sleep(1)
                   fstat = os.stat(eventRangesFile)
                
             if not succeeded:
-               raise Exception('failed to open eventRangesFile, even after waiting for modified status.')
+               raise Exception('failed to open eventRangesFile, even after waiting for modified status. Time since last modified: %d seconds' % time_since_last_modified)
 
    
          logger.debug('received json object with size %s bytes',sys.getsizeof(eventranges))
