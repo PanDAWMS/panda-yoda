@@ -294,9 +294,9 @@ class WorkManager(threading.Thread):
                            else:
                               tmpeventranges = requestHarvesterEventRanges.get_eventranges()
 
-                              logger.debug('received eventranges: %s',
-                                 ' '.join( ('%s:%i' % (tmpid,len(tmplist))) for tmpid,tmplist in tmpeventranges.iteritems()))
                               if tmpeventranges is not None:
+                                 logger.debug('received eventranges: %s',
+                                    ' '.join( ('%s:%i' % (tmpid,len(tmplist))) for tmpid,tmplist in tmpeventranges.iteritems()))
                                  # add event ranges to pandajobs dict
                                  for jobid,ers in tmpeventranges.iteritems():
                                     pandajobs[jobid].eventranges += EventRangeList.EventRangeList(ers)
