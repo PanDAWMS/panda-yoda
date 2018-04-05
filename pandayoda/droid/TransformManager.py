@@ -137,9 +137,10 @@ class TransformManager(StatefulService.StatefulService):
       updated_input_files = []
       for input_file in input_files:
          updated_input_files.append(os.path.join(self.yoda_working_path,input_file))
-
-      logger.debug('inFiles: %s',input_files)
-      logger.debug('new files: %s',updated_input_files)
+      
+      # too long for jumbo jobs
+      #logger.debug('inFiles: %s',input_files)
+      #logger.debug('new files: %s',updated_input_files)
 
       start_index = self.job_def['jobPars'].find('--inputEVNTFile=') + len('--inputEVNTFile=')
       end_index   = self.job_def['jobPars'].find(' ',start_index)
@@ -155,8 +156,9 @@ class TransformManager(StatefulService.StatefulService):
          else:
             jobPars = jobPars.replace("--preExec ", "--preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % self.yampl_socket_name)
       
-      logger.debug('jobPars: %s',self.job_def['jobPars'])
-      logger.debug('new jobPars: %s',jobPars)
+      # these prints are too long with jumbo jobs
+      #logger.debug('jobPars: %s',self.job_def['jobPars'])
+      #logger.debug('new jobPars: %s',jobPars)
 
 
       
