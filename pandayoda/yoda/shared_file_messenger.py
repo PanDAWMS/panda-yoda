@@ -244,7 +244,7 @@ def get_pandajobs():
          # parse job spec file
          job_def = json.load(open(jobSpecFile))
          # remove this file now that we are done with it
-         os.remove(jobSpecFile)
+         os.rename(jobSpecFile,jobSpecFile+'.old')
          # remove request file if harvester has not already
          if os.path.exists(harvesterConfig.get(harConfSect,'jobRequestFile')):
             os.remove(harvesterConfig.get(harConfSect,'jobRequestFile'))
@@ -381,7 +381,27 @@ def get_eventranges():
       try:
          logger.debug('eventRangesFile is present, parsing event ranges')
          # read in event range file
-         eventranges = json.load(open(eventRangesFile))
+         fstat = os.stat(eventRangesFile)
+         logger.debug('eventRangesFile stat: %s',str(fstat))
+         try:
+            eventranges = json.load(open(eventRangesFile))
+         except:
+            # try again if the files modify time is within 10 seconds
+            succeeded = False
+            while (fstat.st_mtime - time.time()) < 10:
+               try:
+                  logger.debug(' trying again to open eventRangesFile: %s', str(fstat))
+                  eventranges = json.load(open(eventRangesFile))
+                  succeeded = True
+               except:
+                  logger.debug(' failed to open ')
+                  time.sleep(1)
+                  fstat = os.stat(eventRangesFile)
+               
+            if not succeeded:
+               raise Exception('failed to open eventRangesFile, even after waiting for modified status.')
+
+   
          logger.debug('received json object with size %s bytes',sys.getsizeof(eventranges))
          for jobid,ranges in eventranges.iteritems():
             logger.debug('received %s ranges for Panda ID: %s',len(ranges),jobid)
