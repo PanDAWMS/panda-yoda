@@ -138,7 +138,13 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
             except SerialQueue.Empty:
                logger.debug('no message on queue')
             else:
-               logger.debug('received message: %s',qmsg)
+               # shorten our message for printing
+               if logger.getEffectiveLevel() == logging.DEBUG:
+                  tmpmsg = str(message)
+                  if  len(tmpmsg) > 100:
+                     tmpslice = slice(0,100)
+                     tmpmsg = tmpmsg[tmpslice] + '...'
+                  logger.debug('received mpi message: %s',tmpmsg)
                if 'type' not in qmsg:
                   logger.error('received unexpected message format: %s',qmsg)
                elif qmsg['type'] == MessageTypes.NEW_EVENT_RANGES:
