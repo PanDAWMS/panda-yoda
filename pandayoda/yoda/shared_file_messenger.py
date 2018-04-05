@@ -397,7 +397,9 @@ def get_eventranges():
                except:
                   logger.debug(' failed to open, time since last modified is %d seconds',time_since_last_modified)
                   time.sleep(1)
+                  # update data before checking again
                   fstat = os.stat(eventRangesFile)
+                  time_since_last_modified = fstat.st_mtime - time.time()
                
             if not succeeded:
                raise Exception('failed to open eventRangesFile, even after waiting for modified status. Time since last modified: %d seconds' % time_since_last_modified)
