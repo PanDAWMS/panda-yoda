@@ -85,7 +85,7 @@ class RequestHarvesterJob(StatefulService.StatefulService):
       
       # read in loop_timeout
       if self.config.has_option(config_section,'loop_timeout'):
-         loop_timeout = self.config.get(config_section,'loop_timeout')
+         loop_timeout = self.config.getint(config_section,'loop_timeout')
 
       # start in the request state
       self.set_state(self.REQUEST)
