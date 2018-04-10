@@ -140,7 +140,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
             else:
                # shorten our message for printing
                if logger.getEffectiveLevel() == logging.DEBUG:
-                  tmpmsg = str(message)
+                  tmpmsg = str(qmsg)
                   if  len(tmpmsg) > 100:
                      tmpslice = slice(0,100)
                      tmpmsg = tmpmsg[tmpslice] + '...'
