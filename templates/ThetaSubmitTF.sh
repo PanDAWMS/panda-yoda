@@ -1,11 +1,10 @@
 #!/bin/bash 
-echo ThetaSubmitTF Start
-echo DATE=$(date)
+echo [$SECONDS] ThetaSubmitTF Start
+echo [$SECONDS] DATE=$(date)
 
 export ATHENA_PROC_NUMBER=128 # AthenaMP workers per node
 
 export HARVESTER_DIR=/projects/AtlasADSP/atlas/harvester
-export PILOT_DIR=/projects/AtlasADSP/atlas/pilot
 
 export RUCIO_ACCOUNT=childers
 export RUCIO_APPID={processingType}
@@ -15,12 +14,11 @@ export CMSSW_VERSION=$FRONTIER_ID
 export X509_USER_PROXY=$HARVESTER_DIR/globus/$USER/myproxy
 
 
-echo ATHENA_PROC_NUMBER:   $ATHENA_PROC_NUMBER
-echo HARVESTER_DIR:        $HARVESTER_DIR
-echo PILOT_DIR:            $PILOT_DIR
-echo RUCIO_ACCOUNT:        $RUCIO_ACCOUNT
-echo X509_USER_PROXY:      $X509_USER_PROXY
-echo X509_CERT_DIR:        $X509_CERT_DIR
+echo [$SECONDS] ATHENA_PROC_NUMBER:   $ATHENA_PROC_NUMBER
+echo [$SECONDS] HARVESTER_DIR:        $HARVESTER_DIR
+echo [$SECONDS] RUCIO_ACCOUNT:        $RUCIO_ACCOUNT
+echo [$SECONDS] X509_USER_PROXY:      $X509_USER_PROXY
+echo [$SECONDS] X509_CERT_DIR:        $X509_CERT_DIR
 
 #source $HARVESTER_DIR/bin/activate
 echo [$SECONDS] Setting up AtlasLocalRootBase
@@ -48,10 +46,6 @@ cp $DBREL_LOCATION/current/poolcond/*.xml poolcond
 export DATAPATH=$PWD:$DATAPATH
 unset FRONTIER_SERVER
 
-#export HPC_SW_INSTALL_AREA=/projects/AtlasADSP/atlas/cvmfs/atlas.cern.ch/repo/sw
-
-#export PYTHONPATH=$PILOT_DIR:$YODA_DIR:$YAMPL_PY_DIR:$PYTHONPATH
-#export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$YAMPL_DIR
 
 echo PYTHON Version:       $(python -V)
 echo PYTHONPATH:           $PYTHONPATH
