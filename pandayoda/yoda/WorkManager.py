@@ -83,9 +83,8 @@ class WorkManager(threading.Thread):
                   qmsg = self.queues['WorkManager'].get(block=True,timeout=self.loop_timeout)
                except SerialQueue.Empty:
                   logger.debug('no messages on queue after blocking')
-         elif not ( 
-              (requestHarvesterJob is not None and requestHarvesterJob.jobs_ready()) 
-              and 
+         elif not (
+              (requestHarvesterJob is not None and requestHarvesterJob.jobs_ready()) and
               (requestHarvesterEventRanges is not None and requestHarvesterEventRanges.eventranges_ready())
                   ):
             try:
@@ -171,7 +170,7 @@ class WorkManager(threading.Thread):
 
                   # send it to droid rank
                   logger.debug('sending droid rank %s panda id %s which has the most ready events %s',
-                              qmsg['source_rank'],pandaid,job.number_ready())
+                               qmsg['source_rank'],pandaid,job.number_ready())
                   outmsg = {
                      'type':MessageTypes.NEW_JOB,
                      'job':job.job_def,
@@ -229,6 +228,11 @@ class WorkManager(threading.Thread):
                      if pandajobs[droid_pandaid].number_ready() > 0:
                         self.send_eventranges(pandajobs[droid_pandaid].eventranges,qmsg)
 
+                        # remove message if from pending
+                        if qmsg in self.pending_requests:
+                           self.pending_requests.remove(qmsg)
+                        qmsg = None
+
                      # no event ranges remaining, will request more
                      else:
                         logger.debug('no eventranges remain for pandaID %s, can we request more?',droid_pandaid)
@@ -264,7 +268,7 @@ class WorkManager(threading.Thread):
                            requestHarvesterEventRanges.start()
 
                            # pend the request for later processing
-                           self.pend_request(qmsg)  
+                           self.pend_request(qmsg)
                         # there is a request, if it is running, pend the message for later processing
                         elif requestHarvesterEventRanges.running():
                            logger.debug('requestHarvesterEventRanges is running, will pend this request and check again')
@@ -296,7 +300,7 @@ class WorkManager(threading.Thread):
 
                               if tmpeventranges is not None:
                                  logger.debug('received eventranges: %s',
-                                    ' '.join( ('%s:%i' % (tmpid,len(tmplist))) for tmpid,tmplist in tmpeventranges.iteritems()))
+                                    ' '.join(('%s:%i' % (tmpid,len(tmplist))) for tmpid,tmplist in tmpeventranges.iteritems()))
                                  # add event ranges to pandajobs dict
                                  for jobid,ers in tmpeventranges.iteritems():
                                     pandajobs[jobid].eventranges += EventRangeList.EventRangeList(ers)
@@ -332,9 +336,9 @@ class WorkManager(threading.Thread):
 
          # if there is nothing to be done, sleep
 
-         if ( requestHarvesterJob is not None and requestHarvesterJob.running() ) and \
-            ( requestHarvesterEventRanges is not None and requestHarvesterEventRanges.running() ) and \
-               self.queues['WorkManager'].empty() and self.pending_requests.empty():
+         if (requestHarvesterJob is not None and requestHarvesterJob.running()) and \
+            (requestHarvesterEventRanges is not None and requestHarvesterEventRanges.running()) and \
+            self.queues['WorkManager'].empty() and self.pending_requests.empty():
             time.sleep(self.loop_timeout)
          else:
             logger.debug('continuing loop')
@@ -428,8 +432,4 @@ class WorkManager(threading.Thread):
       else:
          self.pending_requests.append(msg)
          self.pending_index = 0
-
-
-
-
 
