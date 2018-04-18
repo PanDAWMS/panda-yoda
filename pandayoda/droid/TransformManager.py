@@ -2,6 +2,7 @@ import os,logging,subprocess
 from pandayoda.common import VariableWithLock,MPIService,StatefulService
 logger = logging.getLogger(__name__)
 
+
 class TransformManager(StatefulService.StatefulService):
    ''' This service is handed a job definition and when the parent process
        calls the start() function, it launches the transform defined by the
@@ -22,8 +23,8 @@ class TransformManager(StatefulService.StatefulService):
                      stdout_filename,
                      stderr_filename,
                      yampl_socket_name):
-      ''' 
-        queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send 
+      '''
+        queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send
                      messages to other Droid components about errors, etc.
         config: the ConfigParser handle for yoda
         droid_working_path: the path where athena will execute
@@ -39,6 +40,12 @@ class TransformManager(StatefulService.StatefulService):
 
       # extract runscript filename
       self.runscript_filename    = config.get('TransformManager','run_script')
+
+      # extract run_with_container
+      self.use_container         = config.getboolean('TransformManager','use_container')
+
+      # extract container prefix command
+      self.container_prefix      = config.get('TransformManager','container_prefix')
 
       # dictionary of queues for sending messages to Droid components
       self.queues                = queues
@@ -108,12 +115,10 @@ class TransformManager(StatefulService.StatefulService):
       logger.info('exiting')
 
    def create_job_run_script(self):
-      ''' using the template set in the configuration, create a script that 
+      ''' using the template set in the configuration, create a script that
           will run the panda job with the appropriate environment '''
       logger.debug('JobSubProcess: create job run script')
       template_filename = self.runscript_template
-      #if os.path.exists(template_filename):
-      #logger.debug('JobSubProcess: template file exists')
       
       template_file = open(template_filename)
       template = template_file.read()
@@ -125,7 +130,6 @@ class TransformManager(StatefulService.StatefulService):
          gcclocation += '$CMTCONFIG/'
          gcclocation += '.'.join(release.split('.')[:-1])
          gcclocation += '/gcc-alt-472/$CMTCONFIG'
-      #elif release.startswith('20'):
 
       # set transformation command
       transformation = self.job_def['transformation']
@@ -139,8 +143,8 @@ class TransformManager(StatefulService.StatefulService):
          updated_input_files.append(os.path.join(self.yoda_working_path,input_file))
       
       # too long for jumbo jobs
-      #logger.debug('inFiles: %s',input_files)
-      #logger.debug('new files: %s',updated_input_files)
+      # logger.debug('inFiles: %s',input_files)
+      # logger.debug('new files: %s',updated_input_files)
 
       start_index = self.job_def['jobPars'].find('--inputEVNTFile=') + len('--inputEVNTFile=')
       end_index   = self.job_def['jobPars'].find(' ',start_index)
@@ -157,8 +161,8 @@ class TransformManager(StatefulService.StatefulService):
             jobPars = jobPars.replace("--preExec ", "--preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % self.yampl_socket_name)
       
       # these prints are too long with jumbo jobs
-      #logger.debug('jobPars: %s',self.job_def['jobPars'])
-      #logger.debug('new jobPars: %s',jobPars)
+      # logger.debug('jobPars: %s',self.job_def['jobPars'])
+      # logger.debug('new jobPars: %s',jobPars)
 
 
       
@@ -192,6 +196,11 @@ class TransformManager(StatefulService.StatefulService):
 
       # parse the job into a command
       cmd = self.create_job_run_script()
+
+      # if container job add container prefix command
+      if self.use_container:
+         cmd = self.container_prefix + ' ' + cmd
+
       logger.debug('starting run_script: %s',cmd)
       
       self.jobproc = subprocess.Popen(['/bin/bash',cmd],
@@ -208,10 +217,10 @@ class TransformManager(StatefulService.StatefulService):
          raise Exception('tried killing subprocess, but subprocess is empty')
 
    def is_subprocess_running(self):
-      if self.jobproc is None: 
+      if self.jobproc is None:
          return False
       # check if job is still running
-      if self.jobproc.poll() is None: 
+      if self.jobproc.poll() is None:
          return True
       return False
 
