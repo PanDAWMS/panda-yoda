@@ -1,14 +1,11 @@
 # panda-yoda
-==========
 
 ## Requirements
--------------
 
 - python 2.7+ (haven't actually tested with Python 3)
 - mpi4py
 
 ##  Installation
---------------------
 
 If you are using a non-standard MPI library, which is common for most supercomputers, you will need to compile the `mpi4py` module against your local MPI libraries. In order to compile the `mpi4py` module you will need to compile the `Cython` module which `mpi4py` uses to wrap the C++ MPI library functions in Python.
 
@@ -17,7 +14,6 @@ In all cases you will need to compile the `yampl` program and the `python-yampl`
 Here are rough instructions for this process, there are specific instructions for some sites further below.
 
 ## Generic Instructions
-------------------------
 
 ```bash
 # setup environment
@@ -61,7 +57,7 @@ pip install git+git://github.com/PanDAWMS/panda-yoda
 You should be able to run the `yoda_droid` command from the command line at this point and have it work.
 
 ## Uninstall or Update
-----------------------
+
 In my experience with these pip installs from github, you must do the following to update or uninstall:
 ```bash
 rm -rf $VIRTUAL_ENV/lib/python2.7/site-packages/pandayoda
@@ -71,7 +67,7 @@ pip install git+git://github.com/PanDAWMS/panda-yoda
 
 
 # Install on NERSC/Edison
--------------------------
+
 Custom installation for Edison at NERSC
 
 ```bash
