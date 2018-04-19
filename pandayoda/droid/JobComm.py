@@ -412,8 +412,8 @@ class PayloadMessenger(StatefulService.StatefulService):
             logger.debug('%s: sending event to payload',self.prelog)
             # if event ranges available, send one
             try:
-               local_eventranges = self.get_next_eventrange()
                logger.debug('%s: have %d ready event ranges to send to AthenaMP',self.prelog,self.eventranges.get().number_ready())
+               local_eventranges = self.get_next_eventrange()
             # no more event ranges available
             except EventRangeList.NoMoreEventRanges:
                logger.debug('%s: there are no more event ranges to process',self.prelog)
