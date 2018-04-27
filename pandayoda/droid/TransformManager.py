@@ -1,4 +1,4 @@
-import os,logging,subprocess
+import os,logging,subprocess,random
 from pandayoda.common import VariableWithLock,MPIService,StatefulService
 logger = logging.getLogger(__name__)
 
@@ -148,8 +148,10 @@ class TransformManager(StatefulService.StatefulService):
 
       start_index = self.job_def['jobPars'].find('--inputEVNTFile=') + len('--inputEVNTFile=')
       end_index   = self.job_def['jobPars'].find(' ',start_index)
+      
+      file_index = random.randint(0,len(updated_input_files)-1)
 
-      jobPars = self.job_def['jobPars'][:start_index] + ','.join(x for x in updated_input_files) + self.job_def['jobPars'][end_index:]
+      jobPars = self.job_def['jobPars'][:start_index] +  updated_input_files[file_index] + ' ' + self.job_def['jobPars'][end_index:] + ' --fileValidation=FALSE'
 
       # insert the Yampl AthenaMP setting
       if "--preExec" not in jobPars:
@@ -160,6 +162,11 @@ class TransformManager(StatefulService.StatefulService):
          else:
             jobPars = jobPars.replace("--preExec ", "--preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % self.yampl_socket_name)
       
+      if '--postExec' not in jobPars:
+         jobPars += " --postExec 'svcMgr.MessageSvc.defaultLimit = 9999999;' "
+      else:
+         jobPars = jobPars.replace('--postExec ','--postExec "svcMgr.MessageSvc.defaultLimit = 9999999;" ')
+
       # these prints are too long with jumbo jobs
       # logger.debug('jobPars: %s',self.job_def['jobPars'])
       # logger.debug('new jobPars: %s',jobPars)
@@ -174,7 +181,8 @@ class TransformManager(StatefulService.StatefulService):
                                processingType=self.job_def['processingType'],
                                pandaID=self.job_def['PandaID'],
                                taskID=self.job_def['taskID'],
-                               gcclocation=gcclocation
+                               gcclocation=gcclocation,
+                               working_dir=self.droid_working_path,
                               )
 
       script_filename = self.runscript_filename
@@ -195,18 +203,24 @@ class TransformManager(StatefulService.StatefulService):
       logger.debug('start JobSubProcess')
 
       # parse the job into a command
-      cmd = self.create_job_run_script()
+      script_name = self.create_job_run_script()
 
       # if container job add container prefix command
       if self.use_container:
-         cmd = self.container_prefix + ' ' + cmd
+         cmd = self.container_prefix + ' ' + script_name
+         env = {}
+      else:
+         cmd = '/bin/bash ' + script_name
+         env = None
 
       logger.debug('starting run_script: %s',cmd)
       
-      self.jobproc = subprocess.Popen(['/bin/bash',cmd],
-                     stdout=open(self.stdout_filename,'w'),
-                     stderr=open(self.stderr_filename,'w'),
-                     cwd=self.droid_working_path)
+      self.jobproc = subprocess.Popen(cmd.split(),
+                        stdout=open(self.stdout_filename,'w'),
+                        stderr=open(self.stderr_filename,'w'),
+                        cwd=self.droid_working_path,
+                        env=env,
+                        )
 
       logger.debug('transform is running')
 
@@ -217,10 +231,10 @@ class TransformManager(StatefulService.StatefulService):
          raise Exception('tried killing subprocess, but subprocess is empty')
 
    def is_subprocess_running(self):
-      if self.jobproc is None:
+      if self.jobproc is None: 
          return False
       # check if job is still running
-      if self.jobproc.poll() is None:
+      if self.jobproc.poll() is None: 
          return True
       return False
 
