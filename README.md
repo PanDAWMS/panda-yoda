@@ -1,18 +1,75 @@
-panda-yoda
-==========
+# panda-yoda
 
-Ideal installation
--------------------
+## Requirements
 
-pip install git+git://github.com/PanDAWMS/panda-yoda
-
-Requirements
--------------
-
-- python 2.7+
+- python 2.7+ (haven't actually tested with Python 3)
 - mpi4py
 
-Install on NERSC/Edison:
+##  Installation
+
+If you are using a non-standard MPI library, which is common for most supercomputers, you will need to compile the `mpi4py` module against your local MPI libraries. In order to compile the `mpi4py` module you will need to compile the `Cython` module which `mpi4py` uses to wrap the C++ MPI library functions in Python.
+
+In all cases you will need to compile the `yampl` program and the `python-yampl` wrapper for Yoda to use during communications with AthenaMP.
+
+Here are rough instructions for this process, there are specific instructions for some sites further below.
+
+## Generic Instructions
+
+```bash
+# setup environment
+# typically I setup the virtualenv of Harvester at this point
+# if your HPC system uses modules to setup environments you may
+# need to source some modules for an older GNU or move from 
+# intel to GNU compilers, etc.
+
+# I'll assume you are in the Harvester virtualenv base directory
+# referenced by $VIRTUAL_ENV
+
+# Custom build Cython with local compilers
+git clone git@github.com:cython/cython.git
+cd cython
+git checkout tags/0.25.2 # later tags may also work (haven't tested)
+# here cc and CC are place holders for whichever compiler your
+# local system requires
+CC=cc CXX=CC python setup.py build
+export PYTHONPATH=$VIRTUAL_ENV/lib64/python2.7/site-packages
+# this installs the python module in the same site-packages area
+# as harvester, etc.
+CC=cc CXX=CC python setup.py install --prefix=$VIRTUAL_ENV
+
+cd ../
+
+# Custom build mpi4py with local compilers for Theta worker nodes
+git clone git@github.com:mpi4py/mpi4py.git
+cd mpi4py
+git checkout tags/2.0.0 # later tags may work (haven't tested)
+##  edit mpi.cfg
+##  under [mpi]
+##  uncomment mpicc and mpicxx
+##  change compiler to point at your local compilers (cc & CC) in this example
+CC=cc CXX=CC python setup.py build
+CC=cc CXX=CC python setup.py install --prefix=$VIRTUAL_ENV
+
+# install yoda into the $VIRTUAL_ENV/python2.7/site-packages
+pip install git+git://github.com/PanDAWMS/panda-yoda
+```
+
+You should be able to run the `yoda_droid` command from the command line at this point and have it work.
+
+## Uninstall or Update
+
+In my experience with these pip installs from github, you must do the following to update or uninstall:
+```bash
+rm -rf $VIRTUAL_ENV/lib/python2.7/site-packages/pandayoda
+rm -rf $VIRTUAL_ENV/lib/python2.7/site-packages/panda_yoda-0.0.1-py2.7.egg-info
+pip install git+git://github.com/PanDAWMS/panda-yoda
+```
+
+
+# Install on NERSC/Edison
+
+Custom installation for Edison at NERSC
+
 ```bash
 # setup environment
 module load python/2.7.9
