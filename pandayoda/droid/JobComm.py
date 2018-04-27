@@ -412,8 +412,8 @@ class PayloadMessenger(StatefulService.StatefulService):
             logger.debug('%s: sending event to payload',self.prelog)
             # if event ranges available, send one
             try:
-               logger.debug('%s: have %d ready event ranges to send to AthenaMP',self.prelog,self.eventranges.get().number_ready())
                local_eventranges = self.get_next_eventrange()
+               logger.debug('%s: have %d ready event ranges to send to AthenaMP',self.prelog,self.eventranges.get().number_ready())
             # no more event ranges available
             except EventRangeList.NoMoreEventRanges:
                logger.debug('%s: there are no more event ranges to process',self.prelog)
@@ -442,6 +442,28 @@ class PayloadMessenger(StatefulService.StatefulService):
                   logger.debug('%s: eventranges not yet set, looping again',self.prelog)
             else:
                logger.debug('%s: sending eventranges to AthenaMP: %s',self.prelog,local_eventranges)
+               # append full path to file name for AthenaMP
+               # and adjust event counter by the number of files
+               #input_files = self.job_def.get()['inFiles'].split(',')
+               #logger.debug('%s: found %s input files',self.prelog,len(input_files))
+               for evtrg in local_eventranges:
+                  evtrg['PFN'] = os.path.join(os.getcwd(),evtrg['LFN'])
+                  '''
+                  # get index of the file in the input file list
+                  # counting from 0
+                  filenum = input_files.index(evtrg['LFN'])
+                  logger.debug('%s: file %s is index %s',self.prelog,evtrg['LFN'],filenum)
+                  for i in range(filenum+1):
+                     logger.debug('%s: file %s = %s',self.prelog,i,input_files[i])
+                  logger.debug('%s: startEvent = %s',self.prelog,evtrg['startEvent'])
+                  evtrg['startEvent'] = evtrg['startEvent'] - filenum*500
+                  logger.debug('%s: startEvent = %s',self.prelog,evtrg['startEvent'])
+                  evtrg['lastEvent'] = evtrg['lastEvent'] - filenum*500'''
+
+
+               
+
+
                # send AthenaMP the new event ranges
                athpayloadcomm.send(serializer.serialize(local_eventranges))
                # decrement counter since we sent some events
