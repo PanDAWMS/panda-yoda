@@ -480,20 +480,27 @@ def stage_out_file(output_type,output_path,eventRangeID,eventStatus,pandaID,chks
    else:
 
       # first move existing file to tmp so Harvester does not read it while we edit
-      os.rename(eventStatusDumpJsonFile,eventStatusDumpJsonFile_tmp)
-
-      # now open and read in the data
-      with open(eventStatusDumpJsonFile_tmp,'r') as f:
-         data = serializer.deserialize(f.read())
-      logger.debug('existing data contains %s',data)
-      # if the pandaID already exists, just append the new file to that list
-      if pandaID in data:
-         logger.debug('addding data to existing panda list')
-         data[pandaID].append(file_descriptor)
-      # if the pandaID does not exist, add a new list
+      try:
+         os.rename(eventStatusDumpJsonFile,eventStatusDumpJsonFile_tmp)
+      except:
+         logger.warning('tried moving %s to a tmp filename to add more output files for Harvester.',eventStatusDumpJsonFile)
+         if not os.path.exists(eventStatusDumpJsonFile):
+            logger.warning('%s file no longer exists so Harvester must have grabbed it. Need to create a new file',eventStatusDumpJsonFile)
+            data = {pandaID: [file_descriptor]}
       else:
-         logger.debug('addding new panda id list')
-         data[pandaID] = [file_descriptor]
+
+         # now open and read in the data
+         with open(eventStatusDumpJsonFile_tmp,'r') as f:
+            data = serializer.deserialize(f.read())
+         logger.debug('existing data contains %s',data)
+         # if the pandaID already exists, just append the new file to that list
+         if pandaID in data:
+            logger.debug('addding data to existing panda list')
+            data[pandaID].append(file_descriptor)
+         # if the pandaID does not exist, add a new list
+         else:
+            logger.debug('addding new panda id list')
+            data[pandaID] = [file_descriptor]
 
    logger.debug('output to file %s: %s',eventStatusDumpJsonFile,data)
    
