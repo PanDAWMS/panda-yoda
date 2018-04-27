@@ -152,7 +152,7 @@ class MPIService(StatefulService.StatefulService):
             # shorten our message for printing
             if logger.getEffectiveLevel() == logging.DEBUG:
                tmpmsg = str(qmsg)
-               if len(tmpmsg) > 100:
+               if  len(tmpmsg) > 100:
                   tmpslice = slice(0,100)
                   tmpmsg = tmpmsg[tmpslice] + '...'
                logger.debug('received queue message: %s',tmpmsg)
@@ -179,7 +179,6 @@ class MPIService(StatefulService.StatefulService):
             # wait for send to complete
             logger.debug('wait for send to complete')
             send_request.wait()
-            logger.debug('send complete')
          except SerialQueue.Empty:
             logger.debug('no message from message queue')
 
