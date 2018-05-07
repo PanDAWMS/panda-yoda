@@ -221,7 +221,7 @@ class Droid(StatefulService.StatefulService):
                   time.sleep(self.loop_timeout)
 
             else:
-               logger.debug('transform exited')
+               logger.info('transform exited')
                self.set_state(Droid.TRANSFORM_EXITED)
 
 
