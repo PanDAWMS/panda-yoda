@@ -96,7 +96,7 @@ class TransformManager(StatefulService.StatefulService):
       logger.info('monitoring subprocess for transform')
       self.set_state(TransformManager.MONITORING)
       while not self.exit.wait(timeout=self.loop_timeout):
-         logger.debug('start moinitor loop')
+         logger.debug('start moinitor loop, timeout = %s',self.loop_timeout)
 
          if not self.is_subprocess_running():
             logger.info('transform has finished')
