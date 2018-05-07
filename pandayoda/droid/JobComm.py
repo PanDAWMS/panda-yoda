@@ -388,7 +388,7 @@ class PayloadMessenger(StatefulService.StatefulService):
             
             # if ready for events, send them or wait for some
             if athena_payloadcommunicator.READY_FOR_EVENTS in payload_msg:
-               logger.debug('%s: received "%s" from payload',self.prelog,payload_msg)
+               logger.info('%s: received "%s" from payload',self.prelog,payload_msg)
                self.set_state(self.SEND_EVENT_RANGE)
                # increment counter to keep track of how many requests are queued
                event_range_request_counter += 1
@@ -397,7 +397,7 @@ class PayloadMessenger(StatefulService.StatefulService):
             #### OUTPUT File received
             elif len(payload_msg.split(',')) == 4:
                # Athena sent details of an output file
-               logger.debug('%s: received output file from AthenaMP',self.prelog)
+               logger.info('%s: received output file from AthenaMP',self.prelog)
                
                self.set_state(self.SEND_OUTPUT_FILE)
 
@@ -419,12 +419,12 @@ class PayloadMessenger(StatefulService.StatefulService):
                logger.debug('%s: there are no more event ranges to process',self.prelog)
                # if we have been told there are no more eventranges, then tell the AthenaMP worker there are no more events
                if self.no_more_eventranges.isSet():
-                  logger.debug('%s: sending AthenaMP NO_MORE_EVENTS',self.prelog)
+                  logger.info('%s: sending AthenaMP NO_MORE_EVENTS',self.prelog)
                   athpayloadcomm.send(athena_payloadcommunicator.NO_MORE_EVENTS)
 
                # otherwise wait for more events
                else:
-                  logger.debug('%s: waiting for more events for',self.prelog)
+                  logger.info('%s: waiting for more events for',self.prelog)
                
 
                # return to state requesting a message
@@ -441,7 +441,7 @@ class PayloadMessenger(StatefulService.StatefulService):
                else:
                   logger.debug('%s: eventranges not yet set, looping again',self.prelog)
             else:
-               logger.debug('%s: sending eventranges to AthenaMP: %s',self.prelog,local_eventranges)
+               logger.info('%s: sending eventranges to AthenaMP: %s',self.prelog,local_eventranges)
                # append full path to file name for AthenaMP
                # and adjust event counter by the number of files
                #input_files = self.job_def.get()['inFiles'].split(',')
