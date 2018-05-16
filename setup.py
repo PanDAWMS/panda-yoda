@@ -43,5 +43,5 @@ setup(
       'Programming Language :: Python :: 3.4',
       'Operating System :: Unix',
       ],
-   install_requires=['mpi4py']
+   #install_requires=['mpi4py']
 )
