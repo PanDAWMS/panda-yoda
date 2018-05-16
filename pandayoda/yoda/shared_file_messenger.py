@@ -2,9 +2,9 @@ import os,json,logging,ConfigParser,time,threading,glob,sys
 from pandayoda.common import exceptions,serializer,MPIService
 logger = logging.getLogger(__name__)
 
-''' 
+'''
 
-This is a collection of functions used by Yoda/Droid to communicate with Harvester. It can be exchanged with other plugins 
+This is a collection of functions used by Yoda/Droid to communicate with Harvester. It can be exchanged with other plugins
 
 The jobSpecFile format is like this:
 =================================================================================
@@ -150,10 +150,11 @@ harvesterConfig = None
 # I put this in because the setup function was being called in parallel with the requestevents()
 # this caused the request events to fail because it was moving faster than the setup function
 # and therefore could not find the configuration information yet and threw an exception.
-harConfLock = threading.Lock() 
+harConfLock = threading.Lock()
 harConfSect = 'payload_interaction'
 request_polling_time = 5
 request_poll_timeout = 300
+
 
 def setup(config):
    global harvesterConfig,harConfLock
@@ -175,6 +176,7 @@ def setup(config):
 
    harConfLock.release()
 
+
 def request_jobs():
    global harvesterConfig,harConfSect,harConfLock
    logger.debug('requesting job')
@@ -194,6 +196,7 @@ def request_jobs():
       open(jobRequestFile,'w').write('jobRequestFile')
    else:
       raise exceptions.MessengerJobAlreadyRequested
+
 
 def pandajobs_ready():
    global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
@@ -244,13 +247,13 @@ def get_pandajobs():
          # parse job spec file
          job_def = json.load(open(jobSpecFile))
          # remove this file now that we are done with it
-         os.rename(jobSpecFile,jobSpecFile+'.old')
+         os.rename(jobSpecFile,jobSpecFile + '.old')
          # remove request file if harvester has not already
          if os.path.exists(harvesterConfig.get(harConfSect,'jobRequestFile')):
             os.remove(harvesterConfig.get(harConfSect,'jobRequestFile'))
          # return job definition
          return job_def
-      except:
+      except Exception:
          logger.exception('failed to parse jobSpecFile: %s' % (jobSpecFile))
          raise
    return {}
@@ -286,7 +289,7 @@ def request_eventranges(job_def):
       new_job_def = {job_def['pandaID']:job_def}
       
       f = open(eventRequestFile_tmp,'w')
-      f.write(serializer.serialize(new_job_def)) 
+      f.write(serializer.serialize(new_job_def))
       f.close()
 
       # now move tmp filename to real filename
@@ -359,6 +362,7 @@ def eventranges_ready(block=False,timeout=60):
    logger.debug('no eventRangesFile, exiting')
    return False
 
+
 def get_eventranges():
    global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
    logger.debug('getting eventranges')
@@ -385,7 +389,7 @@ def get_eventranges():
          logger.debug('eventRangesFile stat: %s',str(fstat))
          try:
             eventranges = json.load(open(eventRangesFile))
-         except:
+         except Exception:
             # try again if the files modify time is within 10 seconds
             succeeded = False
             time_since_last_modified = fstat.st_mtime - time.time()
@@ -394,7 +398,7 @@ def get_eventranges():
                   logger.debug(' trying again to open eventRangesFile: %s', str(fstat))
                   eventranges = json.load(open(eventRangesFile))
                   succeeded = True
-               except:
+               except Exception:
                   logger.debug(' failed to open, time since last modified is %d seconds',time_since_last_modified)
                   time.sleep(1)
                   # update data before checking again
@@ -413,24 +417,25 @@ def get_eventranges():
          newtmp = glob.glob(eventRangesFile + '.old*')
          os.rename(eventRangesFile,eventRangesFile + ('.old.%02i' % len(newtmp)))
          # remove the request file if harvester has not already
-         #if os.path.exists(harvesterConfig.get(harConfSect,'eventRangesFile')):
-            #os.remove(harvesterConfig.get(harConfSect,'eventRangesFile'))
+         # if os.path.exists(harvesterConfig.get(harConfSect,'eventRangesFile')):
+         # os.remove(harvesterConfig.get(harConfSect,'eventRangesFile'))
          # return event ranges
          return eventranges
-      except:
+      except Exception:
          logger.exception('failed to parse eventRangesFile: %s',eventRangesFile)
          # if the event range file is present, rename it as failedread for debugging
          if os.path.exists(eventRangesFile):
             newtmp = glob.glob(eventRangesFile + '.old*')
             newname = eventRangesFile + ('.old.%02i.failedread' % len(newtmp))
             os.rename(eventRangesFile,newname)
-         raise exceptions.MessengerFailedToParse('failed to parse event file, find it here %s' % newname )
+         raise exceptions.MessengerFailedToParse('failed to parse event file, find it here %s' % newname)
    return {}
 
 
 '''
 The worker needs to put eventStatusDumpJsonFile to update events and/or stage-out. The file is a json dump of a dictionary {pandaID_1:[{'eventRangeID':???, 'eventStatus':???, 'path':???, 'type':???, 'chksum':???, 'guid':???}, ...], pandaID_2:[...], ...}. Only 'eventRangeID' and 'eventStatus' are required to update events, while other file information such as 'path', 'type' and 'chksum' are required in addition if the event produced an output file. 'type' is the type of the file and it can be 'output', 'es_output', or 'log'. 'eventRangeID' should be removed unless the type is 'es_output'. Harvester uploads files depending on the 'type'. 'chksum' is calculated using adler32 if omitted. If the output has an intrinsic guid (this is the case for POOL files) 'guid' needs to be set. eventStatusDumpJsonFile is deleted once Harvester updates the database.
 '''
+
 
 def stage_out_file(output_type,output_path,eventRangeID,eventStatus,pandaID,chksum=None,):
    global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
@@ -482,7 +487,7 @@ def stage_out_file(output_type,output_path,eventRangeID,eventStatus,pandaID,chks
       # first move existing file to tmp so Harvester does not read it while we edit
       try:
          os.rename(eventStatusDumpJsonFile,eventStatusDumpJsonFile_tmp)
-      except:
+      except Exception:
          logger.warning('tried moving %s to a tmp filename to add more output files for Harvester.',eventStatusDumpJsonFile)
          if not os.path.exists(eventStatusDumpJsonFile):
             logger.warning('%s file no longer exists so Harvester must have grabbed it. Need to create a new file',eventStatusDumpJsonFile)
@@ -511,8 +516,98 @@ def stage_out_file(output_type,output_path,eventRangeID,eventStatus,pandaID,chks
    # move tmp file into place
    os.rename(eventStatusDumpJsonFile_tmp,eventStatusDumpJsonFile)
 
-   
 
+def stage_out_files(file_list,output_type,output_path):
+   global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
+
+   if output_type not in ['output','es_output','log']:
+      raise Exception('Rank %05i: incorrect type provided: %s' % (MPIService.rank,output_type))
+
+   # check that harvester config is loaded
+   if harvesterConfig is None:
+      raise Exception('Rank %05i: must first run setup before get_eventranges' % MPIService.rank)
+
+
+   # load name of eventStatusDumpJsonFile file
+   try:
+      harConfLock.acquire()
+      eventStatusDumpJsonFile = harvesterConfig.get(harConfSect,'eventStatusDumpJsonFile')
+      harConfLock.release()
+   except ConfigParser.NoSectionError:
+      harConfLock.release()
+      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPIService.rank,harConfSect,harvesterConfig.sections()))
+
+   eventStatusDumpData = {}
+   # loop over filelist
+   for filedata in file_list:
+
+      # make sure pandaID is a string
+      pandaID = str(filedata['pandaid'])
+
+      chksum = None
+      if 'chksum' in filedata:
+         chksum = filedata['chksum']
+
+      filename = os.path.join(output_path,os.path.basename(filedata['filename']))
+      
+      # format data for file:
+      file_descriptor = {'eventRangeID':filedata['eventrangeid'],
+                         'eventStatus':filedata['eventstatus'],
+                         'path':filename,
+                         'type':output_type,
+                         'chksum': chksum,
+                         'guid': None,
+                        }
+      try:
+         eventStatusDumpData[pandaID].append(file_descriptor)
+      except KeyError:
+         eventStatusDumpData[pandaID] = [file_descriptor]
+
+   # create a temp file to place contents
+   # this avoids Harvester trying to read the file while it is being written
+   eventStatusDumpJsonFile_tmp = eventStatusDumpJsonFile + '.tmp'
+
+   # if file does not already exists, new data is just what we have
+   if not os.path.exists(eventStatusDumpJsonFile):
+      data = eventStatusDumpData
+   
+   # if the file exists, move it to a tmp filename, update its contents and then recreate it.
+   else:
+
+      # first move existing file to tmp so Harvester does not read it while we edit
+      try:
+         os.rename(eventStatusDumpJsonFile,eventStatusDumpJsonFile_tmp)
+      except Exception:
+         logger.warning('tried moving %s to a tmp filename to add more output files for Harvester.',eventStatusDumpJsonFile)
+         if not os.path.exists(eventStatusDumpJsonFile):
+            logger.warning('%s file no longer exists so Harvester must have grabbed it. Need to create a new file',eventStatusDumpJsonFile)
+            data = eventStatusDumpData
+      else:
+
+         # now open and read in the data
+         with open(eventStatusDumpJsonFile_tmp,'r') as f:
+            data = serializer.deserialize(f.read())
+         logger.debug('found existing data for pandaIDs: %s',data.keys())
+
+         for pandaID in eventStatusDumpData:
+
+            # if the pandaID already exists, just append the new file to that list
+            try:
+               logger.debug('addding data to existing panda list')
+               data[pandaID] += eventStatusDumpData[pandaID]
+            # if the pandaID does not exist, add a new list
+            except KeyError:
+               logger.debug('addding new panda id list')
+               data[pandaID] = eventStatusDumpData[pandaID]
+
+   logger.debug('output to file %s: %s',eventStatusDumpJsonFile,data)
+   
+   # overwrite the temp file with the updated data
+   with open(eventStatusDumpJsonFile_tmp,'w') as f:
+      f.write(serializer.serialize(data))
+
+   # move tmp file into place
+   os.rename(eventStatusDumpJsonFile_tmp,eventStatusDumpJsonFile)
 
 
 

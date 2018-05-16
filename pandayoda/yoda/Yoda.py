@@ -26,7 +26,7 @@ class Yoda(threading.Thread):
 
       # the ealiest measure of the start time for Yoda/Droid
       # this is used to determine when to exit
-      # it is expected to be output from time.time() so 
+      # it is expected to be output from time.time() so
       # in seconds since the epoch
       self.start_time         = start_time
 
@@ -65,7 +65,7 @@ class Yoda(threading.Thread):
          return
       logger.info('%s loop_timeout: %d',config_section,self.loop_timeout)
 
-      # read wallclock leadtime which sets how far from the end of 
+      # read wallclock leadtime which sets how far from the end of
       # the wallclock yoda should initiate droids to exit
       if self.config.has_option(config_section,'wallclock_expiring_leadtime'):
          self.wallclock_expiring_leadtime = self.config.getfloat(config_section,'wallclock_expiring_leadtime')
@@ -138,8 +138,8 @@ class Yoda(threading.Thread):
                if name == 'WorkManager':
                   self.stop()
                   continue
-            #else:
-               #logger.debug('%s %s is running.',self.prelog,name)
+            # else:
+            # logger.debug('%s %s is running.',self.prelog,name)
 
          if len(subthreads) == 0:
             logger.info('no subthreads remaining, exiting')
@@ -182,7 +182,7 @@ class Yoda(threading.Thread):
          if timeleft < self.wallclock_expiring_leadtime:
             logger.debug('time left %s is less than the leadtime %s, triggering exit.',timeleft,self.wallclock_expiring_leadtime)
             
-            #exit this thread
+            # exit this thread
             self.stop()
             
          else:

@@ -75,29 +75,31 @@ class FileManager(threading.Thread):
             logger.debug('message received: %s',qmsg)
 
             if qmsg['type'] == MessageTypes.OUTPUT_FILE:
-               
-               # copy file to yoda working path
-               source_file = qmsg['filename']
-               destination_path = self.yoda_working_path
 
-               if os.path.exists(source_file) and os.path.exists(destination_path):
+               # loop over output files and copy the files to destination
+               for filedata in qmsg['filelist']:
+               
+                  # copy file to yoda working path
+                  source_file = filedata['filename']
+                  destination_path = self.yoda_working_path
+
+                  try:
+                     logger.debug('copying %s to %s',source_file,destination_path)
+                     shutil.copy(source_file,destination_path)
+                  except Exception:
+                     logger.exception('exception received during copy')
+                     if not os.path.exists(source_file):
+                        logger.error('input filename does not exist: %s',source_file)
+                     if not os.path.exists(self.yoda_working_path):
+                        logger.error('output file path does not exist: %s',destination_path)
+
+                  # destination_file = os.path.join(destination_path,os.path.basename(filedata['filename']))
                   
-                  logger.debug('copying %s to %s',source_file,destination_path)
-                  shutil.copy(source_file,destination_path)
-               elif not os.path.exists(source_file):
-                  logger.error('input filename does not exist: %s',source_file)
-               elif not os.path.exists(self.yoda_working_path):
-                  logger.error('output file path does not exist: %s',destination_path)
-
-               destination_file = os.path.join(destination_path,os.path.basename(qmsg['filename']))
-               
                # add file to Harvester stage out
-               harvester_messenger.stage_out_file(self.output_file_type,
-                                        destination_file,
-                                        qmsg['eventrangeid'],
-                                        qmsg['eventstatus'],
-                                        qmsg['pandaid']
-                                       )
+               harvester_messenger.stage_out_files(qmsg['filelist'],
+                                                   self.output_file_type,
+                                                   destination_path,
+                                                  )
 
 
             else:

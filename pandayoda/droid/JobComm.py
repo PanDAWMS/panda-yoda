@@ -6,18 +6,24 @@ logger = logging.getLogger(__name__)
 
 try:
    import yampl
-except:
+except Exception,e:
    logger.exception("Failed to import yampl")
    raise
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
-class NoEventRangeDefined(Exception): 
+
+class NoEventRangeDefined(Exception):
    pass
-class NoMoreEventsToProcess(Exception): 
+
+
+class NoMoreEventsToProcess(Exception):
    pass
-class FailedToParseYodaMessage(Exception): 
+
+
+class FailedToParseYodaMessage(Exception):
    pass
+
 
 class JobComm(StatefulService.StatefulService):
    '''  JobComm: This thread handles all the AthenaMP related payloadcommunication
@@ -41,8 +47,8 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
    
    def __init__(self,config,queues,droid_working_path,yampl_socket_name):
-      ''' 
-        queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send 
+      '''
+        queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send
                      messages to other Droid components about errors, etc.
         config: the ConfigParser handle for yoda
         droid_working_path: The location of the Droid working area
@@ -99,7 +105,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                # shorten our message for printing
                if logger.getEffectiveLevel() == logging.DEBUG:
                   tmpmsg = str(qmsg)
-                  if  len(tmpmsg) > 100:
+                  if len(tmpmsg) > 100:
                      tmpslice = slice(0,100)
                      tmpmsg = tmpmsg[tmpslice] + '...'
                   logger.debug('received queue message: %s',tmpmsg)
@@ -110,7 +116,10 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                   current_job = qmsg['job']
                   
                   # create new payload communicator
-                  payloadcomm = PayloadMessenger(self.yampl_socket_name,self.queues,self.loop_timeout)
+                  payloadcomm = PayloadMessenger(self.yampl_socket_name,
+                                                 self.queues,
+                                                 self.loop_timeout,
+                                                 self.aggregate_output_files_time)
                   payloadcomm.start()
 
                   # set the job definition in the PayloadCommunicator
@@ -147,7 +156,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                # shorten our message for printing
                if logger.getEffectiveLevel() == logging.DEBUG:
                   tmpmsg = str(qmsg)
-                  if  len(tmpmsg) > 100:
+                  if len(tmpmsg) > 100:
                      tmpslice = slice(0,100)
                      tmpmsg = tmpmsg[tmpslice] + '...'
                   logger.debug('received queue message: %s',tmpmsg)
@@ -231,6 +240,16 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       if MPIService.rank == 0:
          logger.info('JobComm get_more_events_threshold: %d',self.get_more_events_threshold)
 
+
+      # get aggregate_output_files_time
+      if self.config.has_option(config_section,'aggregate_output_files_time'):
+         self.aggregate_output_files_time = self.config.getint(config_section,'aggregate_output_files_time')
+      else:
+         logger.error('must specify "aggregate_output_files_time" in "%s" section of config file',config_section)
+         return
+      if MPIService.rank == 0:
+         logger.info('JobComm get_more_events_threshold: %d',self.aggregate_output_files_time)
+
    def request_events(self,current_job):
       msg = {
             'type':MessageTypes.REQUEST_EVENT_RANGES,
@@ -258,14 +277,17 @@ class PayloadMessenger(StatefulService.StatefulService):
              SEND_EVENT_RANGE,SEND_OUTPUT_FILE]
 
 
-   def __init__(self,yampl_socket_name,queues,loop_timeout=1):
+   def __init__(self,yampl_socket_name,queues,loop_timeout=1,aggregate_output_files_time=0):
       super(PayloadMessenger,self).__init__(loop_timeout)
 
       # yampl socket name, must be the same as athena
       self.yampl_socket_name           = yampl_socket_name
 
       # queues with which to communicate with JobComm and MPIService
-      self.queues                       = queues
+      self.queues                      = queues
+
+      # time over which to aggregate output file data before communicating it to Yoda
+      self.aggregate_output_files_time = aggregate_output_files_time
 
       # current job definition
       self.job_def                     = VariableWithLock.VariableWithLock()
@@ -284,13 +306,15 @@ class PayloadMessenger(StatefulService.StatefulService):
 
    def get_ready_eventranges(self):
       return self.eventranges.get().number_ready()
+   
    def get_completed_eventranges(self):
       return self.eventranges.get().number_completed()
+   
    def get_number_eventranges(self):
       return len(self.eventranges.get())
 
    def add_eventranges(self,eventranges):
-      # acquire lock  
+      # acquire lock
       self.eventranges.lock.acquire()
       # add the event ranges
       self.eventranges.variable += eventranges
@@ -300,12 +324,12 @@ class PayloadMessenger(StatefulService.StatefulService):
 
    def get_next_eventrange(self):
 
-      # acquire lock  
+      # acquire lock
       self.eventranges.lock.acquire()
       # add the event ranges
       try:
          next = self.eventranges.variable.get_next()
-      except:
+      except Exception:
          # release lock
          self.eventranges.lock.release()
          raise
@@ -316,7 +340,7 @@ class PayloadMessenger(StatefulService.StatefulService):
       return next
 
    def mark_completed_eventrange(self,eventrangeID):
-      # acquire lock  
+      # acquire lock
       self.eventranges.lock.acquire()
       # add the event ranges
       self.eventranges.variable.mark_completed(eventrangeID)
@@ -335,6 +359,7 @@ class PayloadMessenger(StatefulService.StatefulService):
    def set_no_more_events(self):
       ''' test if no_more_eventranges set '''
       self.no_more_eventranges.set()
+   
    def no_more_events(self):
       ''' return value of flag '''
       return self.no_more_eventranges.isSet()
@@ -348,10 +373,32 @@ class PayloadMessenger(StatefulService.StatefulService):
       athpayloadcomm = athena_payloadcommunicator(self.yampl_socket_name)
       payload_msg = ''
 
+      # current list of output files to send via MPI
+      output_files = []
+      last_output_file_mpi_send = time.time()
+
       event_range_request_counter = 0
 
       while not self.exit.isSet():
          logger.debug('%s: start loop, current state: %s',self.prelog,self.get_state())
+
+         # don't want to hammer Yoda with lots of little messages for output files
+         # so aggregate output files for some time period then send as a group
+         if len(output_files) > 0 and \
+            (time.time() - last_output_file_mpi_send) > self.aggregate_output_files_time:
+
+               # send output file data to Yoda/FileManager
+               logger.debug('%s: sending %s output files to Yoda/FileManager',self.prelog,len(output_files))
+               mpi_message = {'type':MessageTypes.OUTPUT_FILE,
+                              'filelist':output_files,
+                              'destination_rank': 0
+                             }
+               self.queues['MPIService'].put(mpi_message)
+
+               # set time for next send
+               last_output_file_mpi_send = time.time()
+               # reset output file list
+               output_files = []
 
          
          ##################
@@ -378,7 +425,7 @@ class PayloadMessenger(StatefulService.StatefulService):
                if event_range_request_counter > 0:
                   logger.debug('%s: have %s pending event range requests so will try sending one.',self.prelog,event_range_request_counter)
                   self.set_state(self.SEND_EVENT_RANGE)
-               #time.sleep(self.loop_timeout)
+               # time.sleep(self.loop_timeout)
          
          ##################
          # MESSAGE_RECEIVED: this state indicates that a message has been
@@ -444,8 +491,8 @@ class PayloadMessenger(StatefulService.StatefulService):
                logger.info('%s: sending eventranges to AthenaMP: %s',self.prelog,local_eventranges)
                # append full path to file name for AthenaMP
                # and adjust event counter by the number of files
-               #input_files = self.job_def.get()['inFiles'].split(',')
-               #logger.debug('%s: found %s input files',self.prelog,len(input_files))
+               # input_files = self.job_def.get()['inFiles'].split(',')
+               # logger.debug('%s: found %s input files',self.prelog,len(input_files))
                for evtrg in local_eventranges:
                   evtrg['PFN'] = os.path.join(os.getcwd(),evtrg['LFN'])
                   '''
@@ -503,20 +550,19 @@ class PayloadMessenger(StatefulService.StatefulService):
                cpu = parts[2].replace('CPU:','')
                wallclock = parts[3].replace('WALL:','')
                output_file_data = {'type':MessageTypes.OUTPUT_FILE,
-                      'filename':outputfilename,
-                      'eventrangeid':eventrangeid,
-                      'cpu':cpu,
-                      'wallclock':wallclock,
-                      'scope':self.get_job_def()['scopeOut'],
-                      'pandaid':self.job_def.get()['PandaID'],
-                      'eventstatus':'finished',
-                      'destination_rank': 0,
-                      }
-               #self.output_file_data.set(output_file_data)
+                                   'filename':outputfilename,
+                                   'eventrangeid':eventrangeid,
+                                   'cpu':cpu,
+                                   'wallclock':wallclock,
+                                   'scope':self.get_job_def()['scopeOut'],
+                                   'pandaid':self.job_def.get()['PandaID'],
+                                   'eventstatus':'finished',
+                                   'destination_rank': 0,
+                                  }
+               # self.output_file_data.set(output_file_data)
 
-               # send output file data to Yoda/FileManager
-               logger.debug('%s: sending output file data to Yoda/FileManager: %s',self.prelog,output_file_data)
-               self.queues['MPIService'].put(output_file_data)
+               # append output file data to list of files for transfer via MPI
+               output_files.append(output_file_data)
                
                # return to state requesting a message
                self.set_state(self.WAIT_FOR_PAYLOAD_MESSAGE)
@@ -525,7 +571,7 @@ class PayloadMessenger(StatefulService.StatefulService):
                logger.debug('%s: mark event range id %s as completed',self.prelog,output_file_data['eventrangeid'])
                try:
                   self.mark_completed_eventrange(output_file_data['eventrangeid'])
-               except:
+               except Exception:
                   logger.error('failed to mark eventrangeid %s as completed',output_file_data['eventrangeid'])
                   logger.error('list of assigned: %s',self.eventranges.get().indices_of_assigned_ranges)
                   logger.error('list of completed: %s',self.eventranges.get().indices_of_completed_ranges)
@@ -557,7 +603,7 @@ class athena_payloadcommunicator:
       # create server socket for yampl
       try:
          self.socket = yampl.ServerSocket(socketname, context)
-      except:
+      except Exception:
          logger.exception('failed to create yampl server socket')
          raise
 
@@ -565,7 +611,7 @@ class athena_payloadcommunicator:
       # send message using yampl
       try:
          self.socket.send_raw(message)
-      except:
+      except Exception:
          logger.exception("Failed to send yampl message: %s",message)
          raise
 
@@ -575,14 +621,4 @@ class athena_payloadcommunicator:
       if size == -1:
          return ''
       return str(buf)
-
-
-
-
-
-
-
-
-
-
 
