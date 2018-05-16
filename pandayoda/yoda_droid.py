@@ -121,12 +121,14 @@ def yoda_droid(working_path,
 
 def main():
    start_time = datetime.datetime.now()
-   logging_format = '%(asctime)s|%(process)s|%(thread)s|' + ('%05d' % MPIService.rank) +'|%(levelname)s|%(name)s|%(message)s' 
+   logging_format = '%(asctime)s|%(process)s|%(thread)s|' + ('%05d' % MPIService.rank) +'|%(levelname)s|%(name)s|%(message)s'
    logging_datefmt = '%Y-%m-%d %H:%M:%S'
+   logging_filename = 'yoda_droid.log'
    logging.basicConfig(level=logging.INFO,
          format=logging_format,
-         datefmt=logging_datefmt)
-   logging.info('Start yoda_droid')
+         datefmt=logging_datefmt,
+         filename=logging_filename)
+   logger.info('Start yoda_droid')
    oparser = argparse.ArgumentParser()
 
    # set yoda config file where most settings are placed
@@ -148,7 +150,8 @@ def main():
          logging.root.removeHandler(h)
       logging.basicConfig(level=logging.DEBUG,
          format=logging_format,
-         datefmt=logging_datefmt)
+         datefmt=logging_datefmt,
+         filename=logging_filename)
       logger.setLevel(logging.DEBUG)
    elif not args.debug and args.error and not args.warning:
       # remove existing root handlers and reconfigure with ERROR
@@ -156,7 +159,8 @@ def main():
          logging.root.removeHandler(h)
       logging.basicConfig(level=logging.ERROR,
          format=logging_format,
-         datefmt=logging_datefmt)
+         datefmt=logging_datefmt,
+         filename=logging_filename)
       logger.setLevel(logging.ERROR)
    elif not args.debug and not args.error and args.warning:
       # remove existing root handlers and reconfigure with WARNING
@@ -164,7 +168,8 @@ def main():
          logging.root.removeHandler(h)
       logging.basicConfig(level=logging.WARNING,
          format=logging_format,
-         datefmt=logging_datefmt)
+         datefmt=logging_datefmt,
+         filename=logging_filename)
       logger.setLevel(logging.WARNING)
    
 
