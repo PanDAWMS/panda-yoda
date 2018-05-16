@@ -117,7 +117,7 @@ def main():
    start_time = datetime.datetime.now()
    logging_format = '%(asctime)s|%(process)s|%(thread)s|' + ('%05d' % MPIService.rank) +'|%(levelname)s|%(name)s|%(message)s'
    logging_datefmt = '%Y-%m-%d %H:%M:%S'
-   logging_filename = 'yoda_droid.log'
+   logging_filename = 'yoda_droid_%05d.log' % mpiService.rank
    logging.basicConfig(level=logging.INFO,
          format=logging_format,
          datefmt=logging_datefmt,
