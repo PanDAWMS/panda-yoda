@@ -57,24 +57,11 @@ class Yoda(threading.Thread):
       logger.debug('config_section: %s',config_section)
       logger.debug('cwd: %s',os.getcwd())
 
-      # read yoda loop timeout:
-      if self.config.has_option(config_section,'loop_timeout'):
-         self.loop_timeout = self.config.getfloat(config_section,'loop_timeout')
-      else:
-         logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
-         return
-      logger.info('%s loop_timeout: %d',config_section,self.loop_timeout)
+      # read config
+      self.read_config()
 
-      # read wallclock leadtime which sets how far from the end of
-      # the wallclock yoda should initiate droids to exit
-      if self.config.has_option(config_section,'wallclock_expiring_leadtime'):
-         self.wallclock_expiring_leadtime = self.config.getfloat(config_section,'wallclock_expiring_leadtime')
-         self.wallclock_expiring_leadtime = datetime.timedelta(seconds=self.wallclock_expiring_leadtime)
-      else:
-         logger.error('must specify "wallclock_expiring_leadtime" in "%s" section of config file',config_section)
-         return
-      logger.info('%s wallclock_expiring_leadtime: %s',config_section,self.wallclock_expiring_leadtime)
-      wallclock_expired = False
+      # keep track of if the wallclock has expired
+      self.wallclock_expired = False
 
       # create queues for subthreads to send messages out
       self.queues = {
@@ -156,7 +143,7 @@ class Yoda(threading.Thread):
       # send the exit signal to all droid ranks
       logger.info('sending exit signal to droid ranks')
       for ranknum in range(1,MPIService.nranks):
-         if wallclock_expired:
+         if self.wallclock_expired:
             self.queues['MPIService'].put({'type':MessageTypes.WALLCLOCK_EXPIRING,'destination_rank':ranknum})
          else:
             self.queues['MPIService'].put({'type':MessageTypes.DROID_EXIT,'destination_rank':ranknum})
@@ -184,11 +171,44 @@ class Yoda(threading.Thread):
             
             # exit this thread
             self.stop()
+
+            # set wallclock expired
+            self.wallclock_expired = True
             
          else:
             logger.debug('time left %s before wall clock expires.',timeleft)
       else:
          logger.debug('no wallclock limit set, no exit will be triggered')
+
+   def read_config(self):
+
+      # read yoda log level:
+      if self.config.has_option(config_section,'loglevel'):
+         self.loglevel = self.config.get(config_section,'loglevel')
+         logger.info('%s loglevel: %d',config_section,self.loglevel)
+         logger.setLevel(logging.getLevelName(self.loglevel))
+      else:
+         logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
+         
+      
+      # read yoda loop timeout:
+      if self.config.has_option(config_section,'loop_timeout'):
+         self.loop_timeout = self.config.getfloat(config_section,'loop_timeout')
+      else:
+         logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
+         return
+      logger.info('%s loop_timeout: %d',config_section,self.loop_timeout)
+
+      # read wallclock leadtime which sets how far from the end of
+      # the wallclock yoda should initiate droids to exit
+      if self.config.has_option(config_section,'wallclock_expiring_leadtime'):
+         self.wallclock_expiring_leadtime = self.config.getfloat(config_section,'wallclock_expiring_leadtime')
+         self.wallclock_expiring_leadtime = datetime.timedelta(seconds=self.wallclock_expiring_leadtime)
+      else:
+         logger.error('must specify "wallclock_expiring_leadtime" in "%s" section of config file',config_section)
+         return
+      logger.info('%s wallclock_expiring_leadtime: %s',config_section,self.wallclock_expiring_leadtime)
+      
 
 
    def process_incoming_messages(self):
