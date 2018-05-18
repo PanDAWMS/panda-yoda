@@ -6,6 +6,7 @@ logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
+
 class Droid(StatefulService.StatefulService):
    ''' 1 Droid runs per node of a parallel job and launches the AthenaMP process '''
 
@@ -41,7 +42,7 @@ class Droid(StatefulService.StatefulService):
 
       try:
          self.subrun()
-      except:
+      except Exception:
          logger.exception('Droid failed with uncaught exception')
          if MPIService.mpiService.is_alive():
             MPIService.mpiService.queues['MPIService'].put({'type':MessageTypes.DROID_HAS_EXITED,'destination_rank':0})
@@ -120,7 +121,7 @@ class Droid(StatefulService.StatefulService):
       
       logger.debug('cwd: %s',os.getcwd())
 
-      # begin while loop 
+      # begin while loop
       while not self.exit.isSet():
          state = self.get_state()
          logger.debug('droid start loop, state = %s',state)
@@ -173,14 +174,14 @@ class Droid(StatefulService.StatefulService):
          elif self.get_state() == Droid.JOB_RECEIVED:
             # launch TransformManager to run job
             self.subthreads['transform'] = TransformManager.TransformManager(new_job_msg['job'],
-                                                          self.config,
-                                                          queues,
-                                                          droid_working_path,
-                                                          os.getcwd(),
-                                                          self.loop_timeout,
-                                                          self.stdout_filename,
-                                                          self.stderr_filename,
-                                                          self.yampl_socket_name)
+                                                                             self.config,
+                                                                             queues,
+                                                                             droid_working_path,
+                                                                             os.getcwd(),
+                                                                             self.loop_timeout,
+                                                                             self.stdout_filename,
+                                                                             self.stderr_filename,
+                                                                             self.yampl_socket_name)
             self.subthreads['transform'].start()
 
             # transition to monitoring state
@@ -194,7 +195,7 @@ class Droid(StatefulService.StatefulService):
 
          ###############################################
          # Monitoring a job
-         #    in this state, Droid should monitor the 
+         #    in this state, Droid should monitor the
          #  job subprocess and jobComm object to ensure
          #  they are running. It should also respond to
          #  queue messages if needed.
@@ -237,7 +238,7 @@ class Droid(StatefulService.StatefulService):
             else:
                # log transform error
                logger.error('transform exited but is not in FINISHED state, returncode = %s, see output files for details = [%s,%s]',
-                  self.subthreads['transform'].get_returncode(),self.stderr_filename,self.stdout_filename)
+                            self.subthreads['transform'].get_returncode(),self.stderr_filename,self.stdout_filename)
 
             # send message to JobCommand that transform exited
             queues['JobComm'].put({'type':MessageTypes.TRANSFORM_EXITED})
@@ -282,6 +283,14 @@ class Droid(StatefulService.StatefulService):
 
 
    def read_config(self):
+
+      # read log level:
+      if self.config.has_option(config_section,'loglevel'):
+         self.loglevel = self.config.get(config_section,'loglevel')
+         logger.info('%s loglevel: %s',config_section,self.loglevel)
+         logger.setLevel(logging.getLevelName(self.loglevel))
+      else:
+         logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
 
       # read droid loop timeout:
       if self.config.has_option(config_section,'loop_timeout'):
