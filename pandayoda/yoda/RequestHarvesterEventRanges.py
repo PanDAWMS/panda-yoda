@@ -4,6 +4,7 @@ logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
+
 class RequestHarvesterEventRanges(StatefulService.StatefulService):
    ''' This thread is spawned to request event ranges from Harvester '''
 
@@ -45,8 +46,10 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
    def get_eventranges(self):
       ''' parent thread calls this function to retrieve the event ranges sent by Harevester '''
       return self.new_eventranges.get()
+   
    def set_eventranges(self,eventranges):
       self.new_eventranges.set(eventranges)
+   
    def eventranges_ready(self):
       if self.new_eventranges.get() is not None:
          return True
@@ -86,6 +89,14 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
       if self.config.has_option(config_section,'loop_timeout'):
          self.loop_timeout = self.config.get(config_section,'loop_timeout')
       logger.debug('got timeout: %s',self.loop_timeout)
+
+      # read log level:
+      if self.config.has_option(config_section,'loglevel'):
+         self.loglevel = self.config.get(config_section,'loglevel')
+         logger.info('%s loglevel: %s',config_section,self.loglevel)
+         logger.setLevel(logging.getLevelName(self.loglevel))
+      else:
+         logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
       
       
       # start in the request state
