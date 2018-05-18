@@ -2,6 +2,8 @@ import os,logging,subprocess,random
 from pandayoda.common import VariableWithLock,MPIService,StatefulService
 logger = logging.getLogger(__name__)
 
+config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
+
 
 class TransformManager(StatefulService.StatefulService):
    ''' This service is handed a job definition and when the parent process
@@ -31,6 +33,9 @@ class TransformManager(StatefulService.StatefulService):
         '''
       # call base class init function
       super(TransformManager,self).__init__(loop_timeout)
+
+      # yoda config file
+      self.config                = config
 
       # job definition from panda
       self.job_def               = job_def
@@ -86,6 +91,16 @@ class TransformManager(StatefulService.StatefulService):
 
    def run(self):
       ''' start and monitor transform in subprocess '''
+
+
+      # read log level:
+      if self.config.has_option(config_section,'loglevel'):
+         self.loglevel = self.config.get(config_section,'loglevel')
+         logger.info('%s loglevel: %s',config_section,self.loglevel)
+         logger.setLevel(logging.getLevelName(self.loglevel))
+      else:
+         logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
+
       self.set_state(TransformManager.STARTED)
 
       # first step, create subprocess
@@ -149,9 +164,9 @@ class TransformManager(StatefulService.StatefulService):
       start_index = self.job_def['jobPars'].find('--inputEVNTFile=') + len('--inputEVNTFile=')
       end_index   = self.job_def['jobPars'].find(' ',start_index)
       
-      file_index = random.randint(0,len(updated_input_files)-1)
+      file_index = random.randint(0,len(updated_input_files) - 1)
 
-      jobPars = self.job_def['jobPars'][:start_index] +  updated_input_files[file_index] + ' ' + self.job_def['jobPars'][end_index:] + ' --fileValidation=FALSE'
+      jobPars = self.job_def['jobPars'][:start_index] + updated_input_files[file_index] + ' ' + self.job_def['jobPars'][end_index:] + ' --fileValidation=FALSE'
 
       # insert the Yampl AthenaMP setting
       if "--preExec" not in jobPars:
@@ -216,11 +231,11 @@ class TransformManager(StatefulService.StatefulService):
       logger.debug('starting run_script: %s',cmd)
       
       self.jobproc = subprocess.Popen(cmd.split(),
-                        stdout=open(self.stdout_filename,'w'),
-                        stderr=open(self.stderr_filename,'w'),
-                        cwd=self.droid_working_path,
-                        env=env,
-                        )
+                                      stdout=open(self.stdout_filename,'w'),
+                                      stderr=open(self.stderr_filename,'w'),
+                                      cwd=self.droid_working_path,
+                                      env=env,
+                                     )
 
       logger.debug('transform is running')
 
@@ -231,10 +246,10 @@ class TransformManager(StatefulService.StatefulService):
          raise Exception('tried killing subprocess, but subprocess is empty')
 
    def is_subprocess_running(self):
-      if self.jobproc is None: 
+      if self.jobproc is None:
          return False
       # check if job is still running
-      if self.jobproc.poll() is None: 
+      if self.jobproc.poll() is None:
          return True
       return False
 
