@@ -517,7 +517,7 @@ def stage_out_file(output_type,output_path,eventRangeID,eventStatus,pandaID,chks
    os.rename(eventStatusDumpJsonFile_tmp,eventStatusDumpJsonFile)
 
 
-def stage_out_files(file_list,output_type,output_path):
+def stage_out_files(file_list,output_type):
    global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
 
    if output_type not in ['output','es_output','log']:
@@ -548,12 +548,12 @@ def stage_out_files(file_list,output_type,output_path):
       if 'chksum' in filedata:
          chksum = filedata['chksum']
 
-      filename = os.path.join(output_path,os.path.basename(filedata['filename']))
+      #filename = os.path.join(output_path,os.path.basename(filedata['filename']))
       
       # format data for file:
       file_descriptor = {'eventRangeID':filedata['eventrangeid'],
                          'eventStatus':filedata['eventstatus'],
-                         'path':filename,
+                         'path':filedata['filename'],
                          'type':output_type,
                          'chksum': chksum,
                          'guid': None,
@@ -600,14 +600,18 @@ def stage_out_files(file_list,output_type,output_path):
                logger.debug('addding new panda id list')
                data[pandaID] = eventStatusDumpData[pandaID]
 
-   logger.debug('output to file %s: %s',eventStatusDumpJsonFile,data)
+   if logger.getEffectiveLevel() == logging.DEBUG:
+      tmpstr = ' '.join('%s:%s' % (x,len(data[x])) for x in data)
+      logger.debug('writing output to file %s with keys: %s', eventStatusDumpJsonFile,tmpstr)
    
    # overwrite the temp file with the updated data
    with open(eventStatusDumpJsonFile_tmp,'w') as f:
-      f.write(serializer.serialize(data))
+      f.write(serializer.serialize(data,pretty_print=True))
 
    # move tmp file into place
    os.rename(eventStatusDumpJsonFile_tmp,eventStatusDumpJsonFile)
+
+   logger.debug('done')
 
 
 
