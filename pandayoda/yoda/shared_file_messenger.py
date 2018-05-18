@@ -444,6 +444,21 @@ The worker needs to put eventStatusDumpJsonFile to update events and/or stage-ou
 '''
 
 
+def stage_out_file_exists():
+   global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
+
+   # load name of eventStatusDumpJsonFile file
+   try:
+      harConfLock.acquire()
+      eventStatusDumpJsonFile = harvesterConfig.get(harConfSect,'eventStatusDumpJsonFile')
+      harConfLock.release()
+   except ConfigParser.NoSectionError:
+      harConfLock.release()
+      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPIService.rank,harConfSect,harvesterConfig.sections()))
+
+   return os.path.exists(eventStatusDumpJsonFile)
+
+
 def stage_out_file(output_type,output_path,eventRangeID,eventStatus,pandaID,chksum=None,):
    global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
 

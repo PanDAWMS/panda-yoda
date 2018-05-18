@@ -60,7 +60,7 @@ class FileManager(threading.Thread):
       harvester_messenger = self.get_harvester_messenger()
       harvester_messenger.setup(self.config)
 
-
+      local_filelist = []
 
       while not self.exit.isSet():
          logger.debug('starting loop')
@@ -75,11 +75,17 @@ class FileManager(threading.Thread):
             logger.debug('message received: %s',qmsg)
 
             if qmsg['type'] == MessageTypes.OUTPUT_FILE:
-                  
-               # add file to Harvester stage out
-               harvester_messenger.stage_out_files(qmsg['filelist'],
-                                                   self.output_file_type
-                                                  )
+
+               # if an output file already exists, wait to output files
+               # wait for harvester to read in file, so add file list to
+               # local running list
+               if harvester_messenger.stage_out_file_exists():
+                  local_filelist += qmsg['filelist']
+               else:
+                  # add file to Harvester stage out
+                  harvester_messenger.stage_out_files(qmsg['filelist'],
+                                                      self.output_file_type
+                                                     )
             else:
                logger.error('message type not recognized')
 
