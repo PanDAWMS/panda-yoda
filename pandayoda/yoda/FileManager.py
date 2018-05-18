@@ -78,6 +78,8 @@ class FileManager(threading.Thread):
 
             if qmsg['type'] == MessageTypes.OUTPUT_FILE:
 
+               local_filelist += qmsg['filelist']
+
                # I don't want to constantly check to see if the output file exists
                # so I'll only check every 10 seconds
                if time.time() - last_check > 10:
@@ -86,17 +88,13 @@ class FileManager(threading.Thread):
                   # if an output file already exists, 
                   # wait for harvester to read in file, so add file list to
                   # local running list
-                  if harvester_messenger.stage_out_file_exists():
-                     local_filelist += qmsg['filelist']
-                  else:
+                  if not harvester_messenger.stage_out_file_exists():
                      # add file to Harvester stage out
                      harvester_messenger.stage_out_files(
-                                                      qmsg['filelist'],
+                                                      local_filelist,
                                                       self.output_file_type
                                                      )
-               # add files to local file list
-               else:
-                  local_filelist += qmsg['filelist']
+                     local_filelist = []
             else:
                logger.error('message type not recognized')
 
