@@ -174,9 +174,9 @@ def setup(config):
          harvesterConfig = ConfigParser.ConfigParser()
          harvesterConfig.readfp(hconf)
       
-      harConfLock.release()
       
       if harvesterConfig is None:
+         harConfLock.release()
          raise Exception('Rank %05i: Failed to parse config file: %s' % (MPIService.rank,harv_config_file))
    else:
       logger.debug('harvester configuration already loaded')
