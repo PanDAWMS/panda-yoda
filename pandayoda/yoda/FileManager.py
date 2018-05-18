@@ -1,4 +1,4 @@
-import os,threading,logging,importlib
+import os,threading,logging,importlib,time
 from pandayoda.common import MessageTypes,SerialQueue
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,8 @@ class FileManager(threading.Thread):
 
       local_filelist = []
 
+      last_check = time.time()
+
       while not self.exit.isSet():
          logger.debug('starting loop')
 
@@ -76,16 +78,25 @@ class FileManager(threading.Thread):
 
             if qmsg['type'] == MessageTypes.OUTPUT_FILE:
 
-               # if an output file already exists, wait to output files
-               # wait for harvester to read in file, so add file list to
-               # local running list
-               if harvester_messenger.stage_out_file_exists():
-                  local_filelist += qmsg['filelist']
-               else:
-                  # add file to Harvester stage out
-                  harvester_messenger.stage_out_files(qmsg['filelist'],
+               # I don't want to constantly check to see if the output file exists
+               # so I'll only check every 10 seconds
+               if time.time() - last_check > 10:
+                  last_check = time.time()
+
+                  # if an output file already exists, 
+                  # wait for harvester to read in file, so add file list to
+                  # local running list
+                  if harvester_messenger.stage_out_file_exists():
+                     local_filelist += qmsg['filelist']
+                  else:
+                     # add file to Harvester stage out
+                     harvester_messenger.stage_out_files(
+                                                      qmsg['filelist'],
                                                       self.output_file_type
                                                      )
+               # add files to local file list
+               else:
+                  local_filelist += qmsg['filelist']
             else:
                logger.error('message type not recognized')
 
