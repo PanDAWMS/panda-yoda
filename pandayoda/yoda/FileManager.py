@@ -81,8 +81,9 @@ class FileManager(threading.Thread):
                
                   # copy file to yoda working path
                   source_file = filedata['filename']
-                  destination_path = self.yoda_working_path
+                  #destination_path = self.yoda_working_path
 
+                  '''
                   try:
                      logger.debug('copying %s to %s',source_file,destination_path)
                      shutil.copy(source_file,destination_path)
@@ -91,14 +92,13 @@ class FileManager(threading.Thread):
                      if not os.path.exists(source_file):
                         logger.error('input filename does not exist: %s',source_file)
                      if not os.path.exists(self.yoda_working_path):
-                        logger.error('output file path does not exist: %s',destination_path)
+                        logger.error('output file path does not exist: %s',destination_path)'''
 
                   # destination_file = os.path.join(destination_path,os.path.basename(filedata['filename']))
                   
                # add file to Harvester stage out
                harvester_messenger.stage_out_files(qmsg['filelist'],
-                                                   self.output_file_type,
-                                                   destination_path,
+                                                   self.output_file_type
                                                   )
 
 
