@@ -163,13 +163,20 @@ def setup(config):
       logger.debug('loading harvester configuration file')
       # get harvester config filename
       harv_config_file = config.get('shared_file_messenger','harvester_config_file')
+      
+      if config.has_option('shared_file_messenger','loglevel'):
+         loglevel = config.get('shared_file_messenger','loglevel')
+         logger.info('loglevel: %s',loglevel)
+         logger.setLevel(logging.getLevelName(loglevel))
 
       # parse harvester configuration file
-      if os.path.exists(harv_config_file):
+      with open(harv_config_file) as hconf:
          harvesterConfig = ConfigParser.ConfigParser()
-         harvesterConfig.read(harv_config_file)
-      else:
-         harConfLock.release()
+         harvesterConfig.readfp(hconf)
+      
+      harConfLock.release()
+      
+      if harvesterConfig is None:
          raise Exception('Rank %05i: Failed to parse config file: %s' % (MPIService.rank,harv_config_file))
    else:
       logger.debug('harvester configuration already loaded')
@@ -548,7 +555,7 @@ def stage_out_files(file_list,output_type):
       if 'chksum' in filedata:
          chksum = filedata['chksum']
 
-      #filename = os.path.join(output_path,os.path.basename(filedata['filename']))
+      # filename = os.path.join(output_path,os.path.basename(filedata['filename']))
       
       # format data for file:
       file_descriptor = {'eventRangeID':filedata['eventrangeid'],
