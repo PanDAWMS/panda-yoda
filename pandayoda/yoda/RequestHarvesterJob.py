@@ -4,6 +4,7 @@ logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
+
 class RequestHarvesterJob(StatefulService.StatefulService):
    ''' This thread is spawned to request jobs from Harvester '''
 
@@ -39,8 +40,10 @@ class RequestHarvesterJob(StatefulService.StatefulService):
       ''' parent thread calls this function to retrieve the jobs sent by Harevester '''
       jobs = self.new_jobs.get()
       return jobs
+
    def set_jobs(self,job_descriptions):
       self.new_jobs.set(job_descriptions)
+   
    def jobs_ready(self):
       if self.new_jobs.get() is not None:
          return True
@@ -86,6 +89,14 @@ class RequestHarvesterJob(StatefulService.StatefulService):
       # read in loop_timeout
       if self.config.has_option(config_section,'loop_timeout'):
          loop_timeout = self.config.getint(config_section,'loop_timeout')
+
+      # read yoda log level:
+      if self.config.has_option(config_section,'loglevel'):
+         self.loglevel = self.config.get(config_section,'loglevel')
+         logger.info('%s loglevel: %s',config_section,self.loglevel)
+         logger.setLevel(logging.getLevelName(self.loglevel))
+      else:
+         logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
 
       # start in the request state
       self.set_state(self.REQUEST)
