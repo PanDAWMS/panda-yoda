@@ -108,7 +108,7 @@ class Yoda(threading.Thread):
 
          # check if all droids have exited
          if len(self.exited_droids) == (MPIService.nranks - 1):
-            logger.debug('all droids have exited, exiting yoda')
+            logger.info('all droids have exited, exiting yoda')
             self.stop()
             break
 
