@@ -1,4 +1,4 @@
-import os,threading,logging,shutil,importlib
+import os,threading,logging,importlib
 from pandayoda.common import MessageTypes,SerialQueue
 logger = logging.getLogger(__name__)
 
@@ -75,33 +75,11 @@ class FileManager(threading.Thread):
             logger.debug('message received: %s',qmsg)
 
             if qmsg['type'] == MessageTypes.OUTPUT_FILE:
-
-               # loop over output files and copy the files to destination
-               for filedata in qmsg['filelist']:
-               
-                  # copy file to yoda working path
-                  source_file = filedata['filename']
-                  #destination_path = self.yoda_working_path
-
-                  '''
-                  try:
-                     logger.debug('copying %s to %s',source_file,destination_path)
-                     shutil.copy(source_file,destination_path)
-                  except Exception:
-                     logger.exception('exception received during copy')
-                     if not os.path.exists(source_file):
-                        logger.error('input filename does not exist: %s',source_file)
-                     if not os.path.exists(self.yoda_working_path):
-                        logger.error('output file path does not exist: %s',destination_path)'''
-
-                  # destination_file = os.path.join(destination_path,os.path.basename(filedata['filename']))
                   
                # add file to Harvester stage out
                harvester_messenger.stage_out_files(qmsg['filelist'],
                                                    self.output_file_type
                                                   )
-
-
             else:
                logger.error('message type not recognized')
 
