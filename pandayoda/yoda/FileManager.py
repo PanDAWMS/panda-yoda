@@ -88,6 +88,15 @@ class FileManager(threading.Thread):
       logger.info('FileManager exiting')
 
    def read_config(self):
+
+      # read log level:
+      if self.config.has_option(config_section,'loglevel'):
+         self.loglevel = self.config.get(config_section,'loglevel')
+         logger.info('%s loglevel: %s',config_section,self.loglevel)
+         logger.setLevel(logging.getLevelName(self.loglevel))
+      else:
+         logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
+
       # get self.loop_timeout
       if self.config.has_option(config_section,'loop_timeout'):
          self.loop_timeout = self.config.getfloat(config_section,'loop_timeout')
