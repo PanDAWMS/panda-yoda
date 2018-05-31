@@ -209,7 +209,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                self.all_work_done.set(True)
             else:
                logger.debug('sleeping for %s',self.loop_timeout)
-               time.sleep(self.loop_timeout)
+               self.exit.wait(timeout=self.loop_timeout)
 
 
       logger.info('sending exit signal to subthreads')
