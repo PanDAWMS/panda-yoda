@@ -122,7 +122,7 @@ def main():
          format=logging_format,
          datefmt=logging_datefmt,
          filename=logging_filename)
-   logger.info('Start yoda_droid')
+   logger.info('Start yoda_droid: %s',__file__)
    oparser = argparse.ArgumentParser()
 
    # set yoda config file where most settings are placed
