@@ -158,6 +158,11 @@ class Yoda(threading.Thread):
       for name,thread in subthreads.iteritems():
          thread.join()
 
+
+      while not MPIService.mpiService.message_queue_empty():
+         logger.info('waiting for MPIService to send exit messages to Droid, sleep for %s',self.loop_timeout)
+         time.sleep(self.loop_timeout)
+
       logger.info('Yoda is exiting')
 
 
