@@ -83,10 +83,11 @@ class WorkManager(threading.Thread):
                   qmsg = self.queues['WorkManager'].get(block=True,timeout=self.loop_timeout)
                except SerialQueue.Empty:
                   logger.debug('no messages on queue after blocking')
-         elif not (
-              (requestHarvesterJob is not None and requestHarvesterJob.jobs_ready()) and
-              (requestHarvesterEventRanges is not None and requestHarvesterEventRanges.eventranges_ready())
-                  ):
+         else:
+            # if not (
+            #  (requestHarvesterJob is not None and requestHarvesterJob.jobs_ready()) and
+            #  (requestHarvesterEventRanges is not None and requestHarvesterEventRanges.eventranges_ready())
+            #      ):
             try:
                self.pending_index = 0
                qmsg = self.queues['WorkManager'].get(block=True,timeout=self.loop_timeout)
@@ -165,6 +166,9 @@ class WorkManager(threading.Thread):
                   logger.debug('There is one job so send it.')
                   
                   # get the job
+                  # FUTUREDEV: It's unclear if we will ever run more than one PandaID per Yoda job
+                  # so in the future this may need to actually search the pandajobs list for the
+                  # one with the most jobs to send or something like that.
                   pandaid = pandajobs.keys()[0]
                   job = pandajobs[pandaid]
 
@@ -336,16 +340,16 @@ class WorkManager(threading.Thread):
 
          # if there is nothing to be done, sleep
 
-         if (requestHarvesterJob is not None and requestHarvesterJob.running()) and \
-            (requestHarvesterEventRanges is not None and requestHarvesterEventRanges.running()) and \
-            self.queues['WorkManager'].empty() and self.pending_requests.empty():
-            time.sleep(self.loop_timeout)
-         else:
-            logger.debug('continuing loop')
-            if requestHarvesterJob is not None:
-               logger.debug('RequestHarvesterJob: %s',requestHarvesterJob.get_state())
-            if requestHarvesterEventRanges is not None:
-               logger.debug('requestHarvesterEventRanges: %s',requestHarvesterEventRanges.get_state())
+         # if (requestHarvesterJob is not None and requestHarvesterJob.running()) and \
+         #   (requestHarvesterEventRanges is not None and requestHarvesterEventRanges.running()) and \
+         #   self.queues['WorkManager'].empty() and self.pending_requests.empty():
+         #   time.sleep(self.loop_timeout)
+         # else:
+         logger.debug('continuing loop')
+         if requestHarvesterJob is not None:
+            logger.debug('RequestHarvesterJob: %s',requestHarvesterJob.get_state())
+         if requestHarvesterEventRanges is not None:
+            logger.debug('requestHarvesterEventRanges: %s',requestHarvesterEventRanges.get_state())
             
 
       logger.info('signaling exit to threads')
