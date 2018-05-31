@@ -1,4 +1,4 @@
-import logging,os,importlib
+import logging,os,importlib,time
 from pandayoda.common import StatefulService,VariableWithLock,exceptions
 logger = logging.getLogger(__name__)
 
@@ -84,6 +84,8 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
       messenger = self.get_messenger()
       messenger.setup(self.config)
       logger.debug('got messenger')
+
+      start_time = time.time()
       
       # read in loop_timeout
       if self.config.has_option(config_section,'loop_timeout'):
@@ -97,6 +99,16 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
          logger.setLevel(logging.getLevelName(self.loglevel))
       else:
          logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
+
+
+      # read timeout for waiting for event ranges:
+      if self.config.has_option(config_section,'eventrange_timeout'):
+         self.eventrange_timeout = self.config.get(config_section,'eventrange_timeout')
+         logger.info('%s eventrange_timeout: %s',config_section,self.loglevel)
+         logger.setLevel(logging.getLevelName(self.loglevel))
+      else:
+         logger.warning('no "eventrange_timeout" in "%s" section of config file, keeping default',config_section)
+         self.eventrange_timeout = -1
       
       
       # start in the request state
@@ -122,6 +134,7 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
                try:
                   # use messenger to request event ranges from Harvester
                   messenger.request_eventranges(self.job_def)
+                  request_time = time.time()
                except exceptions.MessengerEventRangesAlreadyRequested:
                   logger.warning('event ranges already requesting')
                
@@ -139,6 +152,11 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
                self.set_state(self.RETRIEVE_EVENTS)
             else:
                logger.debug('no event ranges yet received.')
+               if time.time() - request_time < self.eventrange_timeout:
+                  logger.info('have been waiting for eventranges for %d seconds, limited to %d, triggering exit',(time.time() - request_time),self.eventrange_timeout)
+                  self.no_more_eventranges_flag.set(True)
+                  self.stop()
+                  continue
 
          #########
          #  RETRIEVE_EVENTS State
