@@ -201,6 +201,7 @@ class Droid(StatefulService.StatefulService):
          #  queue messages if needed.
          #########
          elif self.get_state() == Droid.MONITORING:
+
             if self.subthreads['transform'].is_alive():
                # if JobComm is not alive, we have a problem
                if not self.subthreads['JobComm'].is_alive():
@@ -217,9 +218,19 @@ class Droid(StatefulService.StatefulService):
                      self.stop()
                      break
                else:
-                  # sleep for a bit
-                  logger.debug('monitoring transform, sleep for %s',self.loop_timeout)
-                  time.sleep(self.loop_timeout)
+                  # sleep for a bit while blocking on incoming messages
+                  logger.debug('monitoring transform, block for %s on message queue get',self.loop_timeout)
+                  try:
+                     qmsg = queues['Droid'].get(block=True,timeout=self.loop_timeout)
+                     if qmsg['type'] == MessageTypes.WALLCLOCK_EXPIRING:
+                        logger.info('received WALLCLOCK_EXPIRING message from Yoda, need to kill all work and exit.')
+                        # stop Droid and it will kill all subthreads,etc.
+                        self.stop()
+                     else:
+                        logger.warning('received unexpected message: %s',qmsg)
+                  except SerialQueue.Empty:
+                     logger.debug('no message received while in monitoring wait')
+
 
             else:
                logger.info('transform exited')
