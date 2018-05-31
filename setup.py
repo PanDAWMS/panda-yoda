@@ -18,7 +18,6 @@ setup(
    packages = [ 'pandayoda',
               'pandayoda/yoda',
               'pandayoda/droid',
-              'pandayoda/test',
               'pandayoda/common',
               ],
    entry_points = {
