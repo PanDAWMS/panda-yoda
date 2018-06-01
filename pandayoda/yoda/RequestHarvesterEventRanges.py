@@ -84,12 +84,10 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
       messenger = self.get_messenger()
       messenger.setup(self.config)
       logger.debug('got messenger')
-
-      start_time = time.time()
       
       # read in loop_timeout
       if self.config.has_option(config_section,'loop_timeout'):
-         self.loop_timeout = self.config.get(config_section,'loop_timeout')
+         self.loop_timeout = self.config.getint(config_section,'loop_timeout')
       logger.debug('got timeout: %s',self.loop_timeout)
 
       # read log level:
@@ -103,7 +101,7 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
 
       # read timeout for waiting for event ranges:
       if self.config.has_option(config_section,'eventrange_timeout'):
-         self.eventrange_timeout = self.config.get(config_section,'eventrange_timeout')
+         self.eventrange_timeout = self.config.getint(config_section,'eventrange_timeout')
          logger.info('%s eventrange_timeout: %s',config_section,self.loglevel)
          logger.setLevel(logging.getLevelName(self.loglevel))
       else:
