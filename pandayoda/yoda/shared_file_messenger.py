@@ -352,19 +352,17 @@ def eventranges_ready(block=False,timeout=60):
 
    # check to see if a file exists.
    start = time.time()
-   while True:
+   timewaiting = int(time.time() - start)
+   while block and (timeout > timewaiting):
       logger.debug('checking for eventRangesFile')
       if os.path.exists(eventRangesFile):
          logger.debug('eventRangesFile exists')
          return True
       else:
-         if block and timeout > (time.time() - start):
-            logger.debug('no eventRangesFile so sleeping 1 second and checking again')
-            time.sleep(1)
-            continue
-         else:
-            break
-
+         logger.debug('no eventRangesFile so sleeping 1 second and checking again, timewaiting = %d; timeout = %d',timewaiting,timeout)
+         time.sleep(1)
+         timewaiting = int(time.time() - start)
+         
 
    logger.debug('no eventRangesFile, exiting')
    return False
