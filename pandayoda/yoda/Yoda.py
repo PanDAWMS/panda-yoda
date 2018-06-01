@@ -107,7 +107,7 @@ class Yoda(threading.Thread):
          self.process_incoming_messages()
 
          # check if all droids have exited
-         if len(self.exited_droids) == (MPIService.nranks - 1):
+         if len(self.exited_droids) >= (MPIService.nranks - 1):
             logger.info('all droids have exited, exiting yoda')
             self.stop()
             break
@@ -230,6 +230,7 @@ class Yoda(threading.Thread):
          if qmsg['type'] == MessageTypes.DROID_HAS_EXITED:
             logger.debug(' droid rank %d has exited',qmsg['source_rank'])
             self.exited_droids.append(qmsg['source_rank'])
+            logger.debug('%s droid ranks have exited',len(self.exited_droids))
          else:
             logger.error(' could not interpret message: %s',qmsg)
 

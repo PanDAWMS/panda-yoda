@@ -99,7 +99,7 @@ class Droid(StatefulService.StatefulService):
          MessageTypes.NEW_EVENT_RANGES: ['JobComm'],
          MessageTypes.WALLCLOCK_EXPIRING: ['Droid'],
          MessageTypes.DROID_EXIT: ['Droid'],
-         MessageTypes.NO_MORE_EVENT_RANGES: ['JobComm','Droid'],
+         MessageTypes.NO_MORE_EVENT_RANGES: ['JobComm'],
       }
 
       # initialize MPI Service
@@ -226,6 +226,10 @@ class Droid(StatefulService.StatefulService):
                         logger.info('received WALLCLOCK_EXPIRING message from Yoda, need to kill all work and exit.')
                         # stop Droid and it will kill all subthreads,etc.
                         self.stop()
+                     elif qmsg['type'] == MessageTypes.NO_MORE_EVENT_RANGES:
+                        logger.info('received NO_MORE_EVENT_RANGES, exiting')
+                        self.stop()
+                        break
                      else:
                         logger.warning('received unexpected message: %s',qmsg)
                   except SerialQueue.Empty:
