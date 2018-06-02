@@ -150,8 +150,9 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
                self.set_state(self.RETRIEVE_EVENTS)
             else:
                logger.debug('no event ranges yet received.')
-               if time.time() - request_time < self.eventrange_timeout:
-                  logger.info('have been waiting for eventranges for %d seconds, limited to %d, triggering exit',(time.time() - request_time),self.eventrange_timeout)
+               time_waiting = time.time() - request_time
+               if time_waiting > self.eventrange_timeout:
+                  logger.info('have been waiting for eventranges for %d seconds, limited to %d, triggering exit',time_waiting,self.eventrange_timeout)
                   self.no_more_eventranges_flag.set(True)
                   self.stop()
                   continue
