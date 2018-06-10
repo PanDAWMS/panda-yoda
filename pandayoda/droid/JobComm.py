@@ -392,8 +392,9 @@ class PayloadMessenger(StatefulService.StatefulService):
 
          # don't want to hammer Yoda with lots of little messages for output files
          # so aggregate output files for some time period then send as a group
-         if len(output_files) > 0 and \
-            (time.time() - last_output_file_mpi_send) > self.aggregate_output_files_time:
+         if len(output_files) == 0:
+            last_output_file_mpi_send = time.time()
+         elif (time.time() - last_output_file_mpi_send) > self.aggregate_output_files_time:
 
                # send output file data to Yoda/FileManager
                logger.debug('%s: sending %s output files to Yoda/FileManager',self.prelog,len(output_files))
