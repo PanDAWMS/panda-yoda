@@ -135,8 +135,9 @@ class Yoda(threading.Thread):
 
          if (self.wall_clock_limit != -1 and self.timeTillSignal.total_seconds() < self.loop_timeout):
             logger.debug('sleeping %s',self.timeTillSignal.total_seconds())
-            time.sleep(int(self.timeTillSignal.total_seconds()) + 1)
-         else:
+
+            time.sleep(max(0,int(self.timeTillSignal.total_seconds()) + 1))
+         elif self.queue['Yoda'].empty():
             logger.debug('sleeping %s',self.loop_timeout)
             time.sleep(self.loop_timeout)
       
@@ -218,13 +219,12 @@ class Yoda(threading.Thread):
 
    def process_incoming_messages(self):
 
-      try:
-         qmsg = self.queues['Yoda'].get(block=False)
-      except SerialQueue.Empty:
-         logger.debug('yoda message queue empty')
+      while not self.queues['Yoda'].empty():
 
-      # process message
-      else:
+         qmsg = self.queues['Yoda'].get(block=False)
+
+         # process message
+         
          logger.debug('received message: %s',qmsg)
          
          if qmsg['type'] == MessageTypes.DROID_HAS_EXITED:
