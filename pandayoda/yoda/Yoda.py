@@ -137,7 +137,7 @@ class Yoda(threading.Thread):
             logger.debug('sleeping %s',self.timeTillSignal.total_seconds())
 
             time.sleep(max(0,int(self.timeTillSignal.total_seconds()) + 1))
-         elif self.queue['Yoda'].empty():
+         elif self.queues['Yoda'].empty():
             logger.debug('sleeping %s',self.loop_timeout)
             time.sleep(self.loop_timeout)
       
