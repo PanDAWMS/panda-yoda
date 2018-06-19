@@ -168,7 +168,12 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
 
                # set event ranges for parent and change state
                if len(eventranges) > 0:
-                  logger.debug('setting NEW_EVENT_RANGES variable with %d event ranges',len(eventranges))
+                  if logger.getEffectiveLevel() == logging.DEBUG:
+                     tmpstr = ''
+                     for jobid in eventranges.keys():
+                        tmpstr += ' %s:%s' % (jobid,len(eventranges[jobid]))
+                     logger.debug('received new eventranges for PandaID:N-ranges: %s',tmpstr)
+                     
                   self.set_eventranges(eventranges)
                   
                   # if Harvester provided no event ranges for this panda ID, then set the no more events flag

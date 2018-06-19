@@ -105,8 +105,8 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                # shorten our message for printing
                if logger.getEffectiveLevel() == logging.DEBUG:
                   tmpmsg = str(qmsg)
-                  if len(tmpmsg) > 100:
-                     tmpslice = slice(0,100)
+                  if len(tmpmsg) > self.debug_message_char_length:
+                     tmpslice = slice(0,self.debug_message_char_length)
                      tmpmsg = tmpmsg[tmpslice] + '...'
                   logger.debug('received queue message: %s',tmpmsg)
                if 'type' not in qmsg or qmsg['type'] != MessageTypes.NEW_JOB or 'job' not in qmsg:
@@ -156,8 +156,8 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                # shorten our message for printing
                if logger.getEffectiveLevel() == logging.DEBUG:
                   tmpmsg = str(qmsg)
-                  if len(tmpmsg) > 100:
-                     tmpslice = slice(0,100)
+                  if len(tmpmsg) > self.debug_message_char_length:
+                     tmpslice = slice(0,self.debug_message_char_length)
                      tmpmsg = tmpmsg[tmpslice] + '...'
                   logger.debug('received queue message: %s',tmpmsg)
                if 'type' not in qmsg:
@@ -257,6 +257,14 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
          return
       if MPIService.rank == 0:
          logger.info('JobComm get_more_events_threshold: %d',self.aggregate_output_files_time)
+
+      # get self.debug_message_char_length
+      if self.config.has_option(config_section,'debug_message_char_length'):
+         self.debug_message_char_length = self.config.getint(config_section,'debug_message_char_length')
+      else:
+         logger.error('must specify "debug_message_char_length" in "%s" section of config file',config_section)
+         return
+      logger.info('debug_message_char_length: %d',self.debug_message_char_length)
 
    def request_events(self,current_job):
       msg = {

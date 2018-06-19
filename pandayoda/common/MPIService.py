@@ -131,8 +131,8 @@ class MPIService(StatefulService.StatefulService):
             # shorten our message for printing
             if logger.getEffectiveLevel() == logging.DEBUG:
                tmpmsg = str(message)
-               if len(tmpmsg) > 100:
-                  tmpslice = slice(0,100)
+               if len(tmpmsg) > self.debug_message_char_length:
+                  tmpslice = slice(0,self.debug_message_char_length)
                   tmpmsg = tmpmsg[tmpslice] + '...'
                logger.debug('received mpi message: %s',tmpmsg)
             # forward message
@@ -159,8 +159,8 @@ class MPIService(StatefulService.StatefulService):
             # shorten our message for printing
             if logger.getEffectiveLevel() == logging.DEBUG:
                tmpmsg = str(qmsg)
-               if len(tmpmsg) > 100:
-                  tmpslice = slice(0,100)
+               if len(tmpmsg) > self.debug_message_char_length:
+                  tmpslice = slice(0,self.debug_message_char_length)
                   tmpmsg = tmpmsg[tmpslice] + '...'
                logger.debug('received queue message: %s',tmpmsg)
 
@@ -252,6 +252,23 @@ class MPIService(StatefulService.StatefulService):
          logger.error('must specify "default_message_buffer_size" in "%s" section of config file',config_section)
          return
       logger.info('default_message_buffer_size: %d',self.default_message_buffer_size)
+
+      # get self.debug_message_char_length
+      if self.config.has_option(config_section,'debug_message_char_length'):
+         self.debug_message_char_length = self.config.getint(config_section,'debug_message_char_length')
+      else:
+         logger.error('must specify "debug_message_char_length" in "%s" section of config file',config_section)
+         return
+      logger.info('debug_message_char_length: %d',self.debug_message_char_length)
+
+
+      # read yoda log level:
+      if self.config.has_option(config_section,'loglevel'):
+         self.loglevel = self.config.get(config_section,'loglevel')
+         logger.info('%s loglevel: %s',config_section,self.loglevel)
+         logger.setLevel(logging.getLevelName(self.loglevel))
+      else:
+         logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
 
 
 # initialize the rank variables for other threads
