@@ -262,8 +262,9 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       if self.config.has_option(config_section,'debug_message_char_length'):
          self.debug_message_char_length = self.config.getint(config_section,'debug_message_char_length')
       else:
-         logger.error('must specify "debug_message_char_length" in "%s" section of config file',config_section)
-         return
+         default = 100
+         logger.warning('no "debug_message_char_length" in "%s" section of config file, using default %s',config_section,default)
+         self.debug_message_char_length = default
       logger.info('debug_message_char_length: %d',self.debug_message_char_length)
 
    def request_events(self,current_job):

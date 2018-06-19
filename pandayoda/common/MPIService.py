@@ -257,8 +257,9 @@ class MPIService(StatefulService.StatefulService):
       if self.config.has_option(config_section,'debug_message_char_length'):
          self.debug_message_char_length = self.config.getint(config_section,'debug_message_char_length')
       else:
-         logger.error('must specify "debug_message_char_length" in "%s" section of config file',config_section)
-         return
+         default = 100
+         logger.warning('no "debug_message_char_length" in "%s" section of config file, using default %s',config_section,default)
+         self.debug_message_char_length = default
       logger.info('debug_message_char_length: %d',self.debug_message_char_length)
 
 
