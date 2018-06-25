@@ -67,7 +67,7 @@ class Droid(StatefulService.StatefulService):
    def subrun(self):
       ''' this function is the business logic, but wrapped in exception '''
       
-      if MPIService.rank == 0:
+      if MPIService.rank == 1:
          logger.info('Droid Thread starting')
          logger.debug('config_section: %s',config_section)
       

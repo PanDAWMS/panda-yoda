@@ -118,7 +118,7 @@ class MPIService(StatefulService.StatefulService):
          if no_message_on_last_loop and self.in_mpi_blocking():
             logger.debug('block on mpi for %s',self.loop_timeout)
             message = self.receive_message(block=True,timeout=self.loop_timeout)
-         elif no_message_on_last_loop and self.in_balanced() and self.queues['MPIService'].empty() and no_message_on_last_loop:
+         elif no_message_on_last_loop and self.in_balanced() and self.queues['MPIService'].empty():
             logger.debug('block on mpi for %s',self.loop_timeout / 2)
             message = self.receive_message(block=True,timeout=self.loop_timeout / 2)
          else:
@@ -200,18 +200,22 @@ class MPIService(StatefulService.StatefulService):
 
    def receive_message(self,block=False,timeout=None):
       # there should always be a request waiting for this rank to receive data
+      logger.debug('receive_message: entering function')
       if self.receiveRequest is None:
          logger.debug('receive_message: creating request')
          self.receiveRequest = MPI.COMM_WORLD.irecv(self.default_message_buffer_size,MPI.ANY_SOURCE)
       # check status of current request
-      if self.receiveRequest:
+      if self.receiveRequest is not None:
+         logger.debug('receive_message: checking request state')
          starttime = time.time()
          logger.debug('receive_message: enter block loop, block = %s, timeout = %s',block,timeout)
          while True:
             # logger.debug('check for MPI message')
             status = MPI.Status()
             # test to see if message was received
+            logger.debug('receive_message: test request')
             message_received,message = self.receiveRequest.test(status=status)
+            logger.debug('receive_message: done testing')
             # if received reset and return source rank and message content
             if message_received:
                # logger.debug('MPI message received: %s',message)
