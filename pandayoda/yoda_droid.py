@@ -43,17 +43,46 @@ def yoda_droid(working_path,
       logger.info('wall_clock_limit:            %d',wall_clock_limit)
    
    logger.info('running on hostname: %s',socket.gethostname())
-      
+
+   # parse wall_clock_limit
+   # the time in minutes of the wall clock given to the local
+   # batch scheduler. If a non-negative number, this value
+   # determines when yoda will signal all Droids to kill
+   # their running processes and exit
+   # after which yoda will peform clean up actions.
+   # It should be in number of minutes.
+   if wall_clock_limit > 0:
+      wall_clock_limit = datetime.timedelta(minutes=wall_clock_limit)
+   else:
+      wall_clock_limit = datetime.timedelta(minutes=99999)
+
+   # the ealiest measure of the start time for Yoda/Droid
+   # this is used to determine when to exit
+   # it is expected to be output from time.time() so
+   # in seconds since the epoch
+   start_time         = start_time
 
    # parse configuration file
    if os.path.exists(config_filename):
       config = ConfigParser.ConfigParser()
       config.read(config_filename)
+
+      # parse config for this module
+
+      # loop timeout
       if config.has_option(config_section,'loop_timeout'):
          loop_timeout = config.getfloat(config_section,'loop_timeout')
       else:
-         logger.error('config file must specify "loop_timeout" in "%s" section.',config_section)
-         return
+         loop_timeout = 60
+         logger.warning('no "loop_timeout" in "%s" section so using default %s',config_section,loop_timeout)
+      
+      # wallclock_expiring_leadtime
+      if config.has_option(config_section,'wallclock_expiring_leadtime'):
+         wallclock_expiring_leadtime = config.getint(config_section,'wallclock_expiring_leadtime')
+      else:
+         wallclock_expiring_leadtime = 300
+         logger.warning('no "wallclock_expiring_leadtime" in "%s" section so using default %s',config_section,wallclock_expiring_leadtime)
+
    else:
       raise Exception('Rank %d: failed to parse config file: %s' % (mpirank,config_filename))
 
@@ -68,7 +97,7 @@ def yoda_droid(working_path,
    # if you are rank 0, start the yoda thread
    if mpirank == 0:
       try:
-         yoda = Yoda.Yoda(config,start_time,wall_clock_limit)
+         yoda = Yoda.Yoda(config)
          yoda.start()
       except Exception:
          logger.exception('Rank %s: failed to start Yoda.',mpirank)
@@ -85,7 +114,15 @@ def yoda_droid(working_path,
    # loop until droid and/or yoda exit
    while True:
       logger.debug('yoda_droid start loop')
-      logger.debug('cwd: %s',os.getcwd())
+
+      if wallclock_expiring(wall_clock_limit,start_time,wallclock_expiring_leadtime):
+         if droid is not None:
+            droid.stop()
+         if yoda is not None:
+            yoda.wallclock_expired.set()
+            yoda.stop()
+         break
+
       if droid and not droid.isAlive():
          logger.debug('droid has finished')
          if droid.get_state() == droid.EXITED:
@@ -169,6 +206,20 @@ def main():
               args.yoda_config,
               args.wall_clock_limit,
               start_time)
+
+
+def wallclock_expiring(wall_clock_limit,start_time,wallclock_expiring_leadtime):
+   if wall_clock_limit.total_seconds() > 0:
+      running_time = datetime.datetime.now() - start_time
+      timeleft = wall_clock_limit - running_time
+      if timeleft < wallclock_expiring_leadtime:
+         logger.debug('time left %s is less than the leadtime %s, triggering exit.',timeleft,wallclock_expiring_leadtime)
+         return True
+      else:
+         logger.debug('time left %s before wall clock expires.',timeleft)
+   else:
+      logger.debug('no wallclock limit set, no exit will be triggered')
+   return False
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.
 
 
 class Yoda(threading.Thread):
-   def __init__(self,config,start_time,wall_clock_limit):
+   def __init__(self,config):
       ''' config: configuration of Yoda
           start_time: the ealiest measure of the start time for Yoda/Droid
                         this is used to determine when to exit
@@ -24,25 +24,12 @@ class Yoda(threading.Thread):
       # configuration of Yoda
       self.config             = config
 
-      # the ealiest measure of the start time for Yoda/Droid
-      # this is used to determine when to exit
-      # it is expected to be output from time.time() so
-      # in seconds since the epoch
-      self.start_time         = start_time
-
-      # the time in minutes of the wall clock given to the local
-      # batch scheduler. If a non-negative number, this value
-      # determines when yoda will signal all Droids to kill
-      # their running processes and exit
-      # after which yoda will peform clean up actions.
-      # It should be in number of minutes.
-      if wall_clock_limit > 0:
-         self.wall_clock_limit = datetime.timedelta(minutes=wall_clock_limit)
-      else:
-         self.wall_clock_limit = datetime.timedelta(minutes=99999)
+      # keep track of if the wallclock has expired
+      self.wallclock_expired = threading.Event()
 
       # this is used to trigger the thread exit
       self.exit               = threading.Event()
+
 
    def stop(self):
       ''' this function can be called by outside threads to cause the Yoda thread to exit'''
@@ -62,9 +49,6 @@ class Yoda(threading.Thread):
 
       # read config
       self.read_config()
-
-      # keep track of if the wallclock has expired
-      self.wallclock_expired = False
 
       # create queues for subthreads to send messages out
       self.queues = {
@@ -102,9 +86,6 @@ class Yoda(threading.Thread):
       # start message loop
       while not self.exit.isSet():
          logger.debug('start loop')
-
-         # check for wallclock expiring
-         self.wallclock_limit_check()
          
          # process incoming messages from other threads or ranks
          self.process_incoming_messages()
@@ -147,7 +128,7 @@ class Yoda(threading.Thread):
       # send the exit signal to all droid ranks
       logger.info('sending exit signal to droid ranks')
       for ranknum in range(1,MPIService.nranks):
-         if self.wallclock_expired:
+         if self.wallclock_expired.isSet():
             self.queues['MPIService'].put({'type':MessageTypes.WALLCLOCK_EXPIRING,'destination_rank':ranknum})
          else:
             self.queues['MPIService'].put({'type':MessageTypes.DROID_EXIT,'destination_rank':ranknum})
@@ -170,24 +151,7 @@ class Yoda(threading.Thread):
       logger.info('Yoda is exiting')
 
 
-   def wallclock_limit_check(self):
-      if self.wall_clock_limit.total_seconds() > 0:
-         running_time = datetime.datetime.now() - self.start_time
-         timeleft = self.wall_clock_limit - running_time
-         self.timeTillSignal = timeleft - self.wallclock_expiring_leadtime
-         if timeleft < self.wallclock_expiring_leadtime:
-            logger.debug('time left %s is less than the leadtime %s, triggering exit.',timeleft,self.wallclock_expiring_leadtime)
-            
-            # exit this thread
-            self.stop()
-
-            # set wallclock expired
-            self.wallclock_expired = True
-            
-         else:
-            logger.debug('time left %s before wall clock expires.',timeleft)
-      else:
-         logger.debug('no wallclock limit set, no exit will be triggered')
+   
 
    def read_config(self):
 
