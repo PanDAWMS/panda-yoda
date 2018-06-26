@@ -15,7 +15,7 @@ class FileManager(threading.Thread):
 
    STATES = [IDLE,STAGE_OUT,STAGING_OUT,EXITED]
 
-   def __init__(self,config,queues):
+   def __init__(self,config,queues,yoda_working_path):
       super(FileManager,self).__init__()
 
       # dictionary of queues for sending messages to Droid components
@@ -26,6 +26,9 @@ class FileManager(threading.Thread):
 
       # this is used to trigger the thread exit
       self.exit                  = threading.Event()
+
+      # this is the working directory of yoda
+      self.yoda_working_path     = yoda_working_path
 
    def stop(self):
       ''' this function can be called by outside threads to cause the JobManager thread to exit'''
@@ -85,7 +88,7 @@ class FileManager(threading.Thread):
                if time.time() - last_check > 10:
                   last_check = time.time()
 
-                  # if an output file already exists, 
+                  # if an output file already exists,
                   # wait for harvester to read in file, so add file list to
                   # local running list
                   if not harvester_messenger.stage_out_file_exists():
@@ -128,13 +131,6 @@ class FileManager(threading.Thread):
          return
       logger.info('%s output_file_type: %s',config_section,self.output_file_type)
 
-      # get self.yoda_working_path
-      if self.config.has_option(config_section,'yoda_working_path'):
-         self.yoda_working_path = self.config.get(config_section,'yoda_working_path')
-      else:
-         logger.error('typically "yoda_working_path" is set by yoda_droid in the "%s" section of config',config_section)
-         return
-      logger.info('%s yoda_working_path: %s',config_section,self.yoda_working_path)
 
 
 

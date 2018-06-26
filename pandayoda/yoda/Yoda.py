@@ -57,6 +57,9 @@ class Yoda(threading.Thread):
       logger.debug('config_section: %s',config_section)
       logger.debug('cwd: %s',os.getcwd())
 
+      # keep track of starting path
+      top_working_path = os.getcwd()
+
       # read config
       self.read_config()
 
@@ -93,7 +96,7 @@ class Yoda(threading.Thread):
       subthreads['WorkManager'].start()
 
       # create FileManager thread
-      subthreads['FileManager']  = FileManager.FileManager(self.config,self.queues)
+      subthreads['FileManager']  = FileManager.FileManager(self.config,self.queues,top_working_path)
       subthreads['FileManager'].start()
 
       # start message loop
