@@ -179,8 +179,6 @@ class Droid(StatefulService.StatefulService):
                                                                              droid_working_path,
                                                                              os.getcwd(),
                                                                              self.loop_timeout,
-                                                                             self.stdout_filename,
-                                                                             self.stderr_filename,
                                                                              self.yampl_socket_name)
             self.subthreads['transform'].start()
 
@@ -327,23 +325,6 @@ class Droid(StatefulService.StatefulService):
       if MPIService.rank == 1:
          logger.info('%s yampl_socket_name: %s',config_section,self.yampl_socket_name)
 
-      # read droid subprocess_stdout:
-      if self.config.has_option(config_section,'subprocess_stdout'):
-         self.stdout_filename = self.config.get(config_section,'subprocess_stdout')
-      else:
-         logger.error('must specify "subprocess_stdout" in "%s" section of config file',config_section)
-         return
-      if MPIService.rank == 1:
-         logger.info('%s subprocess_stdout: %s',config_section,self.stdout_filename)
-
-      # read droid subprocess_stderr:
-      if self.config.has_option(config_section,'subprocess_stderr'):
-         self.stderr_filename = self.config.get(config_section,'subprocess_stderr')
-      else:
-         logger.error('must specify "subprocess_stderr" in "%s" section of config file',config_section)
-         return
-      if MPIService.rank == 1:
-         logger.info('%s subprocess_stderr: %s',config_section,self.stderr_filename)
 
       # read droid working_path:
       if self.config.has_option(config_section,'working_path'):
@@ -365,6 +346,3 @@ class Droid(StatefulService.StatefulService):
       except SerialQueue.Empty:
          logger.debug('no messages for Droid')
          return None
-
-
-

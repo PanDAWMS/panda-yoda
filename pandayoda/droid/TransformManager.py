@@ -21,9 +21,6 @@ class TransformManager(StatefulService.StatefulService):
                      queues,
                      droid_working_path,
                      yoda_working_path,
-                     loop_timeout,
-                     stdout_filename,
-                     stderr_filename,
                      yampl_socket_name):
       '''
         queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send
@@ -32,25 +29,13 @@ class TransformManager(StatefulService.StatefulService):
         droid_working_path: the path where athena will execute
         '''
       # call base class init function
-      super(TransformManager,self).__init__(loop_timeout)
+      super(TransformManager,self).__init__()
 
       # yoda config file
       self.config                = config
 
       # job definition from panda
       self.job_def               = job_def
-
-      # extract runscript template from config
-      self.runscript_template    = config.get('TransformManager','template')
-
-      # extract runscript filename
-      self.runscript_filename    = config.get('TransformManager','run_script')
-
-      # extract run_with_container
-      self.use_container         = config.getboolean('TransformManager','use_container')
-
-      # extract container prefix command
-      self.container_prefix      = config.get('TransformManager','container_prefix')
 
       # dictionary of queues for sending messages to Droid components
       self.queues                = queues
@@ -61,24 +46,20 @@ class TransformManager(StatefulService.StatefulService):
       # working path for Yoda (where input files are located)
       self.yoda_working_path     = yoda_working_path
 
-      # loop timeout for monitoring etc
-      self.loop_timeout          = loop_timeout
-
-      # pipe the stdout/stderr from the Subprocess.Popen object to these files
-      self.stdout_filename    = stdout_filename.format(rank=MPIService.rank,PandaID=job_def['PandaID'])
-      # add working path to stdout filename if it is not already
-      if not self.stdout_filename.startswith(self.droid_working_path):
-         self.stdout_filename = os.path.join(self.droid_working_path,self.stdout_filename)
-      
-      # pipe Popen error to this file
-      self.stderr_filename    = stderr_filename.format(rank=MPIService.rank,PandaID=job_def['PandaID'])
-      # add working path to stderr filename if it is not already
-      if not self.stderr_filename.startswith(self.droid_working_path):
-         self.stderr_filename = os.path.join(self.droid_working_path,self.stderr_filename)
-
-
       # socket name to pass to transform for use when communicating via yampl
       self.yampl_socket_name     = yampl_socket_name
+
+      # set default runscript filename
+      self.runscript_filename    = 'runscript.sh'
+
+      # set default use_container
+      self.use_container         = False
+
+      # set default run_elsewhere
+      self.run_elsewhere         = False
+
+      # set default logs_to_stage
+      self.logs_to_stage         = []
 
       # return code, set only after exit
       self.returncode            = VariableWithLock.VariableWithLock()
@@ -92,14 +73,9 @@ class TransformManager(StatefulService.StatefulService):
    def run(self):
       ''' start and monitor transform in subprocess '''
 
-
-      # read log level:
-      if self.config.has_option(config_section,'loglevel'):
-         self.loglevel = self.config.get(config_section,'loglevel')
-         logger.info('%s loglevel: %s',config_section,self.loglevel)
-         logger.setLevel(logging.getLevelName(self.loglevel))
-      else:
-         logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
+      # read config
+      self.read_config()
+      
 
       self.set_state(TransformManager.STARTED)
 
@@ -226,14 +202,20 @@ class TransformManager(StatefulService.StatefulService):
          env = {}
       else:
          cmd = '/bin/bash ' + script_name
-         env = None
+         env = {}
+
+      # if job is to run elsewhere:
+      cwd = self.droid_working_path
+      if self.run_elsewhere:
+         cwd = self.run_directory
+
 
       logger.debug('starting run_script: %s',cmd)
       
       self.jobproc = subprocess.Popen(cmd.split(),
                                       stdout=open(self.stdout_filename,'w'),
                                       stderr=open(self.stderr_filename,'w'),
-                                      cwd=self.droid_working_path,
+                                      cwd=cwd,
                                       env=env,
                                      )
 
@@ -258,7 +240,99 @@ class TransformManager(StatefulService.StatefulService):
          raise Exception('tried to get return code, but subprocess is empty')
       return self.jobproc.returncode
 
+   def read_config(self):
+      # read log level:
+      if self.config.has_option(config_section,'loglevel'):
+         self.loglevel = self.config.get(config_section,'loglevel')
+         logger.info('%s loglevel: %s',config_section,self.loglevel)
+         logger.setLevel(logging.getLevelName(self.loglevel))
+      else:
+         logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
 
+       # read droid loop timeout:
+      if self.config.has_option(config_section,'loop_timeout'):
+         self.loop_timeout = self.config.getfloat(config_section,'loop_timeout')
+         logger.info('%s loop_timeout: %d',config_section,self.loop_timeout)
+      else:
+         logger.warning('no "loop_timeout" in "%s" section of config file, using default %s',config_section,self.loop_timeout)
+
+      # read runscript template
+      if self.config.has_option(config_section,'template'):
+         self.runscript_template = self.config.get(config_section,'template')
+      else:
+         raise Exception('must specify "template" in "%s" section of config file' % config_section)
+      logger.info('template: %s',self.runscript_template)
+
+      # read runscript filename
+      if self.config.has_option(config_section,'run_script'):
+         self.runscript_filename = self.config.get(config_section,'run_script')
+         logger.info('run_script: %s',self.runscript_template)
+      else:
+         logger.warning('no "run_script" in "%s" section of config file, using default %s',config_section,self.runscript_filename)
+
+      # read use_container
+      if self.config.has_option(config_section,'use_container'):
+         self.use_container = self.config.get(config_section,'use_container')
+         logger.info('use_container: %s',self.runscript_template)
+      else:
+         logger.warning('no "use_container" in "%s" section of config file, using default %s',config_section,self.use_container)
+      
+      # read container_prefix
+      if self.config.has_option(config_section,'container_prefix'):
+         self.container_prefix = self.config.get(config_section,'container_prefix')
+      elif self.use_container:
+         raise Exception('must specify "container_prefix" in "%s" section of config file when "use_container" set to true' % config_section)
+      logger.info('container_prefix: %s',self.runscript_template)
+
+      # read run_elsewhere
+      if self.config.has_option(config_section,'run_elsewhere'):
+         self.run_elsewhere = self.config.get(config_section,'run_elsewhere')
+         logger.info('run_elsewhere: %s',self.runscript_template)
+      else:
+         logger.warning('no "run_elsewhere" in "%s" section of config file, using default %s',config_section,self.run_elsewhere)
+
+      # read run_directory
+      if self.config.has_option(config_section,'run_directory'):
+         self.run_directory = self.config.get(config_section,'run_directory')
+      elif self.run_elsewhere:
+         raise Exception('must specify "run_directory" in "%s" section of config file when "run_elsewhere" set to true' % config_section)
+      logger.info('run_directory: %s',self.runscript_template)
+
+      # read logs_to_stage
+      if self.config.has_option(config_section,'logs_to_stage'):
+         self.logs_to_stage = self.config.get(config_section,'logs_to_stage')
+         self.logs_to_stage = self.logs_to_stage.split(',')
+         logger.info('logs_to_stage: %s',self.logs_to_stage)
+      else:
+         logger.warning('no "logs_to_stage" in "%s" section of config file, using default %s',config_section,self.run_elsewhere)
+
+      # read droid subprocess_stdout:
+      if self.config.has_option(config_section,'subprocess_stdout'):
+         self.stdout_filename = self.config.get(config_section,'subprocess_stdout')
+      else:
+         raise Exception('must specify "subprocess_stdout" in "%s" section of config file' % config_section)
+      logger.info('%s subprocess_stdout: %s',config_section,self.stdout_filename)
+
+      # read droid subprocess_stderr:
+      if self.config.has_option(config_section,'subprocess_stderr'):
+         self.stderr_filename = self.config.get(config_section,'subprocess_stderr')
+      else:
+         raise Exception('must specify "subprocess_stderr" in "%s" section of config file' % config_section)
+      logger.info('%s subprocess_stderr: %s',config_section,self.stderr_filename)
+
+      # pipe the stdout/stderr from the Subprocess.Popen object to these files
+      self.stdout_filename    = self.stdout_filename.format(rank=MPIService.rank,PandaID=self.job_def['PandaID'])
+      # add working path to stdout filename if it is not already
+      if not self.stdout_filename.startswith(self.droid_working_path):
+         self.stdout_filename = os.path.join(self.droid_working_path,self.stdout_filename)
+      logger.info('%s subprocess_stdout: %s',config_section,self.stdout_filename)
+
+      # pipe Popen error to this file
+      self.stderr_filename    = self.stderr_filename.format(rank=MPIService.rank,PandaID=self.job_def['PandaID'])
+      # add working path to stderr filename if it is not already
+      if not self.stderr_filename.startswith(self.droid_working_path):
+         self.stderr_filename = os.path.join(self.droid_working_path,self.stderr_filename)
+      logger.info('%s subprocess_stderr: %s',config_section,self.stderr_filename)
 
 
    
