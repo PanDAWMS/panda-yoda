@@ -18,6 +18,7 @@ except Exception,e:
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
+
 def yoda_droid(working_path,
                config_filename,
                wall_clock_limit,
@@ -25,16 +26,16 @@ def yoda_droid(working_path,
    
    # dereference any links on the working path
    working_path = os.path.normpath(working_path)
+
+   # make we are in the working path
+   if os.getcwd() != working_path:
+      os.chdir(working_path)
    
    # get MPI world info
-   try:
-      mpirank = MPIService.rank
-      mpisize = MPIService.nranks
-      logger.debug(' rank %10i of %10i',mpirank,mpisize)
-   except:
-      logger.error('Exception retrieving MPI rank information')
-      raise
-
+   mpirank = MPIService.rank
+   mpisize = MPIService.nranks
+   logger.debug(' rank %10i of %10i',mpirank,mpisize)
+   
    if mpirank == 0:
       logger.info('working_path:                %s',working_path)
       logger.info('config_filename:             %s',config_filename)
@@ -53,12 +54,8 @@ def yoda_droid(working_path,
       else:
          logger.error('config file must specify "loop_timeout" in "%s" section.',config_section)
          return
-      # add working_path to config in yoda_droid section
-      config.set(config_section,'working_path',working_path)
-      config.set('FileManager','yoda_working_path',working_path)
    else:
-      logger.error('Rank %d: failed to parse config file: %s',mpirank,config_filename)
-      return
+      raise Exception('Rank %d: failed to parse config file: %s' % (mpirank,config_filename))
 
    # track starting path
    starting_path = os.path.normpath(os.getcwd())
@@ -69,11 +66,11 @@ def yoda_droid(working_path,
    yoda = None
    droid = None
    # if you are rank 0, start the yoda thread
-   if mpirank==0:
+   if mpirank == 0:
       try:
          yoda = Yoda.Yoda(config,start_time,wall_clock_limit)
          yoda.start()
-      except:
+      except Exception:
          logger.exception('Rank %s: failed to start Yoda.',mpirank)
          raise
    else:
@@ -81,7 +78,7 @@ def yoda_droid(working_path,
       try:
          droid = Droid.Droid(config)
          droid.start()
-      except:
+      except Exception:
          logger.exception('Rank %s: failed to start Droid',mpirank)
          raise
 
@@ -103,25 +100,26 @@ def yoda_droid(working_path,
       time.sleep(loop_timeout)
 
 
-   #logger.info('Rank %s: waiting for other ranks to reach MPI Barrier',mpirank)
-   #MPI.COMM_WORLD.Barrier()
-   #logger.info('yoda_droid aborting all MPI ranks')
-   #MPIService.MPI.COMM_WORLD.Abort()
+   # logger.info('Rank %s: waiting for other ranks to reach MPI Barrier',mpirank)
+   # MPI.COMM_WORLD.Barrier()
+   # logger.info('yoda_droid aborting all MPI ranks')
+   # MPIService.MPI.COMM_WORLD.Abort()
 
    logger.info(' yoda_droid waiting for MPIService to join')
    MPIService.mpiService.stop()
    MPIService.mpiService.join()
    logger.info('yoda_droid exiting')
 
+
 def main():
    start_time = datetime.datetime.now()
-   logging_format = '%(asctime)s|%(process)s|%(thread)s|' + ('%05d' % MPIService.rank) +'|%(levelname)s|%(name)s|%(message)s'
+   logging_format = '%(asctime)s|%(process)s|%(thread)s|' + ('%05d' % MPIService.rank) + '|%(levelname)s|%(name)s|%(message)s'
    logging_datefmt = '%Y-%m-%d %H:%M:%S'
    logging_filename = 'yoda_droid_%05d.log' % MPIService.rank
    logging.basicConfig(level=logging.INFO,
-         format=logging_format,
-         datefmt=logging_datefmt,
-         filename=logging_filename)
+                       format=logging_format,
+                       datefmt=logging_datefmt,
+                       filename=logging_filename)
    logger.info('Start yoda_droid: %s',__file__)
    oparser = argparse.ArgumentParser()
 
@@ -142,27 +140,27 @@ def main():
       for h in logging.root.handlers:
          logging.root.removeHandler(h)
       logging.basicConfig(level=logging.DEBUG,
-         format=logging_format,
-         datefmt=logging_datefmt,
-         filename=logging_filename)
+                          format=logging_format,
+                          datefmt=logging_datefmt,
+                          filename=logging_filename)
       logger.setLevel(logging.DEBUG)
    elif not args.debug and args.error and not args.warning:
       # remove existing root handlers and reconfigure with ERROR
       for h in logging.root.handlers:
          logging.root.removeHandler(h)
       logging.basicConfig(level=logging.ERROR,
-         format=logging_format,
-         datefmt=logging_datefmt,
-         filename=logging_filename)
+                          format=logging_format,
+                          datefmt=logging_datefmt,
+                          filename=logging_filename)
       logger.setLevel(logging.ERROR)
    elif not args.debug and not args.error and args.warning:
       # remove existing root handlers and reconfigure with WARNING
       for h in logging.root.handlers:
          logging.root.removeHandler(h)
       logging.basicConfig(level=logging.WARNING,
-         format=logging_format,
-         datefmt=logging_datefmt,
-         filename=logging_filename)
+                          format=logging_format,
+                          datefmt=logging_datefmt,
+                          filename=logging_filename)
       logger.setLevel(logging.WARNING)
    
 
@@ -176,7 +174,7 @@ def main():
 if __name__ == "__main__":
    try:
       main()
-   except:
+   except Exception:
       from mpi4py import MPI
       MPI.COMM_WORLD.Abort()
       import sys
