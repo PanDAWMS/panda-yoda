@@ -1,4 +1,4 @@
-import os,logging,subprocess,random
+import os,logging,subprocess,random,glob,shutils
 from pandayoda.common import VariableWithLock,MPIService,StatefulService
 logger = logging.getLogger(__name__)
 
@@ -102,6 +102,9 @@ class TransformManager(StatefulService.StatefulService):
          self.jobproc.kill()
 
       self.returncode.set(self.subprocess_returncode())
+
+      if self.run_elsewhere:
+         self.stage_logs()
 
       logger.info('exiting')
 
@@ -240,6 +243,20 @@ class TransformManager(StatefulService.StatefulService):
          raise Exception('tried to get return code, but subprocess is empty')
       return self.jobproc.returncode
 
+
+   def stage_logs(self):
+      logs = []
+      for entry in self.logs_to_stage:
+         logs += glob.glob(entry)
+      logger.info('staging %s files from %s to %s',len(logs),self.run_directory,self.yoda_working_path)
+
+      for filename in logs:
+         shutils.copy(filename,self.yoda_working_path)
+
+      logger.debug('staging files completed')
+
+   
+
    def read_config(self):
       # read log level:
       if self.config.has_option(config_section,'loglevel'):
@@ -334,5 +351,3 @@ class TransformManager(StatefulService.StatefulService):
          self.stderr_filename = os.path.join(self.droid_working_path,self.stderr_filename)
       logger.info('%s subprocess_stderr: %s',config_section,self.stderr_filename)
 
-
-   
