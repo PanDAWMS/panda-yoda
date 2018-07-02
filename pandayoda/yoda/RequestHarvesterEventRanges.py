@@ -15,7 +15,7 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
    EXITED                  = 'EXITED'
 
    STATES = [CREATED,REQUEST,WAITING,RETRIEVE_EVENTS,EXITED]
-   RUNNING_STATES = [REQUEST,WAITING,RETRIEVE_EVENTS]
+   RUNNING_STATES = [CREATED,REQUEST,WAITING,RETRIEVE_EVENTS]
 
    def __init__(self,config,job_def):
       super(RequestHarvesterEventRanges,self).__init__()
