@@ -178,7 +178,6 @@ class Droid(StatefulService.StatefulService):
                                                                              queues,
                                                                              droid_working_path,
                                                                              os.getcwd(),
-                                                                             self.loop_timeout,
                                                                              self.yampl_socket_name)
             self.subthreads['transform'].start()
 
