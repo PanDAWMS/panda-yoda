@@ -1,4 +1,4 @@
-import os,logging,threading,time
+import os,logging,threading,time,shutil
 from pandayoda.common import MessageTypes,SerialQueue,EventRangeList,serializer
 from pandayoda.common import MPIService,VariableWithLock,StatefulService
 
@@ -62,7 +62,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       # configuration of Yoda
       self.config                      = config
 
-      # working path for droid, where AthenaMP output files will be located
+      # working path for droid, where output files will be placed if state_outputs is set to True
       self.working_path                = droid_working_path
 
       # socket name to pass to transform for use when communicating via yampl
@@ -70,6 +70,10 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
       # flag to set when all work is done and thread is exiting
       self.all_work_done               = VariableWithLock.VariableWithLock(False)
+
+      # set some defaults
+      self.debug_message_char_length   = 100
+      self.stage_outputs               = False
 
       # set initial state
       self.set_state(self.WAITING_FOR_JOB)
@@ -119,7 +123,9 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                   payloadcomm = PayloadMessenger(self.yampl_socket_name,
                                                  self.queues,
                                                  self.loop_timeout,
-                                                 self.aggregate_output_files_time)
+                                                 self.aggregate_output_files_time,
+                                                 self.stage_outputs,
+                                                 self.working_path)
                   payloadcomm.start()
 
                   # set the job definition in the PayloadCommunicator
@@ -234,38 +240,38 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       if self.config.has_option(config_section,'loop_timeout'):
          self.loop_timeout = self.config.getfloat(config_section,'loop_timeout')
       else:
-         logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
-         return
-      if MPIService.rank == 0:
-         logger.info('JobComm loop_timeout: %d',self.loop_timeout)
+         raise Exception('must specify "loop_timeout" in "%s" section of config file' % config_section)
+      logger.info('JobComm loop_timeout: %d',self.loop_timeout)
 
       # get get_more_events_threshold
       if self.config.has_option(config_section,'get_more_events_threshold'):
          self.get_more_events_threshold = self.config.getint(config_section,'get_more_events_threshold')
       else:
-         logger.error('must specify "get_more_events_threshold" in "%s" section of config file',config_section)
-         return
-      if MPIService.rank == 0:
-         logger.info('JobComm get_more_events_threshold: %d',self.get_more_events_threshold)
+         raise Exception('must specify "get_more_events_threshold" in "%s" section of config file' % config_section)
+      logger.info('JobComm get_more_events_threshold: %d',self.get_more_events_threshold)
 
 
       # get aggregate_output_files_time
       if self.config.has_option(config_section,'aggregate_output_files_time'):
          self.aggregate_output_files_time = self.config.getint(config_section,'aggregate_output_files_time')
       else:
-         logger.error('must specify "aggregate_output_files_time" in "%s" section of config file',config_section)
-         return
-      if MPIService.rank == 0:
-         logger.info('JobComm get_more_events_threshold: %d',self.aggregate_output_files_time)
+         raise Exception('must specify "aggregate_output_files_time" in "%s" section of config file' % config_section)
+      logger.info('JobComm get_more_events_threshold: %d',self.aggregate_output_files_time)
 
       # get self.debug_message_char_length
       if self.config.has_option(config_section,'debug_message_char_length'):
          self.debug_message_char_length = self.config.getint(config_section,'debug_message_char_length')
+         logger.info('debug_message_char_length: %d',self.debug_message_char_length)
       else:
-         default = 100
-         logger.warning('no "debug_message_char_length" in "%s" section of config file, using default %s',config_section,default)
-         self.debug_message_char_length = default
-      logger.info('debug_message_char_length: %d',self.debug_message_char_length)
+         logger.warning('no "debug_message_char_length" in "%s" section of config file, using default %s',config_section,self.debug_message_char_length)
+
+      # get self.stage_outputs
+      if self.config.has_option(config_section,'stage_outputs'):
+         self.stage_outputs = self.config.getint(config_section,'stage_outputs')
+         logger.info('stage_outputs: %d',self.stage_outputs)
+      else:
+         logger.warning('no "stage_outputs" in "%s" section of config file, using default %s',config_section,self.stage_outputs)
+         
 
    def request_events(self,current_job):
       msg = {
@@ -294,7 +300,9 @@ class PayloadMessenger(StatefulService.StatefulService):
              SEND_EVENT_RANGE,SEND_OUTPUT_FILE]
 
 
-   def __init__(self,yampl_socket_name,queues,loop_timeout=1,aggregate_output_files_time=0):
+   def __init__(self,yampl_socket_name,queues,loop_timeout=1,
+                aggregate_output_files_time=0,stage_outputs=False,
+                staging_path=None):
       super(PayloadMessenger,self).__init__(loop_timeout)
 
       # yampl socket name, must be the same as athena
@@ -314,6 +322,12 @@ class PayloadMessenger(StatefulService.StatefulService):
 
       # set by JobComm when no more events ready
       self.no_more_eventranges         = threading.Event()
+
+      # set if we should move output files from worker directories to yoda working directory
+      self.stage_outputs               = stage_outputs
+
+      # place to stage outputs
+      self.staging_path                = staging_path
 
       # add class prelog to log output to make it clear where messages are coming from
       self.prelog                      = self.__class__.__name__
@@ -567,6 +581,15 @@ class PayloadMessenger(StatefulService.StatefulService):
                eventrangeid = parts[1].replace('ID:','')
                cpu = parts[2].replace('CPU:','')
                wallclock = parts[3].replace('WALL:','')
+
+               # if staging, stage and change output filename
+               if self.stage_outputs:
+                  # copy file to staging_path
+                  shutil.copy(outputfilename,self.staging_path)
+                  # change output filename
+                  outputfilename = os.path.join(self.staging_path,os.path.basename(outputfilename))
+
+               # build the data for Harvester output file
                output_file_data = {'type':MessageTypes.OUTPUT_FILE,
                                    'filename':outputfilename,
                                    'eventrangeid':eventrangeid,
@@ -605,7 +628,6 @@ class PayloadMessenger(StatefulService.StatefulService):
 
 
       logger.info('%s: PayloadMessenger is exiting',self.prelog)
-
 
 
       

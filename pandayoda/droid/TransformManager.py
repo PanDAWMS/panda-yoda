@@ -1,4 +1,4 @@
-import os,logging,subprocess,random,glob,shutils
+import os,logging,subprocess,random,glob,shutil
 from pandayoda.common import VariableWithLock,MPIService,StatefulService
 logger = logging.getLogger(__name__)
 
@@ -165,6 +165,10 @@ class TransformManager(StatefulService.StatefulService):
       # logger.debug('jobPars: %s',self.job_def['jobPars'])
       # logger.debug('new jobPars: %s',jobPars)
 
+      # change working dir if need be
+      working_dir = self.droid_working_path
+      if self.run_elsewhere:
+         working_dir = self.run_directory
 
       
       script = template.format(transformation=transformation,
@@ -176,7 +180,7 @@ class TransformManager(StatefulService.StatefulService):
                                pandaID=self.job_def['PandaID'],
                                taskID=self.job_def['taskID'],
                                gcclocation=gcclocation,
-                               working_dir=self.droid_working_path,
+                               working_dir=working_dir,
                               )
 
       script_filename = self.runscript_filename
@@ -212,6 +216,8 @@ class TransformManager(StatefulService.StatefulService):
       if self.run_elsewhere:
          cwd = self.run_directory
 
+      logger.info('running directory: %s',cwd)
+
 
       logger.debug('starting run_script: %s',cmd)
       
@@ -245,14 +251,21 @@ class TransformManager(StatefulService.StatefulService):
 
 
    def stage_logs(self):
+      start_dir = os.getcwd()
+      os.chdir(self.run_directory)
+      for file in os.listdir(os.getcwd()):
+         logger.info('files: %s',file)
       logs = []
       for entry in self.logs_to_stage:
          logs += glob.glob(entry)
-      logger.info('staging %s files from %s to %s',len(logs),self.run_directory,self.yoda_working_path)
+      logger.info('staging %s files from %s to %s',len(logs),self.run_directory,self.droid_working_path)
 
       for filename in logs:
-         shutils.copy(filename,self.yoda_working_path)
+         cmd = 'cp --parents ' + filename + ' ' + self.droid_working_path + '/'
+         logger.debug('copying: %s',cmd)
+         os.system(cmd)
 
+      os.chdir(start_dir)
       logger.debug('staging files completed')
 
    
@@ -283,14 +296,14 @@ class TransformManager(StatefulService.StatefulService):
       # read runscript filename
       if self.config.has_option(config_section,'run_script'):
          self.runscript_filename = self.config.get(config_section,'run_script')
-         logger.info('run_script: %s',self.runscript_template)
+         logger.info('run_script: %s',self.runscript_filename)
       else:
          logger.warning('no "run_script" in "%s" section of config file, using default %s',config_section,self.runscript_filename)
 
       # read use_container
       if self.config.has_option(config_section,'use_container'):
          self.use_container = self.config.get(config_section,'use_container')
-         logger.info('use_container: %s',self.runscript_template)
+         logger.info('use_container: %s',self.use_container)
       else:
          logger.warning('no "use_container" in "%s" section of config file, using default %s',config_section,self.use_container)
       
@@ -299,12 +312,12 @@ class TransformManager(StatefulService.StatefulService):
          self.container_prefix = self.config.get(config_section,'container_prefix')
       elif self.use_container:
          raise Exception('must specify "container_prefix" in "%s" section of config file when "use_container" set to true' % config_section)
-      logger.info('container_prefix: %s',self.runscript_template)
+      logger.info('container_prefix: %s',self.container_prefix)
 
       # read run_elsewhere
       if self.config.has_option(config_section,'run_elsewhere'):
          self.run_elsewhere = self.config.get(config_section,'run_elsewhere')
-         logger.info('run_elsewhere: %s',self.runscript_template)
+         logger.info('run_elsewhere: %s',self.run_elsewhere)
       else:
          logger.warning('no "run_elsewhere" in "%s" section of config file, using default %s',config_section,self.run_elsewhere)
 
@@ -313,7 +326,7 @@ class TransformManager(StatefulService.StatefulService):
          self.run_directory = self.config.get(config_section,'run_directory')
       elif self.run_elsewhere:
          raise Exception('must specify "run_directory" in "%s" section of config file when "run_elsewhere" set to true' % config_section)
-      logger.info('run_directory: %s',self.runscript_template)
+      logger.info('run_directory: %s',self.run_directory)
 
       # read logs_to_stage
       if self.config.has_option(config_section,'logs_to_stage'):
