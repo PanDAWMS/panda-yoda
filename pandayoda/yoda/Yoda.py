@@ -9,14 +9,6 @@ config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.
 class Yoda(threading.Thread):
    def __init__(self,config):
       ''' config: configuration of Yoda
-          start_time: the ealiest measure of the start time for Yoda/Droid
-                        this is used to determine when to exit
-                        it is expected to be output from datetime.datetime.now()
-          wall_clock_limit: the time in minutes of the wall clock given to the local
-                        batch scheduler. If a non-negative number, this value
-                        determines when yoda will signal all Droids to kill
-                        their running processes and exit
-                        after which yoda will peform clean up actions
       '''
       # call Thread constructor
       super(Yoda,self).__init__()
@@ -35,11 +27,18 @@ class Yoda(threading.Thread):
       ''' this function can be called by outside threads to cause the Yoda thread to exit'''
       self.exit.set()
 
-
-
    # this runs when 'yoda_instance.start()' is called
    def run(self):
-      ''' this function is executed as the subthread. '''
+      ''' this is the function called when the user runs yoda_instance.start() '''
+      try:
+         self.subrun()
+      except Exception:
+         logger.exception('Yoda failed with uncaught exception')
+         MPIService.MPI.COMM_WORLD.Abort()
+
+
+   def subrun(self):
+      ''' this function is the business logic, but wrapped in exception '''
       logger.info('Yoda Thread starting')
       logger.debug('config_section: %s',config_section)
       logger.debug('cwd: %s',os.getcwd())
@@ -117,13 +116,9 @@ class Yoda(threading.Thread):
             self.stop()
             break
 
-         if (self.wall_clock_limit != -1 and self.timeTillSignal.total_seconds() < self.loop_timeout):
-            logger.debug('sleeping %s',self.timeTillSignal.total_seconds())
-
-            time.sleep(max(0,int(self.timeTillSignal.total_seconds()) + 1))
-         elif self.queues['Yoda'].empty():
+         if self.queues['Yoda'].empty():
             logger.debug('sleeping %s',self.loop_timeout)
-            time.sleep(self.loop_timeout)
+            self.exit.wait(timeout=self.loop_timeout)
       
       # send the exit signal to all droid ranks
       logger.info('sending exit signal to droid ranks')
@@ -172,15 +167,7 @@ class Yoda(threading.Thread):
          return
       logger.info('%s loop_timeout: %d',config_section,self.loop_timeout)
 
-      # read wallclock leadtime which sets how far from the end of
-      # the wallclock yoda should initiate droids to exit
-      if self.config.has_option(config_section,'wallclock_expiring_leadtime'):
-         self.wallclock_expiring_leadtime = self.config.getfloat(config_section,'wallclock_expiring_leadtime')
-         self.wallclock_expiring_leadtime = datetime.timedelta(seconds=self.wallclock_expiring_leadtime)
-      else:
-         logger.error('must specify "wallclock_expiring_leadtime" in "%s" section of config file',config_section)
-         return
-      logger.info('%s wallclock_expiring_leadtime: %s',config_section,self.wallclock_expiring_leadtime)
+      
       
 
 

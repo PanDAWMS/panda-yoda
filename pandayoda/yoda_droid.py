@@ -51,15 +51,11 @@ def yoda_droid(working_path,
    # their running processes and exit
    # after which yoda will peform clean up actions.
    # It should be in number of minutes.
-   if wall_clock_limit > 0:
-      wall_clock_limit = datetime.timedelta(minutes=wall_clock_limit)
-   else:
-      wall_clock_limit = datetime.timedelta(minutes=99999)
+   wall_clock_limit = datetime.timedelta(minutes=wall_clock_limit)
 
    # the ealiest measure of the start time for Yoda/Droid
    # this is used to determine when to exit
-   # it is expected to be output from time.time() so
-   # in seconds since the epoch
+   # it is expected to be output from datetime.datetime.now()
    start_time         = start_time
 
    # parse configuration file
@@ -116,6 +112,7 @@ def yoda_droid(working_path,
       logger.debug('yoda_droid start loop')
 
       if wallclock_expiring(wall_clock_limit,start_time,wallclock_expiring_leadtime):
+         logger.info('wall clock is expiring')
          if droid is not None:
             droid.stop()
          if yoda is not None:
@@ -212,7 +209,7 @@ def wallclock_expiring(wall_clock_limit,start_time,wallclock_expiring_leadtime):
    if wall_clock_limit.total_seconds() > 0:
       running_time = datetime.datetime.now() - start_time
       timeleft = wall_clock_limit - running_time
-      if timeleft < wallclock_expiring_leadtime:
+      if timeleft.total_seconds() < wallclock_expiring_leadtime:
          logger.debug('time left %s is less than the leadtime %s, triggering exit.',timeleft,wallclock_expiring_leadtime)
          return True
       else:
@@ -226,6 +223,7 @@ if __name__ == "__main__":
    try:
       main()
    except Exception:
+      logger.exception('uncaught exception. Aborting all ranks')
       from mpi4py import MPI
       MPI.COMM_WORLD.Abort()
       import sys
