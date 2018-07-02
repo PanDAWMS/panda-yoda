@@ -61,6 +61,9 @@ class TransformManager(StatefulService.StatefulService):
       # set default logs_to_stage
       self.logs_to_stage         = []
 
+      # set default use_clean_env
+      self.use_clean_env    = False
+
       # return code, set only after exit
       self.returncode            = VariableWithLock.VariableWithLock()
 
@@ -206,9 +209,12 @@ class TransformManager(StatefulService.StatefulService):
       # if container job add container prefix command
       if self.use_container:
          cmd = self.container_prefix + ' ' + script_name
-         env = {}
       else:
          cmd = '/bin/bash ' + script_name
+
+      # if should remove environment for subprocess
+      env = None
+      if self.use_clean_env:
          env = {}
 
       # if job is to run elsewhere:
@@ -219,7 +225,7 @@ class TransformManager(StatefulService.StatefulService):
       logger.info('running directory: %s',cwd)
 
 
-      logger.debug('starting run_script: %s',cmd)
+      logger.info('starting run_script: %s',cmd)
       
       self.jobproc = subprocess.Popen(cmd.split(),
                                       stdout=open(self.stdout_filename,'w'),
@@ -281,7 +287,7 @@ class TransformManager(StatefulService.StatefulService):
 
        # read droid loop timeout:
       if self.config.has_option(config_section,'loop_timeout'):
-         self.loop_timeout = self.config.getfloat(config_section,'loop_timeout')
+         self.loop_timeout = self.config.getint(config_section,'loop_timeout')
          logger.info('%s loop_timeout: %d',config_section,self.loop_timeout)
       else:
          logger.warning('no "loop_timeout" in "%s" section of config file, using default %s',config_section,self.loop_timeout)
@@ -300,9 +306,16 @@ class TransformManager(StatefulService.StatefulService):
       else:
          logger.warning('no "run_script" in "%s" section of config file, using default %s',config_section,self.runscript_filename)
 
+      # read use_clean_env
+      if self.config.has_option(config_section,'use_clean_env'):
+         self.use_clean_env = self.config.getboolean(config_section,'use_clean_env')
+         logger.info('use_clean_env: %s',self.use_clean_env)
+      else:
+         logger.warning('no "use_clean_env" in "%s" section of config file, using default %s',config_section,self.use_clean_env)
+
       # read use_container
       if self.config.has_option(config_section,'use_container'):
-         self.use_container = self.config.get(config_section,'use_container')
+         self.use_container = self.config.getboolean(config_section,'use_container')
          logger.info('use_container: %s',self.use_container)
       else:
          logger.warning('no "use_container" in "%s" section of config file, using default %s',config_section,self.use_container)
@@ -316,7 +329,7 @@ class TransformManager(StatefulService.StatefulService):
 
       # read run_elsewhere
       if self.config.has_option(config_section,'run_elsewhere'):
-         self.run_elsewhere = self.config.get(config_section,'run_elsewhere')
+         self.run_elsewhere = self.config.getboolean(config_section,'run_elsewhere')
          logger.info('run_elsewhere: %s',self.run_elsewhere)
       else:
          logger.warning('no "run_elsewhere" in "%s" section of config file, using default %s',config_section,self.run_elsewhere)
