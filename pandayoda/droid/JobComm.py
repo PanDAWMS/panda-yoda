@@ -267,7 +267,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
       # get self.stage_outputs
       if self.config.has_option(config_section,'stage_outputs'):
-         self.stage_outputs = self.config.getint(config_section,'stage_outputs')
+         self.stage_outputs = self.config.getboolean(config_section,'stage_outputs')
          logger.info('stage_outputs: %d',self.stage_outputs)
       else:
          logger.warning('no "stage_outputs" in "%s" section of config file, using default %s',config_section,self.stage_outputs)
