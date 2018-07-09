@@ -68,7 +68,7 @@ class FileManager(threading.Thread):
       last_check = time.time()
 
       while not self.exit.isSet():
-         logger.debug('starting loop')
+         logger.debug('starting loop, local_filelist size: %s',len(local_filelist))
 
          # process incoming messages
          try:
