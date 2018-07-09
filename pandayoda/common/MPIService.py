@@ -1,4 +1,4 @@
-import threading,logging,time,os,sys
+import threading,logging,time,os,sys,copy
 from pandayoda.common import StatefulService,SerialQueue
 from mpi4py import MPI
 logger = logging.getLogger('MPIService')
@@ -105,6 +105,8 @@ class MPIService(StatefulService.StatefulService):
       logger.info('loop_timeout = %s',self.loop_timeout)
       logger.debug('file: %s',__file__)
 
+      self.send_requests = []
+
       # keep track of when a message arrived previously
       # Only perform blocking receives when no message was
       # received during the previous loop
@@ -174,19 +176,32 @@ class MPIService(StatefulService.StatefulService):
             if 'tag' in qmsg:
                tag = qmsg['tag']
 
+            
             # send message
-            send_request = None
-            if destination_rank is not None and tag is not None:
-               logger.debug('sending msg (of size %s) with destination %s and tag %s',sys.getsizeof(qmsg),qmsg['destination_rank'],qmsg['tag'])
-               send_request = MPI.COMM_WORLD.isend(qmsg,dest=destination_rank,tag=tag)
-            elif destination_rank is not None:
-               logger.debug('sending msg (of size %s) with destination %s',sys.getsizeof(qmsg),qmsg['destination_rank'])
-               send_request = MPI.COMM_WORLD.isend(qmsg,dest=destination_rank)
+            msgbuff = copy.deepcopy(qmsg)
+            logger.debug('sending msg (of size %s) with destination %s and tag %s',sys.getsizeof(msgbuff),destination_rank,tag)
+            if tag is None:
+               send_request = MPI.COMM_WORLD.isend(msgbuff,dest=destination_rank)
+            else:
+               send_request = MPI.COMM_WORLD.isend(msgbuff,dest=destination_rank,tag=tag)
+
+            # On Theta I saw strange MPI behavior when waiting for the request
+            # from a non-blocking send (isend) which caused upto 20minute waits.
+            # This request should only be waiting for MPI to copy my data into
+            # its own buffer, but takes too long. This is a stop gap, which just
+            # appends the message to a dictionary (after a deepcopy of the original)
+            # and then moves on. It doesn't come back to check if it completed.
+            # I should eventually make this an 'optional' patch to enable and disable.
+            self.send_requests.append({'msg':msgbuff,'dest':destination_rank,'tag':tag,'req':send_request})
+            
+            # This was the previous code, which properly checks the isend request
+            # has completed.
 
             # wait for send to complete
-            logger.debug('wait for send to complete')
-            send_request.wait()
-            logger.debug('send complete')
+            #logger.debug('wait for send to complete')
+            #send_request.wait()
+            #logger.debug('send complete')
+            
          except SerialQueue.Empty:
             logger.debug('no message from message queue')
 
@@ -194,9 +209,6 @@ class MPIService(StatefulService.StatefulService):
             if message is None:
                logger.debug('no messages received this loop')
                no_message_on_last_loop = True
-
-
-
 
    def receive_message(self,block=False,timeout=None):
       # there should always be a request waiting for this rank to receive data
@@ -237,7 +249,6 @@ class MPIService(StatefulService.StatefulService):
       # no message received return nothing
       return None
 
-   
    def forward_message(self,message):
       
       if message['type'] in self.forwarding_map:
