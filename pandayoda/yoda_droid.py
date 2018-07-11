@@ -1,7 +1,10 @@
 #!/usr/bin/env python
 try:
    import argparse,logging,os,sys,datetime,time,socket
-   import ConfigParser
+   if sys.version_info >= (3, 0, 0):
+      import configparser as ConfigParser
+   else:
+      import ConfigParser
 
    from pandayoda.yoda import Yoda
    from pandayoda.droid import Droid
@@ -59,9 +62,11 @@ def yoda_droid(working_path,
    start_time         = start_time
 
    # parse configuration file
-   if os.path.exists(config_filename):
+   try:
       config = ConfigParser.ConfigParser()
-      config.read(config_filename)
+      config_file = open(config_filename)
+      config.readfp(config_file)
+      config_file.close()
 
       # parse config for this module
 
@@ -79,8 +84,9 @@ def yoda_droid(working_path,
          wallclock_expiring_leadtime = 300
          logger.warning('no "wallclock_expiring_leadtime" in "%s" section so using default %s',config_section,wallclock_expiring_leadtime)
 
-   else:
-      raise Exception('Rank %d: failed to parse config file: %s' % (mpirank,config_filename))
+   except Exception:
+      logger.exception('Rank %d: failed to parse config file: %s' % (mpirank,config_filename))
+      raise
 
    # track starting path
    starting_path = os.path.normpath(os.getcwd())
@@ -118,6 +124,7 @@ def yoda_droid(working_path,
          if yoda is not None:
             yoda.wallclock_expired.set()
             yoda.stop()
+         # MPIService.MPI.COMM_WORLD.Abort()
          break
 
       if droid and not droid.isAlive():
@@ -131,6 +138,7 @@ def yoda_droid(working_path,
       if yoda and not yoda.isAlive():
          logger.info('yoda has finished')
          break
+      logger.debug('sleeping %s',loop_timeout)
       time.sleep(loop_timeout)
 
 
@@ -218,6 +226,31 @@ def wallclock_expiring(wall_clock_limit,start_time,wallclock_expiring_leadtime):
       logger.debug('no wallclock limit set, no exit will be triggered')
    return False
 
+def get_config(options):
+
+   config = {}
+   default = {}
+   if MPI.COMM_WORLD.Get_rank() == 0:
+      configfile = ConfigParser.ConfigParser()
+      # make config options case sensitive (insensitive by default)
+      configfile.optionxform = str
+      logger.debug('reading config file: %s',options.config)
+      with open(options.config) as fp:
+         configfile.readfp(fp)
+         for section in configfile.sections():
+            config[section] = {}
+            for key,value in configfile.items(section):
+               # exclude DEFAULT keys
+               if key not in configfile.defaults().keys():
+                  config[section][key] = value
+               else:
+                  default[key] = value
+   # logger.debug('at bcast %s',config)
+   config = MPI.COMM_WORLD.bcast(config,root=0)
+   default = MPI.COMM_WORLD.bcast(default,root=0)
+   # logger.debug('after bcast %s',config)
+
+   return config,default
 
 if __name__ == "__main__":
    try:
