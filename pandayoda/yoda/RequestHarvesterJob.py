@@ -1,4 +1,4 @@
-import logging,os,importlib
+import logging,os,importlib,time
 from pandayoda.common import StatefulService,VariableWithLock,exceptions,MessageTypes
 logger = logging.getLogger(__name__)
 
@@ -11,10 +11,11 @@ class RequestHarvesterJob(StatefulService.StatefulService):
    CREATED              = 'CREATED'
    REQUEST              = 'REQUEST'
    WAITING              = 'WAITING'
+   GETTING_JOB          = 'GETTING_JOB'
    EXITED               = 'EXITED'
 
-   STATES = [CREATED,REQUEST,WAITING,EXITED]
-   RUNNING_STATES = [REQUEST,WAITING]
+   STATES = [CREATED,REQUEST,WAITING,GETTING_JOB,EXITED]
+   RUNNING_STATES = [REQUEST,WAITING,GETTING_JOB]
 
    def __init__(self,config,queues):
       super(RequestHarvesterJob,self).__init__()
@@ -109,7 +110,7 @@ class RequestHarvesterJob(StatefulService.StatefulService):
          # REQUEST State
          ########################
          if self.get_state() == self.REQUEST:
-            logger.debug('making request for job')
+            logger.info('making request for job')
             
             # first check that there is not a job ready
             if not messenger.pandajobs_ready():
@@ -119,38 +120,50 @@ class RequestHarvesterJob(StatefulService.StatefulService):
                except exceptions.MessengerJobAlreadyRequested:
                   logger.warning('job already requested.')
 
-            # wait for events
-            self.set_state(self.WAITING)
-         
+               # wait for events
+               self.set_state(self.WAITING)
+            else:
+               # since panda job is already ready, retrieve job
+               self.set_state(self.GETTING_JOB)
 
          #########
-         # REQUESTING State
+         # WAITING State
          ########################
          elif self.get_state() == self.WAITING:
             logger.debug('checking if request is complete')
             # use messenger to check if jobs are ready
             if messenger.pandajobs_ready():
                logger.debug('jobs are ready')
-               # use messenger to get jobs from Harvester
-               pandajobs = messenger.get_pandajobs()
-               
-               # set jobs for parent and change state
-               if len(pandajobs) > 0:
-                  logger.debug('setting NEW_JOBS variable')
-                  self.set_jobs(pandajobs)
-                  logger.debug('sending WorkManager WAKE_UP message')
-                  self.queues['WorkManager'].put({'type':MessageTypes.WAKE_UP})
-                  logger.debug('triggering exit')
-                  self.stop()
-               else:
-                  logger.debug('no jobs returned: %s',pandajobs)
-                  self.stop()
+               # since panda job is already ready, retrieve job
+               self.set_state(self.GETTING_JOB)
             else:
-               logger.debug('no jobs ready yet.')
-               self.exit.wait(timeout=loop_timeout)
+               logger.info('no response yet, sleep for %s',loop_timeout)
+               time.sleep(loop_timeout)
+
+
+         #########
+         # GETTING_JOB State
+         ########################
+         elif self.get_state() == self.GETTING_JOB:
+            logger.info('getting job')
+
+            # use messenger to get jobs from Harvester
+            pandajobs = messenger.get_pandajobs()
+            
+            # set jobs for parent and change state
+            if len(pandajobs) > 0:
+               logger.debug('setting NEW_JOBS variable')
+               self.set_jobs(pandajobs)
+               logger.debug('sending WorkManager WAKE_UP message')
+               self.queues['WorkManager'].put({'type':MessageTypes.WAKE_UP})
+               logger.debug('triggering exit')
+               self.stop()
+            else:
+               logger.debug('no jobs returned: %s',pandajobs)
+               self.stop()
 
          else:
-            logger.debug('nothing to do')
+            logger.debug('nothing to do, sleeping for %s',loop_timeout)
             self.exit.wait(timeout=loop_timeout)
          
 
