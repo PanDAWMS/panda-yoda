@@ -248,22 +248,21 @@ def get_pandajobs():
       raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPIService.rank,harConfSect,harvesterConfig.sections()))
 
    # first check to see if a file already exists.
-   if os.path.exists(jobSpecFile):
-      try:
-         logger.debug('jobSpecFile is present, reading job definitions')
-         # parse job spec file
-         job_def = json.load(open(jobSpecFile))
-         # remove this file now that we are done with it
-         os.rename(jobSpecFile,jobSpecFile + '.old')
-         # remove request file if harvester has not already
-         if os.path.exists(harvesterConfig.get(harConfSect,'jobRequestFile')):
-            os.remove(harvesterConfig.get(harConfSect,'jobRequestFile'))
-         # return job definition
-         return job_def
-      except Exception:
-         logger.exception('failed to parse jobSpecFile: %s' % (jobSpecFile))
-         raise
-   return {}
+   try:
+      logger.debug('jobSpecFile is present, reading job definitions')
+      # parse job spec file
+      job_def = json.load(open(jobSpecFile))
+      # remove this file now that we are done with it
+      os.rename(jobSpecFile,jobSpecFile + '.old')
+      # remove request file if harvester has not already
+      if os.path.exists(harvesterConfig.get(harConfSect,'jobRequestFile')):
+         os.remove(harvesterConfig.get(harConfSect,'jobRequestFile'))
+      # return job definition
+      return job_def
+   except Exception:
+      logger.exception('failed to parse jobSpecFile: %s' % (jobSpecFile))
+      raise
+   
 
 
 def request_eventranges(job_def):
@@ -332,7 +331,7 @@ def request_eventranges(job_def):
 
       
 
-def eventranges_ready(block=False,timeout=60):
+def eventranges_ready(block=False,timeout=60,loop_sleep_time=5):
    global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
    logger.debug('eventranges_ready start')
    
@@ -360,7 +359,7 @@ def eventranges_ready(block=False,timeout=60):
          return True
       else:
          logger.debug('no eventRangesFile so sleeping 1 second and checking again, timewaiting = %d; timeout = %d',timewaiting,timeout)
-         time.sleep(1)
+         time.sleep(loop_sleep_time)
          timewaiting = int(time.time() - start)
          
 
