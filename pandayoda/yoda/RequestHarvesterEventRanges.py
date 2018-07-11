@@ -141,7 +141,7 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
 
          
          #########
-         # REQUESTING State
+         # WAITING State
          ########################
          if self.get_state() == self.WAITING:
             logger.debug('checking for event ranges, will block for %s',self.loop_timeout)
@@ -156,6 +156,7 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
                   self.no_more_eventranges_flag.set(True)
                   self.stop()
                   continue
+               
 
          #########
          #  RETRIEVE_EVENTS State
