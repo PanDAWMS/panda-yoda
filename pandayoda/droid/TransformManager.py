@@ -90,11 +90,13 @@ class TransformManager(StatefulService.StatefulService):
       logger.info('monitoring subprocess for transform')
       self.set_state(TransformManager.MONITORING)
       while not self.exit.wait(timeout=self.loop_timeout):
-         logger.debug('start moinitor loop, timeout = %s',self.loop_timeout)
+         # logger.debug('start moinitor loop, timeout = %s',self.loop_timeout)
 
          if not self.is_subprocess_running():
             logger.info('transform has finished')
-            break
+            self.exit.set()
+         else:
+            logger.info('transform is still running, blocking for %s',self.loop_timeout)
       
       self.set_state(TransformManager.FINISHED)
 
@@ -107,19 +109,22 @@ class TransformManager(StatefulService.StatefulService):
       self.returncode.set(self.subprocess_returncode())
 
       if self.run_elsewhere:
+         logger.info('triggering staging of logs')
          self.stage_logs()
+         logger.info('staging completed')
 
       logger.info('exiting')
 
    def create_job_run_script(self):
       ''' using the template set in the configuration, create a script that
           will run the panda job with the appropriate environment '''
-      logger.debug('JobSubProcess: create job run script')
+      logger.debug('create job run script')
       template_filename = self.runscript_template
       
       template_file = open(template_filename)
       template = template_file.read()
       template_file.close()
+
       package,release = self.job_def['homepackage'].split('/')
       gcclocation = ''
       if release.startswith('19'):
@@ -185,7 +190,7 @@ class TransformManager(StatefulService.StatefulService):
                                gcclocation=gcclocation,
                                working_dir=working_dir,
                               )
-
+      logger.debug('write script')
       script_filename = self.runscript_filename
       script_filename = os.path.join(self.droid_working_path,script_filename)
       script_file = open(script_filename,'w')
