@@ -84,8 +84,17 @@ class Droid(StatefulService.StatefulService):
 
       # create custom droid working directory
       droid_working_path = os.path.join(os.getcwd(),self.working_path.format(rank='%05d' % MPIService.rank))
-      if not os.path.exists(droid_working_path):
+      try:
          os.makedirs(droid_working_path,0775)
+      except OSError,e:
+         if 'File exists' in str(e):
+            pass
+         else:
+            logger.exception('exception raised while trying to mkdirs %s',droid_working_path)
+            raise
+      except Exception,e:
+         logger.exception('exception raised while trying to mkdirs %s',droid_working_path)
+         raise
 
       # create queues for subthreads to send messages out
       queues = {}
@@ -130,18 +139,22 @@ class Droid(StatefulService.StatefulService):
          # Request a job definition from Yoda
          #########
          if self.get_state() == Droid.REQUEST_JOB:
-            
-            # set MPIService to be MPI focused, it should currently be message queue focused
-            # but right after the job request is sent, it will wake up, and convert to MPI focused
-            MPIService.mpiService.set_mpi_blocking()
-
+            logger.info('requesting a job')
+            # request a job, place message on queue to MPIService
             self.request_job(queues)
-            self.set_state(Droid.WAITING_FOR_JOB)
-
 
             # wait for MPIService to get message
             while not queues['MPIService'].empty():
                time.sleep(1)
+
+            # set MPIService to be MPI focused, it should currently be message queue focused
+            # but right after the job request is sent, it will wake up, and convert to MPI focused
+            MPIService.mpiService.set_mpi_blocking()
+
+            # change state
+            self.set_state(Droid.WAITING_FOR_JOB)
+
+
          ###############################################
          # Waiting for a job definition from Yoda
          #########
@@ -149,7 +162,7 @@ class Droid(StatefulService.StatefulService):
             # check if message was received and was correct type
             
             try:
-               logger.debug('waiting for job, blocking on queue for %s',self.loop_timeout)
+               logger.info('waiting for job, blocking on queue for %s',self.loop_timeout)
                qmsg = queues['Droid'].get(block=True,timeout=self.loop_timeout)
             except SerialQueue.Empty:
                logger.debug('no message on queue')
@@ -165,13 +178,14 @@ class Droid(StatefulService.StatefulService):
                   # set MPIService to be Queue focused
                   MPIService.mpiService.set_queue_blocking()
                else:
-                  logger.debug('message type was not NEW_JOB: %s',qmsg)
+                  logger.error('message type was not NEW_JOB, faied parsing: %s',qmsg)
             
 
          ###############################################
          # Job received
          #########
          elif self.get_state() == Droid.JOB_RECEIVED:
+            logger.info('job received, launching transform')
             # launch TransformManager to run job
             self.subthreads['transform'] = TransformManager.TransformManager(new_job_msg['job'],
                                                                              self.config,
@@ -204,31 +218,27 @@ class Droid(StatefulService.StatefulService):
                if not self.subthreads['JobComm'].is_alive():
                   # check to see if JobComm exited properly or if there is no more work.
                   if self.subthreads['JobComm'].no_more_work():
+                     logger.info('no more work, triggering exit')
                      # JobComm received no more work message from Harvester so exiting
-                     self.set_state(Droid.EXITING)
                      self.stop()
-                     break
                   else:
                      # log error
                      logger.error('JobComm thread exited, but the not sure why')
-                     self.set_state(Droid.EXITING)
                      self.stop()
-                     break
                else:
                   # sleep for a bit while blocking on incoming messages
-                  logger.debug('monitoring transform, block for %s on message queue get',self.loop_timeout)
+                  logger.info('transform running, block for %s on message queue',self.loop_timeout)
                   try:
                      qmsg = queues['Droid'].get(block=True,timeout=self.loop_timeout)
                      if qmsg['type'] == MessageTypes.WALLCLOCK_EXPIRING:
-                        logger.info('received WALLCLOCK_EXPIRING message from Yoda, need to kill all work and exit.')
+                        logger.info('received WALLCLOCK_EXPIRING message from Yoda, exiting.')
                         # stop Droid and it will kill all subthreads,etc.
                         self.stop()
                      elif qmsg['type'] == MessageTypes.NO_MORE_EVENT_RANGES:
                         logger.info('received NO_MORE_EVENT_RANGES, exiting')
                         self.stop()
-                        break
                      else:
-                        logger.warning('received unexpected message: %s',qmsg)
+                        logger.error('received unexpected message: %s',qmsg)
                   except SerialQueue.Empty:
                      logger.debug('no message received while in monitoring wait')
 
@@ -252,25 +262,10 @@ class Droid(StatefulService.StatefulService):
                logger.error('transform exited but is not in FINISHED state, returncode = %s, see output files for details = [%s,%s]',
                             self.subthreads['transform'].get_returncode(),self.stderr_filename,self.stdout_filename)
 
-            # send message to JobCommand that transform exited
-            queues['JobComm'].put({'type':MessageTypes.TRANSFORM_EXITED})
+            # trigger exit
+            self.stop()
 
-            # if JobComm is still alive, request another job
-            if self.subthreads['JobComm'].is_alive():
-               self.set_state(Droid.REQUEST_JOB)
-               # set MPIService to block on queue messages
-               MPIService.mpiService.set_queue_blocking()
-            else:
-               # check to see if JobComm exited properly or if there is no more work.
-               if self.subthreads['JobComm'].is_alive():
-                  # JobComm received no more work message from Harvester so exiting
-                  self.stop()
-                  break
-               else:
-                  # log error
-                  logger.error('JobComm thread exited, but the not sure why')
-                  self.stop()
-                  break
+            # in the future you might imagine requesting another job here
 
       # set exit state
       self.set_state(self.EXITING)
