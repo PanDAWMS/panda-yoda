@@ -100,7 +100,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
          #        it does, it is assumed that there is no payload running
          ######################################################################
          if self.get_state() == self.WAITING_FOR_JOB:
-            logger.debug(' waiting for job definition, blocking on message queue for %s ',self.loop_timeout)
+            logger.info(' waiting for job definition, blocking on message queue for %s ',self.loop_timeout)
             try:
                qmsg = self.queues['JobComm'].get(block=True,timeout=self.loop_timeout)
             except SerialQueue.Empty:
@@ -116,7 +116,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                if 'type' not in qmsg or qmsg['type'] != MessageTypes.NEW_JOB or 'job' not in qmsg:
                   logger.error('received unexpected message format: %s',qmsg)
                else:
-                  logger.debug('received job definition')
+                  logger.info('received job definition')
                   current_job = qmsg['job']
                   
                   # create new payload communicator
@@ -139,9 +139,9 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
          # REQUEST_EVENT_RANGES: Request event ranges from Yoda
          ######################################################################
          elif self.get_state() == self.REQUEST_EVENT_RANGES:
-            logger.debug('requesting event ranges')
+            logger.info('requesting event ranges')
             if payloadcomm.no_more_events():
-               logger.debug('no more event ranges flag is set, going to MONITORING state')
+               logger.info('no more event ranges flag is set, going to MONITORING state')
                self.set_state(self.MONITORING)
             else:
                # send MPI message to Yoda for more event ranges
@@ -153,7 +153,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
          # WAITING_FOR_EVENT_RANGES: Waiting for event ranges from Yoda
          ######################################################################
          elif self.get_state() == self.WAITING_FOR_EVENT_RANGES:
-            logger.debug('waiting for event ranges, blocking on message queue for %s',self.loop_timeout)
+            logger.info('waiting for event ranges, blocking on message queue for %s',self.loop_timeout)
             try:
                qmsg = self.queues['JobComm'].get(block=True,timeout=self.loop_timeout)
             except SerialQueue.Empty:
@@ -169,14 +169,14 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                if 'type' not in qmsg:
                   logger.error('received unexpected message format: %s',qmsg)
                elif qmsg['type'] == MessageTypes.NEW_EVENT_RANGES:
-                  logger.debug('received event ranges')
+                  logger.info('received event ranges')
                   eventranges = EventRangeList.EventRangeList(qmsg['eventranges'])
                   # add event ranges to payload messenger list
                   payloadcomm.add_eventranges(eventranges)
                   # change state
                   self.set_state(self.MONITORING)
                elif qmsg['type'] == MessageTypes.NO_MORE_EVENT_RANGES:
-                  logger.debug('no more event ranges for PandaID %s going to MONITORING state',qmsg['PandaID'])
+                  logger.info('no more event ranges for PandaID %s going to MONITORING state',qmsg['PandaID'])
                   payloadcomm.set_no_more_events()
                   # if there are no more event ranges, tell payload to stop
                   if payloadcomm.get_number_eventranges() - payloadcomm.get_ready_eventranges() == 0:
@@ -209,12 +209,12 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
             # if the number of completed events equals the number of event ranges
             # available, and no more events flag is set, then kill subprocess and exit.
             elif ready_events == 0 and number_completed == total and payloadcomm.no_more_events():
-               logger.debug('no more events to process, exiting')
+               logger.info('no more events to process, exiting')
                payloadcomm.stop()
                self.stop()
                self.all_work_done.set(True)
             else:
-               logger.debug('sleeping for %s',self.loop_timeout)
+               logger.info('sleeping for %s',self.loop_timeout)
                self.exit.wait(timeout=self.loop_timeout)
 
 
@@ -419,18 +419,18 @@ class PayloadMessenger(StatefulService.StatefulService):
             last_output_file_mpi_send = time.time()
          elif (time.time() - last_output_file_mpi_send) > self.aggregate_output_files_time:
 
-               # send output file data to Yoda/FileManager
-               logger.debug('%s: sending %s output files to Yoda/FileManager',self.prelog,len(output_files))
-               mpi_message = {'type':MessageTypes.OUTPUT_FILE,
-                              'filelist':output_files,
-                              'destination_rank': 0
-                             }
-               self.queues['MPIService'].put(mpi_message)
+            # send output file data to Yoda/FileManager
+            logger.info('%s: sending %s output files to Yoda/FileManager',self.prelog,len(output_files))
+            mpi_message = {'type':MessageTypes.OUTPUT_FILE,
+                           'filelist':output_files,
+                           'destination_rank': 0
+                          }
+            self.queues['MPIService'].put(mpi_message)
 
-               # set time for next send
-               last_output_file_mpi_send = time.time()
-               # reset output file list
-               output_files = []
+            # set time for next send
+            last_output_file_mpi_send = time.time()
+            # reset output file list
+            output_files = []
 
          
          ##################
@@ -445,7 +445,7 @@ class PayloadMessenger(StatefulService.StatefulService):
             if event_range_request_counter > 0:
                temp_timeout = 1
             
-            logger.debug('%s: checking for message from payload, block for %s, event range requests: %s',self.prelog,self.loop_timeout,event_range_request_counter)
+            logger.debug('%s: checking for message from payload, block for %s, event range requests: %s',self.prelog,temp_timeout,event_range_request_counter)
 
             payload_msg = athpayloadcomm.recv(temp_timeout)
 
@@ -555,7 +555,7 @@ class PayloadMessenger(StatefulService.StatefulService):
          # WAITING_FOR_EVENT_RANGES: out of event ranges, wait for more to be set
          ######################################################################
          elif self.get_state() == self.WAITING_FOR_EVENT_RANGES:
-            logger.debug('%s: waiting for more event ranges for %s',self.prelog,self.loop_timeout)
+            logger.info('%s: waiting for more event ranges for %s',self.prelog,self.loop_timeout)
             if self.eventranges.wait(self.loop_timeout):
                logger.debug('%s: eventranges set, check again',self.prelog)
                self.eventranges.clear()
@@ -569,7 +569,7 @@ class PayloadMessenger(StatefulService.StatefulService):
          # SEND_OUTPUT_FILE: send output file data to MPIService
          ######################################################################
          elif self.get_state() == self.SEND_OUTPUT_FILE:
-            logger.debug('%s: send output file information',self.prelog)
+            logger.info('%s: sending output file information',self.prelog)
             
             # parse message
             parts = payload_msg.split(',')
