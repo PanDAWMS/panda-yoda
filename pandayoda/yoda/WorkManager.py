@@ -66,7 +66,7 @@ class WorkManager(threading.Thread):
          ################################
          qmsg = None
          if not self.queues['WorkManager'].empty():
-            logger.debug('queue has messages')
+            logger.info('queue has messages')
             qmsg = self.queues['WorkManager'].get(block=False)
             # any time I get a message from this queue, I reset the index of the pending request list
             # this way, I cycle through the pending requests once per new message
@@ -77,7 +77,7 @@ class WorkManager(threading.Thread):
                logger.debug('pending queue has %s messages processing %s',len(self.pending_requests),self.pending_index)
                qmsg = self.pending_requests[self.pending_index]
             else:
-               logger.debug('have cycled through all pending requests without a change, will block on queue for %s',self.loop_timeout)
+               logger.info('have cycled through all pending requests without a change, will block on queue for %s',self.loop_timeout)
                try:
                   self.pending_index = 0
                   qmsg = self.queues['WorkManager'].get(block=True,timeout=self.loop_timeout)
@@ -90,6 +90,7 @@ class WorkManager(threading.Thread):
             #      ):
             try:
                self.pending_index = 0
+               logger.info('blocking on queue for %s',self.loop_timeout)
                qmsg = self.queues['WorkManager'].get(block=True,timeout=self.loop_timeout)
             except SerialQueue.Empty:
                logger.debug('no messages on queue after blocking')
@@ -134,7 +135,7 @@ class WorkManager(threading.Thread):
                               requestHarvesterJob.join()
                            requestHarvesterJob = None
                         else:
-                           logger.debug('new jobs ready, adding to PandaJobDict, then add to pending requests')
+                           logger.info('new jobs ready, adding to PandaJobDict, then add to pending requests')
                            pandajobs.append_from_dict(jobs)
                            # add to pending requests because the job to send will be chose by another
                            # section of code below which sends the job based on the event ranges on hand
@@ -155,7 +156,7 @@ class WorkManager(threading.Thread):
                         else:
                            logger.debug('request is in %s state, waiting',requestHarvesterJob.get_state())
                   
-                  logger.info('pending message')
+                  logger.debug('pending message')
                   # place request on pending_requests queue and reprocess again when job is ready
                   self.pend_request(qmsg)
 
@@ -173,7 +174,7 @@ class WorkManager(threading.Thread):
                   job = pandajobs[pandaid]
 
                   # send it to droid rank
-                  logger.debug('sending droid rank %s panda id %s which has the most ready events %s',
+                  logger.info('sending droid rank %s panda id %s which has the most ready events %s',
                                qmsg['source_rank'],pandaid,job.number_ready())
                   outmsg = {
                      'type':MessageTypes.NEW_JOB,
@@ -208,7 +209,7 @@ class WorkManager(threading.Thread):
                # if there are no event ranges left reply with such
                if pandajobs[droid_pandaid].eventranges.no_more_event_ranges:
                   logger.debug('no event ranges left for panda ID %s',droid_pandaid)
-                  logger.debug('sending NO_MORE_EVENT_RANGES to rank %s',qmsg['source_rank'])
+                  logger.info('sending NO_MORE_EVENT_RANGES to rank %s',qmsg['source_rank'])
                   self.queues['MPIService'].put(
                         {'type':MessageTypes.NO_MORE_EVENT_RANGES,
                          'destination_rank':qmsg['source_rank'],
@@ -394,7 +395,7 @@ class WorkManager(threading.Thread):
       local_eventranges = eventranges.get_next(min(eventranges.number_ready(),self.send_n_eventranges))
       
       # send event ranges to Droid
-      logger.debug('sending %d new event ranges to droid rank %d',len(local_eventranges),qmsg['source_rank'])
+      logger.info('sending %d new event ranges to droid rank %d',len(local_eventranges),qmsg['source_rank'])
       outmsg = {
          'type':MessageTypes.NEW_EVENT_RANGES,
          'eventranges': local_eventranges,
