@@ -1,4 +1,5 @@
-import os,json,logging,ConfigParser,time,threading,glob,sys
+import os,json,logging,ConfigParser,time,glob,sys
+from multiprocessing import Lock
 from pandayoda.common import exceptions,serializer,MPIService
 logger = logging.getLogger(__name__)
 
@@ -150,7 +151,7 @@ harvesterConfig = None
 # I put this in because the setup function was being called in parallel with the requestevents()
 # this caused the request events to fail because it was moving faster than the setup function
 # and therefore could not find the configuration information yet and threw an exception.
-harConfLock = threading.Lock()
+harConfLock = Lock()
 harConfSect = 'payload_interaction'
 request_polling_time = 5
 request_poll_timeout = 300

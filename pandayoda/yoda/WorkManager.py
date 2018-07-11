@@ -1,4 +1,5 @@
-import os,threading,logging,time
+import os,logging
+from multiprocessing import Process,Event
 import RequestHarvesterJob,RequestHarvesterEventRanges,PandaJobDict
 from pandayoda.common import MessageTypes,SerialQueue,EventRangeList
 from pandayoda.common import MPIService
@@ -7,7 +8,7 @@ logger = logging.getLogger(__name__)
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
 
-class WorkManager(threading.Thread):
+class WorkManager(Process):
    ''' Work Manager: this thread manages work going to the running Droids '''
 
    def __init__(self,config,queues):
@@ -26,7 +27,7 @@ class WorkManager(threading.Thread):
       self.config                = config
 
       # this is used to trigger the thread exit
-      self.exit                  = threading.Event()
+      self.exit                  = Event()
 
    def stop(self):
       ''' this function can be called by outside subthreads to cause the JobManager thread to exit'''
@@ -305,7 +306,8 @@ class WorkManager(threading.Thread):
 
                               if tmpeventranges is not None:
                                  logger.debug('received eventranges: %s',
-                                    ' '.join(('%s:%i' % (tmpid,len(tmplist))) for tmpid,tmplist in tmpeventranges.iteritems()))
+                                              ' '.join(('%s:%i' % (tmpid,len(tmplist)))
+                                                       for tmpid,tmplist in tmpeventranges.iteritems()))
                                  # add event ranges to pandajobs dict
                                  for jobid,ers in tmpeventranges.iteritems():
                                     pandajobs[jobid].eventranges += EventRangeList.EventRangeList(ers)

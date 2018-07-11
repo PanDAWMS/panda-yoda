@@ -1,9 +1,11 @@
-import threading,logging,time
+import logging,time
+from multiprocessing import Process,Event
 from pandayoda.common import VariableWithLock
 logger = logging.getLogger()
 
-class StatefulService(threading.Thread):
-   ''' this thread class should serve as a base class for 
+
+class StatefulService(Process):
+   ''' this thread class should serve as a base class for
        all threads that run infinite loops with a state
        associated with them '''
 
@@ -20,7 +22,7 @@ class StatefulService(threading.Thread):
       self.state_time                  = VariableWithLock.VariableWithLock(time.clock())
 
       # this is used to trigger the thread exit
-      self.exit                        = threading.Event()
+      self.exit                        = Event()
 
       # loop_timeout decided loop sleep times
       self.loop_timeout                = loop_timeout
@@ -30,8 +32,6 @@ class StatefulService(threading.Thread):
       ''' this function can be called by outside threads to cause the JobManager thread to exit'''
       self.exit.set()
    
-
-
    def get_state(self):
       ''' return current state '''
       return self.state.get()
@@ -52,8 +52,6 @@ class StatefulService(threading.Thread):
 
    def state_lifetime(self):
       return time.clock() - self.state_time.get()
-
-
 
    def run(self):
       ''' run when obj.start() is called '''

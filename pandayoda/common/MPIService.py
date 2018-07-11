@@ -1,5 +1,6 @@
-import threading,logging,time,os,sys,copy
-from pandayoda.common import StatefulService,SerialQueue
+import logging,time,os,sys,copy
+from pandayoda.common import SerialQueue
+from pandayoda.common.StatefulService import StatefulService,Event
 from mpi4py import MPI
 logger = logging.getLogger('MPIService')
 
@@ -7,7 +8,7 @@ logger = logging.getLogger('MPIService')
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
 
-class MPIService(StatefulService.StatefulService):
+class MPIService(StatefulService):
    ''' this thread class should be used for running MPI operations
        within a single MPI rank '''
 
@@ -42,10 +43,10 @@ class MPIService(StatefulService.StatefulService):
       self.forwarding_map              = None
 
       # this is used to trigger the thread exit
-      self.exit                        = threading.Event()
+      self.exit                        = Event()
 
       # this is set when the thread should continue on to the full loop
-      self.init_done                   = threading.Event()
+      self.init_done                   = Event()
 
       self.set_state(self.CREATED)
 

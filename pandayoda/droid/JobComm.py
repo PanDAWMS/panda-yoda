@@ -1,6 +1,7 @@
-import os,logging,threading,time,shutil
+import os,logging,time,shutil
 from pandayoda.common import MessageTypes,SerialQueue,EventRangeList,serializer
-from pandayoda.common import MPIService,VariableWithLock,StatefulService
+from pandayoda.common import VariableWithLock
+from pandayoda.common.StatefulService import StatefulService,Event
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ class FailedToParseYodaMessage(Exception):
    pass
 
 
-class JobComm(StatefulService.StatefulService):
+class JobComm(StatefulService):
    '''  JobComm: This thread handles all the AthenaMP related payloadcommunication
 
 Pilot/Droid launches AthenaMP and starts listening to its messages. AthenaMP finishes initialization and sends "Ready for events" to Pilot/Droid. Pilot/Droid sends back an event range. AthenaMP sends NWorkers-1 more times "Ready for events" to Pilot/Droid. On each of these messages Pilot/Droid replies with a new event range. After that all AthenaMP workers are busy processing events. Once some AthenaMP worker is available to take the next event range, AthenaMP sends "Ready for events" to Pilot/Droid. Pilot/Droid sends back an event range. Once some output file becomes available, AthenaMP sends full path, RangeID, CPU time and Wall time to Pilot/Droid and does not expect any answer on this message. Here is an example of such message:
@@ -321,7 +322,7 @@ class PayloadMessenger(StatefulService.StatefulService):
       self.eventranges                 = VariableWithLock.VariableWithLock(EventRangeList.EventRangeList())
 
       # set by JobComm when no more events ready
-      self.no_more_eventranges         = threading.Event()
+      self.no_more_eventranges         = Event()
 
       # set if we should move output files from worker directories to yoda working directory
       self.stage_outputs               = stage_outputs

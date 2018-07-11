@@ -1,11 +1,12 @@
-import os,threading,logging,importlib,time
+import os,logging,importlib,time
+from multiprocessing import Process,Event
 from pandayoda.common import MessageTypes,SerialQueue
 logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
 
-class FileManager(threading.Thread):
+class FileManager(Process):
 
 
    IDLE                 = 'IDLE'
@@ -25,7 +26,7 @@ class FileManager(threading.Thread):
       self.config                = config
 
       # this is used to trigger the thread exit
-      self.exit                  = threading.Event()
+      self.exit                  = Event()
 
       # this is the working directory of yoda
       self.yoda_working_path     = yoda_working_path

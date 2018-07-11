@@ -1,4 +1,5 @@
-import logging,threading,time,os,datetime
+import logging,time,os
+from multiprocessing import Process,Event
 import WorkManager,FileManager
 from pandayoda.common import SerialQueue,MessageTypes,MPIService
 logger = logging.getLogger(__name__)
@@ -6,7 +7,7 @@ logger = logging.getLogger(__name__)
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
 
-class Yoda(threading.Thread):
+class Yoda(Process):
    def __init__(self,config):
       ''' config: configuration of Yoda
       '''
@@ -17,10 +18,10 @@ class Yoda(threading.Thread):
       self.config             = config
 
       # keep track of if the wallclock has expired
-      self.wallclock_expired = threading.Event()
+      self.wallclock_expired = Event()
 
       # this is used to trigger the thread exit
-      self.exit               = threading.Event()
+      self.exit               = Event()
 
 
    def stop(self):
@@ -35,7 +36,6 @@ class Yoda(threading.Thread):
       except Exception:
          logger.exception('Yoda failed with uncaught exception')
          MPIService.MPI.COMM_WORLD.Abort()
-
 
    def subrun(self):
       ''' this function is the business logic, but wrapped in exception '''
@@ -145,9 +145,6 @@ class Yoda(threading.Thread):
 
       logger.info('Yoda is exiting')
 
-
-   
-
    def read_config(self):
 
       # read yoda log level:
@@ -166,10 +163,6 @@ class Yoda(threading.Thread):
          logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
          return
       logger.info('%s loop_timeout: %d',config_section,self.loop_timeout)
-
-      
-      
-
 
    def process_incoming_messages(self):
 
