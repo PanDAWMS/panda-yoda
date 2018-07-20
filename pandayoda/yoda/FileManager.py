@@ -1,6 +1,6 @@
-import os,logging,importlib,time
+import os,logging,importlib,time,Queue
 from multiprocessing import Process,Event
-from pandayoda.common import MessageTypes,SerialQueue
+from pandayoda.common import MessageTypes
 logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
@@ -16,7 +16,7 @@ class FileManager(Process):
 
    STATES = [IDLE,STAGE_OUT,STAGING_OUT,EXITED]
 
-   def __init__(self,config,queues,yoda_working_path):
+   def __init__(self,config,queues,yoda_working_path,harvester_messenger):
       super(FileManager,self).__init__()
 
       # dictionary of queues for sending messages to Droid components
@@ -31,27 +31,15 @@ class FileManager(Process):
       # this is the working directory of yoda
       self.yoda_working_path     = yoda_working_path
 
+      # harvester communication module
+      self.harvester_messenger   = harvester_messenger
+
+      # default harvester_output_timeout
+      self.harvester_output_timeout = 10
+
    def stop(self):
       ''' this function can be called by outside threads to cause the JobManager thread to exit'''
       self.exit.set()
-
-
-   def get_harvester_messenger(self):
-      # get the name of the plugin from the config file
-      if self.config.has_option(config_section,'messenger_plugin_module'):
-         messenger_plugin_module = self.config.get(config_section,'messenger_plugin_module')
-      else:
-         raise Exception('Failed to retrieve messenger_plugin_module from config file section %s' % config_section)
-
-
-      # try to import the module specified in the config
-      # if it is not in the PYTHONPATH this will fail
-      try:
-         return importlib.import_module(messenger_plugin_module)
-      except ImportError:
-         logger.exception('Failed to import messenger_plugin: %s',messenger_plugin_module)
-         raise
-
 
 
    def run(self):
@@ -60,21 +48,17 @@ class FileManager(Process):
       # read configuration info from file
       self.read_config()
 
-      # get the harvester_messenger for communicating with Harvester
-      harvester_messenger = self.get_harvester_messenger()
-      harvester_messenger.setup(self.config)
-
       local_filelist = []
 
       last_check = time.time()
 
-      while not self.exit.isSet():
+      while not self.exit.is_set():
          logger.debug('starting loop, local_filelist size: %s',len(local_filelist))
 
          # process incoming messages
          try:
             qmsg = self.queues['FileManager'].get(timeout=self.loop_timeout)
-         except SerialQueue.Empty:
+         except Queue.Empty:
             logger.debug('queue is empty')
          else:
 
@@ -83,22 +67,26 @@ class FileManager(Process):
             if qmsg['type'] == MessageTypes.OUTPUT_FILE:
 
                local_filelist += qmsg['filelist']
+               logger.info('received output file, waiting list contains %s files',len(local_filelist))
 
                # I don't want to constantly check to see if the output file exists
-               # so I'll only check every 10 seconds
-               if time.time() - last_check > 10:
+               # so I'll only check every few seconds
+               if time.time() - last_check > self.harvester_output_timeout:
                   last_check = time.time()
 
                   # if an output file already exists,
                   # wait for harvester to read in file, so add file list to
                   # local running list
-                  if not harvester_messenger.stage_out_file_exists():
+                  if not self.harvester_messenger.stage_out_file_exists():
                      # add file to Harvester stage out
-                     harvester_messenger.stage_out_files(
-                                                      local_filelist,
-                                                      self.output_file_type
-                                                     )
+                     logger.info('staging %s files to Harvester',len(local_filelist))
+                     self.harvester_messenger.stage_out_files(
+                                                              local_filelist,
+                                                              self.output_file_type
+                                                             )
                      local_filelist = []
+                  else:
+                     logger.warning('Harvester has not yet consumed output files, currently waiting to dump %s output files',len(local_filelist))
             else:
                logger.error('message type not recognized')
 
@@ -108,29 +96,41 @@ class FileManager(Process):
 
    def read_config(self):
 
-      # read log level:
-      if self.config.has_option(config_section,'loglevel'):
-         self.loglevel = self.config.get(config_section,'loglevel')
-         logger.info('%s loglevel: %s',config_section,self.loglevel)
-         logger.setLevel(logging.getLevelName(self.loglevel))
-      else:
-         logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
+      if config_section in self.config:
+         # read log level:
+         if 'loglevel' in self.config[config_section]:
+            self.loglevel = self.config[config_section]['loglevel']
+            logger.info('%s loglevel: %s',config_section,self.loglevel)
+            logger.setLevel(logging.getLevelName(self.loglevel))
+         else:
+            logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
 
-      # get self.loop_timeout
-      if self.config.has_option(config_section,'loop_timeout'):
-         self.loop_timeout = self.config.getfloat(config_section,'loop_timeout')
-      else:
-         logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
-         return
-      logger.info('%s loop_timeout: %d',config_section,self.loop_timeout)
+         # read droid loop timeout:
+         if 'loop_timeout' in self.config[config_section]:
+            self.loop_timeout = int(self.config[config_section]['loop_timeout'])
+            logger.info('%s loop_timeout: %s',config_section,self.loop_timeout)
+         else:
+            logger.warning('no "loop_timeout" in "%s" section of config file, keeping default %s',config_section,self.loop_timeout)
 
-      # get self.output_file_type
-      if self.config.has_option(config_section,'output_file_type'):
-         self.output_file_type = self.config.get(config_section,'output_file_type')
+
+         # read harvester_output_timeout:
+         if 'harvester_output_timeout' in self.config[config_section]:
+            self.harvester_output_timeout = int(self.config[config_section]['harvester_output_timeout'])
+            logger.info('%s harvester_output_timeout: %s',config_section,self.harvester_output_timeout)
+         else:
+            logger.warning('no "harvester_output_timeout" in "%s" section of config file, keeping default %s',config_section,self.harvester_output_timeout)
+
+         # read output_file_type:
+         if 'output_file_type' in self.config[config_section]:
+            self.output_file_type = self.config[config_section]['output_file_type']
+            logger.info('%s output_file_type: %s',config_section,self.output_file_type)
+         else:
+            logger.error('no "output_file_type" in "%s" section of config file, keeping default %s',config_section,self.output_file_type)
+            raise Exception('must specify "output_file_type" in %s section of config file. Typically set to "es_output"' % config_section)
+
       else:
-         logger.error('must specify "output_file_type" in "%s" section of config file',config_section)
-         return
-      logger.info('%s output_file_type: %s',config_section,self.output_file_type)
+         raise Exception('no %s section in the configuration' % config_section)
+
 
 
 

@@ -1,10 +1,11 @@
 from pandayoda.yoda import PandaJob
 
+
 class PandaJobDict:
    ''' a list of PandaJob objects '''
 
    def __init__(self,pandajobs=None):
-      ''' create a new list. Can pass a dictionary object that will be 
+      ''' create a new list. Can pass a dictionary object that will be
           parsed into PandaJob objects: {PandaID: {'PandaID': PandaID, ...}, ...}
       '''
       # list of PandaJob objects, keyed by PandaID
@@ -14,8 +15,8 @@ class PandaJobDict:
          self.append_from_dict(pandajobs)
 
    def append_from_dict(self,pandajobs):
-      for id,job in pandajobs.iteritems():
-         self.jobs[str(id)] = PandaJob.PandaJob(job)
+      for id in pandajobs.keys():
+         self.jobs[str(id)] = PandaJob.PandaJob(pandajobs[id])
 
    def get_job_with_most_ready_events(self):
       # if there are no jobs, return None

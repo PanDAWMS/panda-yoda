@@ -1,5 +1,5 @@
-import logging,os,time,socket,multiprocessing,platform
-from pandayoda.common import SerialQueue,MessageTypes,MPIService,StatefulService
+import logging,os,time,socket,multiprocessing,platform,Queue
+from pandayoda.common import MessageTypes,MPIService,StatefulService
 from pandayoda.droid import TransformManager,JobComm
 logger = logging.getLogger(__name__)
 
@@ -21,19 +21,22 @@ class Droid(StatefulService.StatefulService):
 
    STATES = [CREATED,REQUEST_JOB,WAITING_FOR_JOB,JOB_RECEIVED,MONITORING,TRANSFORM_EXITED,EXITING,EXITED]
 
-   def __init__(self,config):
+   def __init__(self,queues,config,rank):
       ''' config: the ConfigParser handle for yoda '''
 
       # call Thread constructor
       super(Droid,self).__init__()
 
+      # message queues
+      self.queues = queues
+
       # configuration of Yoda
       self.config = config
 
-      self.set_state(Droid.CREATED)
+      # rank number
+      self.rank   = rank
 
-      # place holders for threads
-      self.subthreads = {}
+      self.set_state(Droid.CREATED)
 
 
    # this runs when 'droid_instance.start()' is called
@@ -44,37 +47,21 @@ class Droid(StatefulService.StatefulService):
          self.subrun()
       except Exception:
          logger.exception('Droid failed with uncaught exception')
-         if MPIService.mpiService.is_alive():
-            MPIService.mpiService.queues['MPIService'].put({'type':MessageTypes.DROID_HAS_EXITED,'destination_rank':0})
-
-            # send the exit signal to all subthreads
-            logger.info('sending exit signal to subthreads')
-            for name,thread in self.subthreads.iteritems():
-               thread.stop()
-
-            # wait for sub threads to exit
-            logger.info('waiting for subthreads to join')
-            for name,thread in self.subthreads.iteritems():
-               thread.join()
-               logger.info('%s has joined',name)
-         else:
-            logger.error(' cannot signal Yoda that Droid has exited so going to kill all ranks via MPI')
-            MPIService.MPI.COMM_WORLD.Abort()
-
+         from mpi4py import MPI
+         MPI.COMM_WORLD.Abort()
          logger.info('Droid is exiting')
 
 
    def subrun(self):
       ''' this function is the business logic, but wrapped in exception '''
       
-      if MPIService.rank == 1:
-         logger.info('Droid Thread starting')
-         logger.debug('config_section: %s',config_section)
-      
-         logger.info('Droid running on hostname: %s, %s',socket.gethostname(),platform.node())
-         logger.info('Droid node has %d cpus',multiprocessing.cpu_count())
-         logger.info('Droid uname: %s',','.join(platform.uname()))
-         logger.info('Droid processor: %s',platform.processor())
+      logger.info('Droid Thread starting')
+      logger.debug('config_section:             %s',config_section)
+   
+      logger.info('Droid running on hostname:   %s',socket.gethostname())
+      logger.info('Droid node has               %d cpus',multiprocessing.cpu_count())
+      logger.info('Droid uname:                 %s',','.join(platform.uname()))
+      logger.info('Droid processor:             %s',platform.processor())
 
 
       # read in config variables inside the thread run function to avoid
@@ -83,7 +70,7 @@ class Droid(StatefulService.StatefulService):
 
 
       # create custom droid working directory
-      droid_working_path = os.path.join(os.getcwd(),self.working_path.format(rank='%05d' % MPIService.rank))
+      droid_working_path = os.path.join(os.getcwd(),self.working_path)
       try:
          os.makedirs(droid_working_path,0775)
       except OSError,e:
@@ -96,33 +83,12 @@ class Droid(StatefulService.StatefulService):
          logger.exception('exception raised while trying to mkdirs %s',droid_working_path)
          raise
 
-      # create queues for subthreads to send messages out
-      queues = {}
-      queues['JobComm']          = SerialQueue.SerialQueue()
-      queues['Droid']            = SerialQueue.SerialQueue()
-      queues['MPIService']       = SerialQueue.SerialQueue()
-
-      # create forwarding map for MPIService
-      forwarding_map = {
-         MessageTypes.NEW_JOB: ['Droid','JobComm'],
-         MessageTypes.NEW_EVENT_RANGES: ['JobComm'],
-         MessageTypes.WALLCLOCK_EXPIRING: ['Droid'],
-         MessageTypes.DROID_EXIT: ['Droid'],
-         MessageTypes.NO_MORE_EVENT_RANGES: ['JobComm'],
-      }
-
-      # initialize MPI Service
-      MPIService.mpiService.initialize(self.config,queues,forwarding_map,self.loop_timeout)
-      MPIService.mpiService.set_queue_blocking()
-      # wait until MPI Service has started up
-      while not MPIService.mpiService.is_alive():
-         time.sleep(1)
       
       # a dictionary of subthreads
       self.subthreads = {}
       
       # create job comm thread
-      self.subthreads['JobComm']      = JobComm.JobComm(self.config,queues,droid_working_path,self.yampl_socket_name)
+      self.subthreads['JobComm']      = JobComm.JobComm(self.config,self.queues,droid_working_path,self.yampl_socket_name)
       self.subthreads['JobComm'].start()
 
       # begin in the REQUEST_JOB state
@@ -131,7 +97,7 @@ class Droid(StatefulService.StatefulService):
       logger.debug('cwd: %s',os.getcwd())
 
       # begin while loop
-      while not self.exit.isSet():
+      while not self.exit.is_set():
          state = self.get_state()
          logger.debug('droid start loop, state = %s',state)
 
@@ -141,15 +107,15 @@ class Droid(StatefulService.StatefulService):
          if self.get_state() == Droid.REQUEST_JOB:
             logger.info('requesting a job')
             # request a job, place message on queue to MPIService
-            self.request_job(queues)
+            self.request_job(self.queues)
 
             # wait for MPIService to get message
-            while not queues['MPIService'].empty():
+            while not self.queues['MPIService'].empty():
                time.sleep(1)
 
             # set MPIService to be MPI focused, it should currently be message queue focused
             # but right after the job request is sent, it will wake up, and convert to MPI focused
-            MPIService.mpiService.set_mpi_blocking()
+            # MPIService.mpiService.set_mpi_blocking()
 
             # change state
             self.set_state(Droid.WAITING_FOR_JOB)
@@ -163,8 +129,8 @@ class Droid(StatefulService.StatefulService):
             
             try:
                logger.info('waiting for job, blocking on queue for %s',self.loop_timeout)
-               qmsg = queues['Droid'].get(block=True,timeout=self.loop_timeout)
-            except SerialQueue.Empty:
+               qmsg = self.queues['Droid'].get(block=True,timeout=self.loop_timeout)
+            except Queue.Empty:
                logger.debug('no message on queue')
             else:
                if qmsg['type'] == MessageTypes.NEW_JOB:
@@ -176,7 +142,7 @@ class Droid(StatefulService.StatefulService):
                      logger.error('received NEW_JOB message but it did not contain a job description key, requesting new job, message = %s',qmsg)
                      self.set_state(Droid.REQUEST_JOB)
                   # set MPIService to be Queue focused
-                  MPIService.mpiService.set_queue_blocking()
+                  # MPIService.mpiService.set_queue_blocking()
                else:
                   logger.error('message type was not NEW_JOB, faied parsing: %s',qmsg)
             
@@ -189,7 +155,7 @@ class Droid(StatefulService.StatefulService):
             # launch TransformManager to run job
             self.subthreads['transform'] = TransformManager.TransformManager(new_job_msg['job'],
                                                                              self.config,
-                                                                             queues,
+                                                                             self.queues,
                                                                              droid_working_path,
                                                                              os.getcwd(),
                                                                              self.yampl_socket_name)
@@ -199,7 +165,7 @@ class Droid(StatefulService.StatefulService):
             self.set_state(Droid.MONITORING)
 
             # set MPIService to be balanced
-            MPIService.mpiService.set_balanced()
+            # MPIService.mpiService.set_balanced()
 
 
 
@@ -229,7 +195,7 @@ class Droid(StatefulService.StatefulService):
                   # sleep for a bit while blocking on incoming messages
                   logger.info('transform running, block for %s on message queue',self.loop_timeout)
                   try:
-                     qmsg = queues['Droid'].get(block=True,timeout=self.loop_timeout)
+                     qmsg = self.queues['Droid'].get(block=True,timeout=self.loop_timeout)
                      if qmsg['type'] == MessageTypes.WALLCLOCK_EXPIRING:
                         logger.info('received WALLCLOCK_EXPIRING message from Yoda, exiting.')
                         # stop Droid and it will kill all subthreads,etc.
@@ -239,7 +205,7 @@ class Droid(StatefulService.StatefulService):
                         self.stop()
                      else:
                         logger.error('received unexpected message: %s',qmsg)
-                  except SerialQueue.Empty:
+                  except Queue.Empty:
                      logger.debug('no message received while in monitoring wait')
 
 
@@ -259,8 +225,8 @@ class Droid(StatefulService.StatefulService):
                logger.info('transform exited with return code: %s',self.subthreads['transform'].get_returncode())
             else:
                # log transform error
-               logger.error('transform exited but is not in FINISHED state, returncode = %s, see output files for details = [%s,%s]',
-                            self.subthreads['transform'].get_returncode(),self.stderr_filename,self.stdout_filename)
+               logger.error('transform exited but is not in FINISHED state, returncode = %s',
+                            self.subthreads['transform'].get_returncode())
 
             # trigger exit
             self.stop()
@@ -283,7 +249,7 @@ class Droid(StatefulService.StatefulService):
 
       # send yoda message that Droid has exited
       logger.info('droid notifying yoda that it has exited')
-      queues['MPIService'].put({'type':MessageTypes.DROID_HAS_EXITED,'destination_rank':0})
+      self.queues['MPIService'].put({'type':MessageTypes.DROID_HAS_EXITED,'destination_rank':0})
 
       self.set_state(self.EXITED)
       logger.info('droid exited')
@@ -291,43 +257,44 @@ class Droid(StatefulService.StatefulService):
 
    def read_config(self):
 
-      # read log level:
-      if self.config.has_option(config_section,'loglevel'):
-         self.loglevel = self.config.get(config_section,'loglevel')
-         logger.info('%s loglevel: %s',config_section,self.loglevel)
-         logger.setLevel(logging.getLevelName(self.loglevel))
+      if config_section in self.config:
+         # read log level:
+         if 'loglevel' in self.config[config_section]:
+            self.loglevel = self.config[config_section]['loglevel']
+            logger.info('%s loglevel: %s',config_section,self.loglevel)
+            logger.setLevel(logging.getLevelName(self.loglevel))
+         else:
+            logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
+
+         # read droid loop timeout:
+         if 'loop_timeout' in self.config[config_section]:
+            self.loop_timeout = int(self.config[config_section]['loop_timeout'])
+            logger.info('%s loop_timeout: %s',config_section,self.loop_timeout)
+         else:
+            logger.warning('no "loop_timeout" in "%s" section of config file, keeping default %s',config_section,self.loop_timeout)
+
+
+         # read droid yampl_socket_name:
+         if 'yampl_socket_name' in self.config[config_section]:
+            self.yampl_socket_name = self.config[config_section]['yampl_socket_name']
+            self.yampl_socket_name = self.yampl_socket_name.format(rank=MPIService.mpirank.get())
+            logger.info('%s yampl_socket_name: %s',config_section,self.yampl_socket_name)
+         else:
+            self.yampl_socket_name = 'EventServiceDroid_r{rank}'.format(rank=self.rank)
+            logger.warning('no "yampl_socket_name" in "%s" section of config file, keeping default %s',config_section,self.yampl_socket_name)
+
+
+         # read droid working_path:
+         if 'working_path' in self.config[config_section]:
+            self.working_path = self.config[config_section]['working_path']
+            self.working_path = self.working_path.format(rank=MPIService.mpirank.get())
+            logger.info('%s working_path: %s',config_section,self.working_path)
+         else:
+            self.working_path = 'droid_rank_{rank}'.format(rank=self.rank)
+            logger.warning('no "working_path" in "%s" section of config file, keeping default %s',config_section,self.working_path)
+
       else:
-         logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
-
-      # read droid loop timeout:
-      if self.config.has_option(config_section,'loop_timeout'):
-         self.loop_timeout = self.config.getfloat(config_section,'loop_timeout')
-      else:
-         logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
-         return
-      if MPIService.rank == 1:
-         logger.info('%s loop_timeout: %d',config_section,self.loop_timeout)
-
-
-      # read droid yampl_socket_name:
-      if self.config.has_option(config_section,'yampl_socket_name'):
-         self.yampl_socket_name = self.config.get(config_section,'yampl_socket_name')
-         self.yampl_socket_name = self.yampl_socket_name.format(rank=MPIService.rank)
-      else:
-         logger.error('must specify "yampl_socket_name" in "%s" section of config file',config_section)
-         return
-      if MPIService.rank == 1:
-         logger.info('%s yampl_socket_name: %s',config_section,self.yampl_socket_name)
-
-
-      # read droid working_path:
-      if self.config.has_option(config_section,'working_path'):
-         self.working_path = self.config.get(config_section,'working_path')
-      else:
-         logger.error('must specify "working_path" in "%s" section of config file',config_section)
-         return
-      if MPIService.rank == 1:
-         logger.info('%s working_path: %s',config_section,self.working_path)
+         raise Exception('no %s section in the configuration' % config_section)
 
    def request_job(self,queues):
       qmsg = {'type': MessageTypes.REQUEST_JOB,'destination_rank':0}
@@ -337,6 +304,6 @@ class Droid(StatefulService.StatefulService):
       try:
          qmsg = queues['Droid'].get(block=block,timeout=timeout)
          return qmsg
-      except SerialQueue.Empty:
+      except Queue.Empty:
          logger.debug('no messages for Droid')
          return None

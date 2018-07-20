@@ -1,4 +1,4 @@
-import os,logging,subprocess,random,glob,shutil
+import os,logging,subprocess,random,glob
 from pandayoda.common import VariableWithLock,MPIService,StatefulService
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class TransformManager(StatefulService.StatefulService):
       self.use_clean_env    = False
 
       # return code, set only after exit
-      self.returncode            = VariableWithLock.VariableWithLock()
+      self.returncode            = VariableWithLock.VariableWithLock(0)
 
       # set state to initial
       self.set_state(TransformManager.CREATED)
@@ -87,7 +87,7 @@ class TransformManager(StatefulService.StatefulService):
       self.start_subprocess()
 
       # third step, loop to monitor process
-      logger.info('monitoring subprocess for transform')
+      logger.info('monitoring subprocess for transform, blocking for %s',self.loop_timeout)
       self.set_state(TransformManager.MONITORING)
       while not self.exit.wait(timeout=self.loop_timeout):
          # logger.debug('start moinitor loop, timeout = %s',self.loop_timeout)
@@ -102,11 +102,11 @@ class TransformManager(StatefulService.StatefulService):
 
       # incase we are exiting because parent process told us to exit
       # we should kill the subprocess
-      if self.exit.isSet() and self.is_subprocess_running():
+      if self.exit.is_set() and self.is_subprocess_running():
          logger.info('signaled to exit before subprocess exited so killing it.')
          self.jobproc.kill()
 
-      self.returncode.set(self.subprocess_returncode())
+      self.returncode.set(int(self.subprocess_returncode()))
 
       if self.run_elsewhere:
          logger.info('triggering staging of logs')
@@ -282,103 +282,112 @@ class TransformManager(StatefulService.StatefulService):
    
 
    def read_config(self):
-      # read log level:
-      if self.config.has_option(config_section,'loglevel'):
-         self.loglevel = self.config.get(config_section,'loglevel')
-         logger.info('%s loglevel: %s',config_section,self.loglevel)
-         logger.setLevel(logging.getLevelName(self.loglevel))
-      else:
-         logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
-
-       # read droid loop timeout:
-      if self.config.has_option(config_section,'loop_timeout'):
-         self.loop_timeout = self.config.getint(config_section,'loop_timeout')
-         logger.info('%s loop_timeout: %d',config_section,self.loop_timeout)
-      else:
-         logger.warning('no "loop_timeout" in "%s" section of config file, using default %s',config_section,self.loop_timeout)
-
-      # read runscript template
-      if self.config.has_option(config_section,'template'):
-         self.runscript_template = self.config.get(config_section,'template')
-      else:
-         raise Exception('must specify "template" in "%s" section of config file' % config_section)
-      logger.info('template: %s',self.runscript_template)
-
-      # read runscript filename
-      if self.config.has_option(config_section,'run_script'):
-         self.runscript_filename = self.config.get(config_section,'run_script')
-         logger.info('run_script: %s',self.runscript_filename)
-      else:
-         logger.warning('no "run_script" in "%s" section of config file, using default %s',config_section,self.runscript_filename)
-
-      # read use_clean_env
-      if self.config.has_option(config_section,'use_clean_env'):
-         self.use_clean_env = self.config.getboolean(config_section,'use_clean_env')
-         logger.info('use_clean_env: %s',self.use_clean_env)
-      else:
-         logger.warning('no "use_clean_env" in "%s" section of config file, using default %s',config_section,self.use_clean_env)
-
-      # read use_container
-      if self.config.has_option(config_section,'use_container'):
-         self.use_container = self.config.getboolean(config_section,'use_container')
-         logger.info('use_container: %s',self.use_container)
-      else:
-         logger.warning('no "use_container" in "%s" section of config file, using default %s',config_section,self.use_container)
       
-      # read container_prefix
-      if self.config.has_option(config_section,'container_prefix'):
-         self.container_prefix = self.config.get(config_section,'container_prefix')
-      elif self.use_container:
-         raise Exception('must specify "container_prefix" in "%s" section of config file when "use_container" set to true' % config_section)
-      logger.info('container_prefix: %s',self.container_prefix)
+      if config_section in self.config:
+         # read loglevel:
+         if 'loglevel' in self.config[config_section]:
+            self.loglevel = self.config[config_section]['loglevel']
+            logger.info('%s loglevel: %s',config_section,self.loglevel)
+            logger.setLevel(logging.getLevelName(self.loglevel))
+         else:
+            logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
 
-      # read run_elsewhere
-      if self.config.has_option(config_section,'run_elsewhere'):
-         self.run_elsewhere = self.config.getboolean(config_section,'run_elsewhere')
-         logger.info('run_elsewhere: %s',self.run_elsewhere)
+         # read loop_timeout:
+         if 'loop_timeout' in self.config[config_section]:
+            self.loop_timeout = int(self.config[config_section]['loop_timeout'])
+            logger.info('%s loop_timeout: %s',config_section,self.loop_timeout)
+         else:
+            logger.warning('no "loop_timeout" in "%s" section of config file, keeping default %s',config_section,self.loop_timeout)
+
+         # read template:
+         if 'template' in self.config[config_section]:
+            self.runscript_template = self.config[config_section]['template']
+            logger.info('%s template: %s',config_section,self.runscript_template)
+         else:
+            raise Exception('must specify "template" in "%s" section of config file' % config_section)
+      
+         # read run_script:
+         if 'run_script' in self.config[config_section]:
+            self.runscript_filename = self.config[config_section]['run_script']
+            logger.info('%s run_script: %s',config_section,self.runscript_filename)
+         else:
+            logger.warning('no "run_script" in "%s" section of config file, using default %s',config_section,self.runscript_filename)
+      
+         # read use_clean_env:
+         if 'use_clean_env' in self.config[config_section]:
+            self.use_clean_env = self.get_boolean(self.config[config_section]['use_clean_env'])
+            logger.info('%s use_clean_env: %s',config_section,self.use_clean_env)
+         else:
+            logger.warning('no "use_clean_env" in "%s" section of config file, using default %s',config_section,self.use_clean_env)
+      
+         # read use_container:
+         if 'use_container' in self.config[config_section]:
+            self.use_container = self.get_boolean(self.config[config_section]['use_container'])
+            logger.info('%s use_container: %s',config_section,self.use_container)
+         else:
+            logger.warning('no "use_container" in "%s" section of config file, using default %s',config_section,self.use_container)
+      
+         # read container_prefix:
+         if 'container_prefix' in self.config[config_section]:
+            self.container_prefix = self.config[config_section]['container_prefix']
+            logger.info('%s container_prefix: %s',config_section,self.container_prefix)
+         elif self.use_container:
+            raise Exception('must specify "container_prefix" in "%s" section of config file when "use_container" set to true' % config_section)
+      
+         # read run_elsewhere:
+         if 'run_elsewhere' in self.config[config_section]:
+            self.run_elsewhere = self.get_boolean(self.config[config_section]['run_elsewhere'])
+            logger.info('%s run_elsewhere: %s',config_section,self.run_elsewhere)
+         else:
+            logger.warning('no "run_elsewhere" in "%s" section of config file, using default %s',config_section,self.run_elsewhere)
+      
+         # read run_directory:
+         if 'run_directory' in self.config[config_section]:
+            self.run_directory = self.config[config_section]['run_directory']
+            logger.info('%s run_directory: %s',config_section,self.run_directory)
+         elif self.run_elsewhere:
+            raise Exception('must specify "run_directory" in "%s" section of config file when "run_elsewhere" set to true' % config_section)
+
+         # read logs_to_stage:
+         if 'logs_to_stage' in self.config[config_section]:
+            self.logs_to_stage = self.config[config_section]['logs_to_stage']
+            self.logs_to_stage = self.logs_to_stage.split(',')
+            logger.info('%s logs_to_stage: %s',config_section,self.logs_to_stage)
+         else:
+            logger.warning('no "logs_to_stage" in "%s" section of config file, using default %s',config_section,self.logs_to_stage)
+
+         # read template:
+         if 'subprocess_stdout' in self.config[config_section]:
+            self.stdout_filename = self.config[config_section]['subprocess_stdout']
+            logger.info('%s subprocess_stdout: %s',config_section,self.stdout_filename)
+         else:
+            raise Exception('must specify "subprocess_stdout" in "%s" section of config file' % config_section)
+      
+         # read template:
+         if 'subprocess_stderr' in self.config[config_section]:
+            self.stderr_filename = self.config[config_section]['subprocess_stderr']
+            logger.info('%s subprocess_stderr: %s',config_section,self.stderr_filename)
+         else:
+            raise Exception('must specify "subprocess_stderr" in "%s" section of config file' % config_section)
+
+
+         # pipe the stdout/stderr from the Subprocess.Popen object to these files
+         self.stdout_filename    = self.stdout_filename.format(rank=MPIService.mpirank.get(),PandaID=self.job_def['PandaID'])
+         # add working path to stdout filename if it is not already
+         if not self.stdout_filename.startswith(self.droid_working_path):
+            self.stdout_filename = os.path.join(self.droid_working_path,self.stdout_filename)
+         logger.info('%s subprocess_stdout: %s',config_section,self.stdout_filename)
+
+         # pipe Popen error to this file
+         self.stderr_filename    = self.stderr_filename.format(rank=MPIService.mpirank.get(),PandaID=self.job_def['PandaID'])
+         # add working path to stderr filename if it is not already
+         if not self.stderr_filename.startswith(self.droid_working_path):
+            self.stderr_filename = os.path.join(self.droid_working_path,self.stderr_filename)
+         logger.info('%s subprocess_stderr: %s',config_section,self.stderr_filename)
       else:
-         logger.warning('no "run_elsewhere" in "%s" section of config file, using default %s',config_section,self.run_elsewhere)
-
-      # read run_directory
-      if self.config.has_option(config_section,'run_directory'):
-         self.run_directory = self.config.get(config_section,'run_directory')
-      elif self.run_elsewhere:
-         raise Exception('must specify "run_directory" in "%s" section of config file when "run_elsewhere" set to true' % config_section)
-      logger.info('run_directory: %s',self.run_directory)
-
-      # read logs_to_stage
-      if self.config.has_option(config_section,'logs_to_stage'):
-         self.logs_to_stage = self.config.get(config_section,'logs_to_stage')
-         self.logs_to_stage = self.logs_to_stage.split(',')
-         logger.info('logs_to_stage: %s',self.logs_to_stage)
-      else:
-         logger.warning('no "logs_to_stage" in "%s" section of config file, using default %s',config_section,self.run_elsewhere)
-
-      # read droid subprocess_stdout:
-      if self.config.has_option(config_section,'subprocess_stdout'):
-         self.stdout_filename = self.config.get(config_section,'subprocess_stdout')
-      else:
-         raise Exception('must specify "subprocess_stdout" in "%s" section of config file' % config_section)
-      logger.info('%s subprocess_stdout: %s',config_section,self.stdout_filename)
-
-      # read droid subprocess_stderr:
-      if self.config.has_option(config_section,'subprocess_stderr'):
-         self.stderr_filename = self.config.get(config_section,'subprocess_stderr')
-      else:
-         raise Exception('must specify "subprocess_stderr" in "%s" section of config file' % config_section)
-      logger.info('%s subprocess_stderr: %s',config_section,self.stderr_filename)
-
-      # pipe the stdout/stderr from the Subprocess.Popen object to these files
-      self.stdout_filename    = self.stdout_filename.format(rank=MPIService.rank,PandaID=self.job_def['PandaID'])
-      # add working path to stdout filename if it is not already
-      if not self.stdout_filename.startswith(self.droid_working_path):
-         self.stdout_filename = os.path.join(self.droid_working_path,self.stdout_filename)
-      logger.info('%s subprocess_stdout: %s',config_section,self.stdout_filename)
-
-      # pipe Popen error to this file
-      self.stderr_filename    = self.stderr_filename.format(rank=MPIService.rank,PandaID=self.job_def['PandaID'])
-      # add working path to stderr filename if it is not already
-      if not self.stderr_filename.startswith(self.droid_working_path):
-         self.stderr_filename = os.path.join(self.droid_working_path,self.stderr_filename)
-      logger.info('%s subprocess_stderr: %s',config_section,self.stderr_filename)
-
+         raise Exception('must specify %s section in config file' % config_section)
+      
+   def get_boolean(self,string):
+      if 'true' in string.lower():
+         return True
+      return False

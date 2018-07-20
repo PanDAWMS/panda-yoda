@@ -1,24 +1,27 @@
-import logging,time,os
+import logging,time,os,importlib
 from multiprocessing import Process,Event
-import WorkManager,FileManager
-from pandayoda.common import SerialQueue,MessageTypes,MPIService
+import WorkManager,FileManager,shared_file_messenger
+from pandayoda.common import MessageTypes,MPIService
 logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
 
 class Yoda(Process):
-   def __init__(self,config):
+   def __init__(self,queues,config):
       ''' config: configuration of Yoda
       '''
       # call Thread constructor
       super(Yoda,self).__init__()
 
-      # configuration of Yoda
+      # message queues
+      self.queues             = queues
+
+      # config settings
       self.config             = config
 
       # keep track of if the wallclock has expired
-      self.wallclock_expired = Event()
+      self.wallclock_expired  = Event()
 
       # this is used to trigger the thread exit
       self.exit               = Event()
@@ -35,38 +38,26 @@ class Yoda(Process):
          self.subrun()
       except Exception:
          logger.exception('Yoda failed with uncaught exception')
-         MPIService.MPI.COMM_WORLD.Abort()
+         raise
 
    def subrun(self):
       ''' this function is the business logic, but wrapped in exception '''
-      logger.info('Yoda Thread starting')
-      logger.debug('config_section: %s',config_section)
-      logger.debug('cwd: %s',os.getcwd())
 
-      # keep track of starting path
-      top_working_path = os.getcwd()
-
-      # read config
       self.read_config()
 
-      # create queues for subthreads to send messages out
-      self.queues = {
-         'Yoda':SerialQueue.SerialQueue(),
-         'WorkManager':SerialQueue.SerialQueue(),
-         'FileManager':SerialQueue.SerialQueue(),
-         'MPIService':SerialQueue.SerialQueue(),
-      }
+      # set logging level
+      logger.info('Yoda Thread starting')
+      logger.info('loglevel:                    %s',self.loglevel)
+      logger.info('loop_timeout:                %s',self.loop_timeout)
+      top_working_path  = os.getcwd()
+      logger.debug('cwd:                        %s',top_working_path)
 
-      # create forwarding map for Yoda:
-      forwarding_map = {
-         MessageTypes.REQUEST_JOB: ['WorkManager'],
-         MessageTypes.REQUEST_EVENT_RANGES: ['WorkManager'],
-         MessageTypes.OUTPUT_FILE: ['FileManager'],
-         MessageTypes.DROID_HAS_EXITED: ['Yoda'],
-      }
-
-      # initialize the MPIService with the queues
-      MPIService.mpiService.initialize(self.config,self.queues,forwarding_map)
+      # setup harvester messenger to share with FileManager and WorkManager
+      logger.debug('setup harvester messenger')
+      harvester_messenger = self.get_harvester_messenger()
+      harvester_messenger.setup(self.config)
+      # wait for setup to complete
+      harvester_messenger.sfm_har_config_done.wait()
 
       # a list of ranks that have exited
       self.exited_droids = []
@@ -75,22 +66,22 @@ class Yoda(Process):
       subthreads = {}
       
       # create WorkManager thread
-      subthreads['WorkManager']  = WorkManager.WorkManager(self.config,self.queues)
+      subthreads['WorkManager']  = WorkManager.WorkManager(self.config,self.queues,harvester_messenger)
       subthreads['WorkManager'].start()
 
       # create FileManager thread
-      subthreads['FileManager']  = FileManager.FileManager(self.config,self.queues,top_working_path)
+      subthreads['FileManager']  = FileManager.FileManager(self.config,self.queues,top_working_path,harvester_messenger)
       subthreads['FileManager'].start()
 
       # start message loop
-      while not self.exit.isSet():
+      while not self.exit.is_set():
          logger.debug('start loop')
          
          # process incoming messages from other threads or ranks
          self.process_incoming_messages()
 
          # check if all droids have exited
-         if len(self.exited_droids) >= (MPIService.nranks - 1):
+         if len(self.exited_droids) >= (MPIService.mpiworldsize.get() - 1):
             logger.info('all droids have exited, exiting yoda')
             self.stop()
             break
@@ -102,7 +93,7 @@ class Yoda(Process):
          for name in keys:
             thread = subthreads[name]
             # if the thread is not alive, throw an error
-            if not thread.isAlive():
+            if not thread.is_alive():
                logger.warning('%s is no longer running.',name)
                del subthreads[name]
                if name == 'WorkManager':
@@ -122,8 +113,8 @@ class Yoda(Process):
       
       # send the exit signal to all droid ranks
       logger.info('sending exit signal to droid ranks')
-      for ranknum in range(1,MPIService.nranks):
-         if self.wallclock_expired.isSet():
+      for ranknum in range(1,MPIService.mpiworldsize.get()):
+         if self.wallclock_expired.is_set():
             self.queues['MPIService'].put({'type':MessageTypes.WALLCLOCK_EXPIRING,'destination_rank':ranknum})
          else:
             self.queues['MPIService'].put({'type':MessageTypes.DROID_EXIT,'destination_rank':ranknum})
@@ -139,30 +130,39 @@ class Yoda(Process):
          thread.join()
 
 
-      while not MPIService.mpiService.message_queue_empty():
+      while not self.queues['MPIService'].empty():
          logger.info('waiting for MPIService to send exit messages to Droid, sleep for %s',self.loop_timeout)
          time.sleep(self.loop_timeout)
 
       logger.info('Yoda is exiting')
 
+   
    def read_config(self):
 
-      # read yoda log level:
-      if self.config.has_option(config_section,'loglevel'):
-         self.loglevel = self.config.get(config_section,'loglevel')
-         logger.info('%s loglevel: %s',config_section,self.loglevel)
-         logger.setLevel(logging.getLevelName(self.loglevel))
+      if config_section in self.config:
+         # read log level:
+         if 'loglevel' in self.config[config_section]:
+            self.loglevel = self.config[config_section]['loglevel']
+            logger.info('%s loglevel: %s',config_section,self.loglevel)
+            logger.setLevel(logging.getLevelName(self.loglevel))
+         else:
+            logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
+
+         # read loop timeout:
+         if 'loop_timeout' in self.config[config_section]:
+            self.loop_timeout = int(self.config[config_section]['loop_timeout'])
+            logger.info('%s loop_timeout: %s',config_section,self.loop_timeout)
+         else:
+            logger.warning('no "loop_timeout" in "%s" section of config file, keeping default %s',config_section,self.loop_timeout)
+
+         # messenger_plugin_module
+         if 'messenger_plugin_module' in self.config[config_section]:
+            self.messenger_plugin_module = self.config[config_section]['messenger_plugin_module']
+         else:
+            raise Exception('Failed to retrieve "messenger_plugin_module" from config file section %s' % config_section)
       else:
-         logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
-         
+         raise Exception('no %s section in the configuration' % config_section)
       
-      # read yoda loop timeout:
-      if self.config.has_option(config_section,'loop_timeout'):
-         self.loop_timeout = self.config.getfloat(config_section,'loop_timeout')
-      else:
-         logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
-         return
-      logger.info('%s loop_timeout: %d',config_section,self.loop_timeout)
 
    def process_incoming_messages(self):
 
@@ -171,7 +171,6 @@ class Yoda(Process):
          qmsg = self.queues['Yoda'].get(block=False)
 
          # process message
-         
          logger.debug('received message: %s',qmsg)
          
          if qmsg['type'] == MessageTypes.DROID_HAS_EXITED:
@@ -181,5 +180,14 @@ class Yoda(Process):
          else:
             logger.error(' could not interpret message: %s',qmsg)
 
+
+   def get_harvester_messenger(self):
+      # try to import the module specified in the config
+      # if it is not in the PYTHONPATH this will fail
+      try:
+         return importlib.import_module(self.messenger_plugin_module)
+      except ImportError:
+         logger.exception('Failed to import messenger_plugin: %s',self.messenger_plugin_module)
+         raise
 
       

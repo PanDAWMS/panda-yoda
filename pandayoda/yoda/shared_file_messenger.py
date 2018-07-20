@@ -1,5 +1,5 @@
 import os,json,logging,ConfigParser,time,glob,sys
-from multiprocessing import Lock
+from multiprocessing import Lock,Manager,Event
 from pandayoda.common import exceptions,serializer,MPIService
 logger = logging.getLogger(__name__)
 
@@ -145,83 +145,110 @@ The eventRangesFile format looks like this:
 '''
 
 
-# global to store the Harvester config
-harvesterConfig = None
+
 # acquire/release when accessing the harvester config, this avoids collisions.
 # I put this in because the setup function was being called in parallel with the requestevents()
 # this caused the request events to fail because it was moving faster than the setup function
 # and therefore could not find the configuration information yet and threw an exception.
-harConfLock = Lock()
+
 harConfSect = 'payload_interaction'
-request_polling_time = 5
-request_poll_timeout = 300
+sfm_mgr = Manager()
+sfm_har_config = sfm_mgr.dict()
+sfm_har_config_lock = Lock()
+sfm_har_config_done = Event()
 
 
 def setup(config):
-   global harvesterConfig,harConfLock
-   harConfLock.acquire()
-   if harvesterConfig is None:
+   global sfm_har_config,sfm_har_config_lock,sfm_har_config_done
+   sfm_har_config_lock.acquire()
+   if len(sfm_har_config) == 0:
       logger.debug('loading harvester configuration file')
-      # get harvester config filename
-      harv_config_file = config.get('shared_file_messenger','harvester_config_file')
-      
-      if config.has_option('shared_file_messenger','loglevel'):
-         loglevel = config.get('shared_file_messenger','loglevel')
-         logger.info('loglevel: %s',loglevel)
-         logger.setLevel(logging.getLevelName(loglevel))
+
+      if 'shared_file_messenger' in config:
+         # get harvester config filename
+         if 'harvester_config_file' in config['shared_file_messenger']:
+            harvester_config_file = config['shared_file_messenger']['harvester_config_file']
+            logger.info('harvester_config_file: %s',harvester_config_file)
+         else:
+            raise Exception('Rank %05i: must specify "harvester_config_file" in shared_file_messenger config section' % MPIService.mpirank)
+
+         # get harvester config filename
+         if 'loglevel' in config['shared_file_messenger']:
+            loglevel = config['shared_file_messenger']['loglevel']
+            logger.info('loglevel: %s',loglevel)
+            logger.setLevel(logging.getLevelName(loglevel))
+      else:
+         raise Exception('Rank %05i: must include "shared_file_messenger" section in config file' % MPIService.mpirank)
 
       # parse harvester configuration file
-      with open(harv_config_file) as hconf:
-         harvesterConfig = ConfigParser.ConfigParser()
-         harvesterConfig.readfp(hconf)
-      
-      
-      if harvesterConfig is None:
-         harConfLock.release()
-         raise Exception('Rank %05i: Failed to parse config file: %s' % (MPIService.rank,harv_config_file))
+      try:
+         har_config,default = get_config(harvester_config_file)
+         if harConfSect in har_config:
+            for key in har_config[harConfSect].keys():
+               sfm_har_config[key] = har_config[harConfSect][key]
+         else:
+            raise Exception('Rank %05i: harvester config file has no "payload_interaction" section' % MPIService.mpirank)
+      except Exception:
+         sfm_har_config_lock.release()
+         logger.exception('error parsing harvester config')
+         raise
+
+      if len(har_config) == 0:
+         sfm_har_config_lock.release()
+         raise Exception('Rank %05i: Failed to parse config file: %s' % (MPIService.mpirank,harvester_config_file))
+
+      sfm_har_config_done.set()
    else:
       logger.debug('harvester configuration already loaded')
 
-   harConfLock.release()
+   sfm_har_config_lock.release()
+
+
+def get_config(config_filename):
+
+   config = {}
+   default = {}
+   configfile = ConfigParser.ConfigParser()
+   # make config options case sensitive (insensitive by default)
+   configfile.optionxform = str
+   logger.debug('reading config file: %s',config_filename)
+   with open(config_filename) as fp:
+      configfile.readfp(fp)
+      for section in configfile.sections():
+         config[section] = {}
+         for key,value in configfile.items(section):
+            # exclude DEFAULT keys
+            if key not in configfile.defaults().keys():
+               config[section][key] = value
+            else:
+               default[key] = value
+   # logger.debug('after bcast %s',config)
+
+   return config,default
 
 
 def request_jobs():
-   global harvesterConfig,harConfSect,harConfLock
+   global sfm_har_config,sfm_har_config_lock,sfm_har_config_done
+   sfm_har_config_done.wait()
    logger.debug('requesting job')
-   if harvesterConfig is None:
-      logger.error('must first run setup before requestjobs')
-      return
-   try:
-      harConfLock.acquire()
-      jobRequestFile = harvesterConfig.get(harConfSect,'jobRequestFile')
-      harConfLock.release()
-   except ConfigParser.NoSectionError:
-      harConfLock.release()
-      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPIService.rank,harConfSect,harvesterConfig.sections()))
-
-   if not os.path.exists(jobRequestFile):
-      logger.debug('writing jobRequestFile to signal Harvester: %s',jobRequestFile)
-      open(jobRequestFile,'w').write('jobRequestFile')
-   else:
-      raise exceptions.MessengerJobAlreadyRequested
+   jobRequestFile = sfm_har_config['jobRequestFile']
+   
+   logger.debug('writing jobRequestFile to signal Harvester: %s',jobRequestFile)
+   open(jobRequestFile,'w').write('jobRequestFile')
 
 
 def pandajobs_ready():
-   global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
+   global sfm_har_config,sfm_har_config_done
+   sfm_har_config_done.wait()
    logger.debug('check if panda jobs exist')
-   if harvesterConfig is None:
-      logger.error('must first run setup before get_pandajobs')
-      return
 
    # the file in which job descriptions would be stored
-   try:
-      harConfLock.acquire()
-      jobSpecFile = harvesterConfig.get(harConfSect,'jobSpecFile')
-      harConfLock.release()
-   except ConfigParser.NoSectionError:
-      harConfLock.release()
-      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPIService.rank,harConfSect,harvesterConfig.sections()))
-
+   logger.debug('sfm_har_config keys: %s',sfm_har_config.keys())
+   if 'jobSpecFile' in sfm_har_config.keys():
+      jobSpecFile = sfm_har_config['jobSpecFile']
+   else:
+      raise Exception('could not find "jobSpecFile" in harvester config file')
+   
    # check to see if a file exists.
    if os.path.exists(jobSpecFile):
       logger.debug('found jobSpecFile file from Harvester: %s',jobSpecFile)
@@ -233,21 +260,14 @@ def pandajobs_ready():
 
 # this function should return a job description or nothing
 def get_pandajobs():
-   global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
-   logger.debug('reading job data')
-   if harvesterConfig is None:
-      logger.error('must first run setup before get_pandajobs')
-      return
+   global sfm_har_config,sfm_har_config_done
+   sfm_har_config_done.wait()
+   logger.debug('in get_pandajobs')
 
    # the file in which job descriptions would be stored
-   try:
-      harConfLock.acquire()
-      jobSpecFile = harvesterConfig.get(harConfSect,'jobSpecFile')
-      harConfLock.release()
-   except ConfigParser.NoSectionError:
-      harConfLock.release()
-      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPIService.rank,harConfSect,harvesterConfig.sections()))
-
+   jobSpecFile = sfm_har_config['jobSpecFile']
+   jobRequestFile = sfm_har_config['jobRequestFile']
+   
    # first check to see if a file already exists.
    try:
       logger.debug('jobSpecFile is present, reading job definitions')
@@ -256,8 +276,8 @@ def get_pandajobs():
       # remove this file now that we are done with it
       os.rename(jobSpecFile,jobSpecFile + '.old')
       # remove request file if harvester has not already
-      if os.path.exists(harvesterConfig.get(harConfSect,'jobRequestFile')):
-         os.remove(harvesterConfig.get(harConfSect,'jobRequestFile'))
+      if os.path.exists(jobRequestFile):
+         os.remove(jobRequestFile)
       # return job definition
       return job_def
    except Exception:
@@ -267,24 +287,12 @@ def get_pandajobs():
 
 
 def request_eventranges(job_def):
-   global harvesterConfig,harConfSect,harConfLock
-   
-   # check for harvester config file
-   if harvesterConfig is None:
-      logger.error('must first run setup before requesteventranges')
-      return
+   global sfm_har_config,sfm_har_config_done
+   sfm_har_config_done.wait()
 
    # retrieve event request file
-   try:
-      harConfLock.acquire()
-      eventRequestFile = harvesterConfig.get(harConfSect,'eventRequestFile')
-      harConfLock.release()
-      # using a temp file name then moving to avoid timiing issues
-      eventRequestFile_tmp = eventRequestFile + '.tmp'
-   except ConfigParser.NoSectionError:
-      harConfLock.release()
-      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPIService.rank,harConfSect,harvesterConfig.sections()))
-   
+   eventRequestFile = sfm_har_config['eventRequestFile']
+   eventRequestFile_tmp = eventRequestFile + '.tmp'
    
    # crate event request file
    if not os.path.exists(eventRequestFile):
@@ -333,23 +341,13 @@ def request_eventranges(job_def):
       
 
 def eventranges_ready(block=False,timeout=60,loop_sleep_time=5):
-   global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
+   global sfm_har_config,sfm_har_config_done
+   sfm_har_config_done.wait()
    logger.debug('eventranges_ready start')
    
-   # check that harvester config is loaded
-   if harvesterConfig is None:
-      logger.error('must first run setup before get_eventranges')
-      return
-
    # load name of events file
-   try:
-      harConfLock.acquire()
-      eventRangesFile = harvesterConfig.get(harConfSect,'eventRangesFile')
-      harConfLock.release()
-   except ConfigParser.NoSectionError:
-      harConfLock.release()
-      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPIService.rank,harConfSect,harvesterConfig.sections()))
-
+   eventRangesFile = sfm_har_config['eventRangesFile']
+   
    # check to see if a file exists.
    start = time.time()
    timewaiting = int(time.time() - start)
@@ -369,22 +367,13 @@ def eventranges_ready(block=False,timeout=60,loop_sleep_time=5):
 
 
 def get_eventranges():
-   global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
+   global sfm_har_config,sfm_har_config_done
+   sfm_har_config_done.wait()
    logger.debug('getting eventranges')
-   # check that harvester config is loaded
-   if harvesterConfig is None:
-      logger.error('must first run setup before get_eventranges')
-      return
-
+   
    # load name of events file
-   try:
-      harConfLock.acquire()
-      eventRangesFile = harvesterConfig.get(harConfSect,'eventRangesFile')
-      harConfLock.release()
-   except ConfigParser.NoSectionError:
-      harConfLock.release()
-      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (harConfSect,harvesterConfig.sections()))
-
+   eventRangesFile = sfm_har_config['eventRangesFile']
+   
    # first check to see if a file already exists.
    if os.path.exists(eventRangesFile):
       try:
@@ -443,46 +432,32 @@ The worker needs to put eventStatusDumpJsonFile to update events and/or stage-ou
 
 
 def stage_out_file_exists():
-   global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
+   global sfm_har_config,sfm_har_config_done
+   sfm_har_config_done.wait()
 
    # load name of eventStatusDumpJsonFile file
-   try:
-      harConfLock.acquire()
-      eventStatusDumpJsonFile = harvesterConfig.get(harConfSect,'eventStatusDumpJsonFile')
-      harConfLock.release()
-   except ConfigParser.NoSectionError:
-      harConfLock.release()
-      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPIService.rank,harConfSect,harvesterConfig.sections()))
-
+   eventStatusDumpJsonFile = sfm_har_config['eventStatusDumpJsonFile']
+   
    return os.path.exists(eventStatusDumpJsonFile)
 
 
 def stage_out_file(output_type,output_path,eventRangeID,eventStatus,pandaID,chksum=None,):
-   global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
+   global sfm_har_config,sfm_har_config_done
+   sfm_har_config_done.wait()
 
    if output_type not in ['output','es_output','log']:
       raise Exception('Rank %05i: incorrect type provided: %s' % (MPIService.rank,output_type))
 
    if not os.path.exists(output_path):
       raise Exception('Rank %05i: output file not found: %s' % (MPIService.rank,output_path))
-   
-   # check that harvester config is loaded
-   if harvesterConfig is None:
-      raise Exception('Rank %05i: must first run setup before get_eventranges' % MPIService.rank)
 
    # make sure pandaID is a string
    pandaID = str(pandaID)
       
 
    # load name of eventStatusDumpJsonFile file
-   try:
-      harConfLock.acquire()
-      eventStatusDumpJsonFile = harvesterConfig.get(harConfSect,'eventStatusDumpJsonFile')
-      harConfLock.release()
-   except ConfigParser.NoSectionError:
-      harConfLock.release()
-      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPIService.rank,harConfSect,harvesterConfig.sections()))
-
+   eventStatusDumpJsonFile = sfm_har_config['eventStatusDumpJsonFile']
+   
    # first create a temp file to place contents
    # this avoids Harvester trying to read the file while it is being written
    eventStatusDumpJsonFile_tmp = eventStatusDumpJsonFile + '.tmp'
@@ -538,25 +513,16 @@ def stage_out_file(output_type,output_path,eventRangeID,eventStatus,pandaID,chks
 
 
 def stage_out_files(file_list,output_type):
-   global harvesterConfig,harConfSect,request_polling_time,request_poll_timeout,harConfLock
+   global sfm_har_config,sfm_har_config_done
+   sfm_har_config_done.wait()
 
    if output_type not in ['output','es_output','log']:
       raise Exception('Rank %05i: incorrect type provided: %s' % (MPIService.rank,output_type))
 
-   # check that harvester config is loaded
-   if harvesterConfig is None:
-      raise Exception('Rank %05i: must first run setup before get_eventranges' % MPIService.rank)
-
 
    # load name of eventStatusDumpJsonFile file
-   try:
-      harConfLock.acquire()
-      eventStatusDumpJsonFile = harvesterConfig.get(harConfSect,'eventStatusDumpJsonFile')
-      harConfLock.release()
-   except ConfigParser.NoSectionError:
-      harConfLock.release()
-      raise exceptions.MessengerConfigError('Rank %05i: could not find section "%s" in configuration for harvester, available sections are: %s' % (MPIService.rank,harConfSect,harvesterConfig.sections()))
-
+   eventStatusDumpJsonFile = sfm_har_config['eventStatusDumpJsonFile']
+   
    eventStatusDumpData = {}
    # loop over filelist
    for filedata in file_list:

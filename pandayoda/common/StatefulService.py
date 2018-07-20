@@ -18,7 +18,7 @@ class StatefulService(Process):
       super(StatefulService,self).__init__()
 
       # current state of this process
-      self.state                       = VariableWithLock.VariableWithLock()
+      self.state                       = VariableWithLock.VariableWithLock('NOT_YET_DEFINED')
       self.state_time                  = VariableWithLock.VariableWithLock(time.clock())
 
       # this is used to trigger the thread exit

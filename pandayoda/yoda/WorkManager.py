@@ -1,7 +1,7 @@
-import os,logging
-from multiprocessing import Process,Event
+import os,logging,Queue
+from multiprocessing import Process,Event,Manager
 import RequestHarvesterJob,RequestHarvesterEventRanges,PandaJobDict
-from pandayoda.common import MessageTypes,SerialQueue,EventRangeList
+from pandayoda.common import MessageTypes,EventRangeList
 from pandayoda.common import MPIService
 logger = logging.getLogger(__name__)
 
@@ -11,7 +11,7 @@ config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.
 class WorkManager(Process):
    ''' Work Manager: this thread manages work going to the running Droids '''
 
-   def __init__(self,config,queues):
+   def __init__(self,config,queues,harvester_messenger):
       '''
         queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send
                      messages to other Droid components about errors, etc.
@@ -25,6 +25,9 @@ class WorkManager(Process):
 
       # configuration of Yoda
       self.config                = config
+
+      # harvester communication module
+      self.harvester_messenger   = harvester_messenger
 
       # this is used to trigger the thread exit
       self.exit                  = Event()
@@ -47,21 +50,21 @@ class WorkManager(Process):
       # helps track which request I am processing
       self.pending_index         = 0
 
-      # start a Request Havester Job thread to begin getting a job
-      requestHarvesterJob        = RequestHarvesterJob.RequestHarvesterJob(self.config,self.queues)
-      requestHarvesterJob.start()
-
       # place holder for Request Harevester Event Ranges instance (wait for job definition before launching)
       requestHarvesterEventRanges = None
 
-      # set MPIService to block on incoming MPI traffic
-      MPIService.mpiService.set_mpi_blocking()
+      # create a local multiprocessing manager for shared values
+      mpmgr = Manager()
+
+      # start a Request Havester Job thread to begin getting a job
+      requestHarvesterJob        = RequestHarvesterJob.RequestHarvesterJob(self.config,
+                                          self.queues,mpmgr,self.harvester_messenger)
+      requestHarvesterJob.start()
 
 
-      while not self.exit.isSet():
+
+      while not self.exit.is_set():
          logger.debug('start loop')
-
-
          ################
          # check for queue messages
          ################################
@@ -82,7 +85,7 @@ class WorkManager(Process):
                try:
                   self.pending_index = 0
                   qmsg = self.queues['WorkManager'].get(block=True,timeout=self.loop_timeout)
-               except SerialQueue.Empty:
+               except Queue.Empty:
                   logger.debug('no messages on queue after blocking')
          else:
             # if not (
@@ -93,7 +96,7 @@ class WorkManager(Process):
                self.pending_index = 0
                logger.info('blocking on queue for %s',self.loop_timeout)
                qmsg = self.queues['WorkManager'].get(block=True,timeout=self.loop_timeout)
-            except SerialQueue.Empty:
+            except Queue.Empty:
                logger.debug('no messages on queue after blocking')
          
          if qmsg:
@@ -120,7 +123,7 @@ class WorkManager(Process):
                   logger.debug('There are no panda jobs')
                   if requestHarvesterJob is None:
                      logger.info('launching new job request')
-                     requestHarvesterJob = RequestHarvesterJob.RequestHarvesterJob(self.config,self.queues)
+                     requestHarvesterJob = RequestHarvesterJob.RequestHarvesterJob(self.config,self.queues,mpmgr,self.harvester_messenger)
                      requestHarvesterJob.start()
                   else:
                      if requestHarvesterJob.running():
@@ -269,7 +272,9 @@ class WorkManager(Process):
                                   'jobsetID':pandajobs[droid_pandaid]['jobsetID'],
                                   'taskID':pandajobs[droid_pandaid]['taskID'],
                                   'nRanges':self.request_n_eventranges,
-                                 }
+                                 },
+                                 mpmgr,
+                                 self.harvester_messenger,
                               )
                            requestHarvesterEventRanges.start()
 
@@ -306,10 +311,11 @@ class WorkManager(Process):
 
                               if tmpeventranges is not None:
                                  logger.debug('received eventranges: %s',
-                                              ' '.join(('%s:%i' % (tmpid,len(tmplist)))
-                                                       for tmpid,tmplist in tmpeventranges.iteritems()))
+                                              ' '.join(('%s:%i' % (tmpid,len(tmpeventranges[tmpid])))
+                                                       for tmpid in tmpeventranges.keys()))
                                  # add event ranges to pandajobs dict
-                                 for jobid,ers in tmpeventranges.iteritems():
+                                 for jobid in tmpeventranges.keys():
+                                    ers = tmpeventranges[jobid]
                                     pandajobs[jobid].eventranges += EventRangeList.EventRangeList(ers)
                                     # events will be sent in the next loop execution
 
@@ -409,38 +415,42 @@ class WorkManager(Process):
 
    def read_config(self):
 
-      # read yoda log level:
-      if self.config.has_option(config_section,'loglevel'):
-         self.loglevel = self.config.get(config_section,'loglevel')
-         logger.info('%s loglevel: %s',config_section,self.loglevel)
-         logger.setLevel(logging.getLevelName(self.loglevel))
-      else:
-         logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
-      
-      # get self.loop_timeout
-      if self.config.has_option(config_section,'loop_timeout'):
-         self.loop_timeout = self.config.getfloat(config_section,'loop_timeout')
-      else:
-         logger.error('must specify "loop_timeout" in "%s" section of config file',config_section)
-         return
-      logger.info('loop_timeout: %d',self.loop_timeout)
+
+      if config_section in self.config:
+         # read log level:
+         if 'loglevel' in self.config[config_section]:
+            self.loglevel = self.config[config_section]['loglevel']
+            logger.info('%s loglevel: %s',config_section,self.loglevel)
+            logger.setLevel(logging.getLevelName(self.loglevel))
+         else:
+            logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
+
+         # read loop timeout:
+         if 'loop_timeout' in self.config[config_section]:
+            self.loop_timeout = int(self.config[config_section]['loop_timeout'])
+            logger.info('%s loop_timeout: %s',config_section,self.loop_timeout)
+         else:
+            logger.warning('no "loop_timeout" in "%s" section of config file, keeping default %s',config_section,self.loop_timeout)
 
 
-      # get self.send_n_eventranges
-      if self.config.has_option(config_section,'send_n_eventranges'):
-         self.send_n_eventranges = self.config.getint(config_section,'send_n_eventranges')
-      else:
-         logger.error('must specify "send_n_eventranges" in "%s" section of config file',config_section)
-         return
-      logger.info('send_n_eventranges: %d',self.send_n_eventranges)
+         # read send_n_eventranges:
+         if 'send_n_eventranges' in self.config[config_section]:
+            self.send_n_eventranges = int(self.config[config_section]['send_n_eventranges'])
+            logger.info('%s send_n_eventranges: %s',config_section,self.send_n_eventranges)
+         else:
+            raise Exception('configuration section %s has no "send_n_eventranges" setting. This setting is important and should be optimized to your system. Typically you should set it to the number of AthenaMP workers on a single node or some factor of that.' % config_section)
 
-      # get self.request_n_eventranges
-      if self.config.has_option(config_section,'request_n_eventranges'):
-         self.request_n_eventranges = self.config.getint(config_section,'request_n_eventranges')
+
+         # read request_n_eventranges:
+         if 'request_n_eventranges' in self.config[config_section]:
+            self.request_n_eventranges = int(self.config[config_section]['request_n_eventranges'])
+            logger.info('%s request_n_eventranges: %s',config_section,self.request_n_eventranges)
+         else:
+            raise Exception('configuration section %s has no "request_n_eventranges" setting. This setting is important and should be optimized to your system. Typically you should set it to the number of AthenaMP workers on a single node multiplied by the total number of Droid ranks running or some factor of that.' % config_section)
+
       else:
-         logger.error('must specify "request_n_eventranges" in "%s" section of config file',config_section)
-         return
-      logger.info('request_n_eventranges: %d',self.request_n_eventranges)
+         raise Exception('no %s section in the configuration' % config_section)
+
 
    def pend_request(self,msg):
       if msg in self.pending_requests:

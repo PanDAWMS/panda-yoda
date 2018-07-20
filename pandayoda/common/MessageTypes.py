@@ -46,3 +46,23 @@ TYPES=[
 
    WALLCLOCK_EXPIRING,
 ]
+
+# MPI Forwarding maps
+forwarding_map = [
+   {
+      REQUEST_JOB: ['WorkManager'],
+      REQUEST_EVENT_RANGES: ['WorkManager'],
+      OUTPUT_FILE: ['FileManager'],
+      DROID_HAS_EXITED: ['Yoda'],
+   },
+   {
+      NEW_JOB: ['Droid','JobComm'],
+      NEW_EVENT_RANGES: ['JobComm'],
+      WALLCLOCK_EXPIRING: ['Droid'],
+      DROID_EXIT: ['Droid'],
+      NO_MORE_EVENT_RANGES: ['JobComm'],
+   }
+
+]
+
+

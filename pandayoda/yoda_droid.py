@@ -9,6 +9,7 @@ try:
    from pandayoda.yoda import Yoda
    from pandayoda.droid import Droid
    from pandayoda.common import MPIService
+   from multiprocessing import Queue,Manager
    logger = logging.getLogger(__name__)
 except Exception,e:
    print('Exception received during import: %s' % str(e))
@@ -22,147 +23,12 @@ except Exception,e:
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
 
-def yoda_droid(working_path,
-               config_filename,
-               wall_clock_limit,
-               start_time = datetime.datetime.now()):
-   
-   # dereference any links on the working path
-   working_path = os.path.normpath(working_path)
-
-   # make we are in the working path
-   if os.getcwd() != working_path:
-      os.chdir(working_path)
-   
-   # get MPI world info
-   mpirank = MPIService.rank
-   mpisize = MPIService.nranks
-   logger.debug(' rank %10i of %10i',mpirank,mpisize)
-   
-   if mpirank == 0:
-      logger.info('working_path:                %s',working_path)
-      logger.info('config_filename:             %s',config_filename)
-      logger.info('starting_path:               %s',os.getcwd())
-      logger.info('wall_clock_limit:            %d',wall_clock_limit)
-   
-   logger.info('running on hostname: %s',socket.gethostname())
-
-   # parse wall_clock_limit
-   # the time in minutes of the wall clock given to the local
-   # batch scheduler. If a non-negative number, this value
-   # determines when yoda will signal all Droids to kill
-   # their running processes and exit
-   # after which yoda will peform clean up actions.
-   # It should be in number of minutes.
-   wall_clock_limit = datetime.timedelta(minutes=wall_clock_limit)
-
-   # the ealiest measure of the start time for Yoda/Droid
-   # this is used to determine when to exit
-   # it is expected to be output from datetime.datetime.now()
-   start_time         = start_time
-
-   # parse configuration file
-   try:
-      config = ConfigParser.ConfigParser()
-      config_file = open(config_filename)
-      config.readfp(config_file)
-      config_file.close()
-
-      # parse config for this module
-
-      # loop timeout
-      if config.has_option(config_section,'loop_timeout'):
-         loop_timeout = config.getfloat(config_section,'loop_timeout')
-      else:
-         loop_timeout = 60
-         logger.warning('no "loop_timeout" in "%s" section so using default %s',config_section,loop_timeout)
-      
-      # wallclock_expiring_leadtime
-      if config.has_option(config_section,'wallclock_expiring_leadtime'):
-         wallclock_expiring_leadtime = config.getint(config_section,'wallclock_expiring_leadtime')
-      else:
-         wallclock_expiring_leadtime = 300
-         logger.warning('no "wallclock_expiring_leadtime" in "%s" section so using default %s',config_section,wallclock_expiring_leadtime)
-
-   except Exception:
-      logger.exception('Rank %d: failed to parse config file: %s' % (mpirank,config_filename))
-      raise
-
-   # track starting path
-   starting_path = os.path.normpath(os.getcwd())
-   if starting_path != working_path:
-      # move to working path
-      os.chdir(working_path)
-
-   yoda = None
-   droid = None
-   # if you are rank 0, start the yoda thread
-   if mpirank == 0:
-      try:
-         yoda = Yoda.Yoda(config)
-         yoda.start()
-      except Exception:
-         logger.exception('Rank %s: failed to start Yoda.',mpirank)
-         raise
-   else:
-      # all other ranks start Droid threads
-      try:
-         droid = Droid.Droid(config)
-         droid.start()
-      except Exception:
-         logger.exception('Rank %s: failed to start Droid',mpirank)
-         raise
-
-   # loop until droid and/or yoda exit
-   while True:
-      logger.debug('yoda_droid start loop')
-
-      if wallclock_expiring(wall_clock_limit,start_time,wallclock_expiring_leadtime):
-         logger.info('wall clock is expiring')
-         if droid is not None:
-            droid.stop()
-         if yoda is not None:
-            yoda.wallclock_expired.set()
-            yoda.stop()
-         # MPIService.MPI.COMM_WORLD.Abort()
-         break
-
-      if droid and not droid.isAlive():
-         logger.debug('droid has finished')
-         if droid.get_state() == droid.EXITED:
-            logger.info('droid exited cleanly')
-         else:
-            logger.error('droid exited uncleanly, killing all ranks')
-            MPIService.MPI.COMM_WORLD.Abort()
-         break
-      if yoda and not yoda.isAlive():
-         logger.info('yoda has finished')
-         break
-      logger.debug('sleeping %s',loop_timeout)
-      time.sleep(loop_timeout)
-
-
-   # logger.info('Rank %s: waiting for other ranks to reach MPI Barrier',mpirank)
-   # MPI.COMM_WORLD.Barrier()
-   # logger.info('yoda_droid aborting all MPI ranks')
-   # MPIService.MPI.COMM_WORLD.Abort()
-
-   logger.info(' yoda_droid waiting for MPIService to join')
-   MPIService.mpiService.stop()
-   MPIService.mpiService.join()
-   logger.info('yoda_droid exiting')
-
-
 def main():
+
+   # keep track of start time for wall-clock monitoring
    start_time = datetime.datetime.now()
-   logging_format = '%(asctime)s|%(process)s|%(thread)s|' + ('%05d' % MPIService.rank) + '|%(levelname)s|%(name)s|%(message)s'
-   logging_datefmt = '%Y-%m-%d %H:%M:%S'
-   logging_filename = 'yoda_droid_%05d.log' % MPIService.rank
-   logging.basicConfig(level=logging.INFO,
-                       format=logging_format,
-                       datefmt=logging_datefmt,
-                       filename=logging_filename)
-   logger.info('Start yoda_droid: %s',__file__)
+   
+   # parse command line
    oparser = argparse.ArgumentParser()
 
    # set yoda config file where most settings are placed
@@ -174,8 +40,128 @@ def main():
    oparser.add_argument('--error', dest='error', default=False, action='store_true', help="Set Logger to ERROR")
    oparser.add_argument('--warning', dest='warning', default=False, action='store_true', help="Set Logger to ERROR")
 
-   
    args = oparser.parse_args()
+
+   # parse configuration file
+   try:
+      config,default = get_config(args.yoda_config)
+
+      # loop timeout
+      if config_section in config:
+         if 'loop_timeout' in config[config_section]:
+            loop_timeout = int(config[config_section]['loop_timeout'])
+         else:
+            loop_timeout = 60
+            
+         # wallclock_expiring_leadtime
+         if 'wallclock_expiring_leadtime' in config[config_section]:
+            wallclock_expiring_leadtime = int(config[config_section]['wallclock_expiring_leadtime'])
+         else:
+            wallclock_expiring_leadtime = 300
+      else:
+         loop_timeout = 60
+         wallclock_expiring_leadtime = 300
+
+   except Exception:
+      raise
+
+   # start the MPI service
+   if 'MPIService' in config:
+      
+      mpi_loglevel = 'INFO'
+      if 'loglevel' in config['MPIService']:
+         mpi_loglevel = config['MPIService']['loglevel']
+      
+      mpi_debug_message_char_length = 200
+      if 'mpi_debug_message_char_length' in config['MPIService']:
+         mpi_debug_message_char_length = int(config['MPIService']['mpi_debug_message_char_length'])
+
+      mpi_default_message_buffer_size = 10000000
+      if 'mpi_default_message_buffer_size' in config['MPIService']:
+         mpi_default_message_buffer_size = int(config['MPIService']['mpi_default_message_buffer_size'])
+
+      mpi_loop_timeout = 30
+      if 'loop_timeout' in config['MPIService']:
+         mpi_loop_timeout = int(config['MPIService']['loop_timeout'])
+   else:
+      raise Exception('no MPIService configuration')
+   
+   # need to create a list of queue objects at the top level
+   # that can then be passed around
+   # after MPIService sets the rank information we can
+   # map each queue to a process
+   queue_list = [Queue() for _ in range(7)]
+   # create a sharable dictionary that will be used
+   # to tell MPIService which queue_list entry goes
+   # to which thread
+   mgr = Manager()
+   queue_map = mgr.dict()
+   # create MPIService
+   mpiService = MPIService.MPIService(
+                                      queue_list,
+                                      queue_map,
+                                      mpi_loglevel,
+                                      mpi_debug_message_char_length,
+                                      mpi_default_message_buffer_size,
+                                      mpi_loop_timeout,
+                                     )
+   # start the subprocess
+   mpiService.start()
+
+   # get rank and world size
+   mpiService.rank.wait()
+   rank = mpiService.rank.get()
+   mpiService.nranks.wait()
+   nranks = mpiService.nranks.get()
+
+   # set the queue map
+   if rank == 0:
+      queue_map['yoda_droid']    = 0
+      queue_map['MPIService']    = 1
+      queue_map['Yoda']          = 2
+      queue_map['WorkManager']   = 3
+      queue_map['RequestHarvesterJob']          = 4
+      queue_map['RequestHarvesterEventRanges']  = 5
+      queue_map['FileManager']   = 6
+
+      queues = {
+         'yoda_droid': queue_list[queue_map['yoda_droid']],
+         'MPIService': queue_list[queue_map['MPIService']],
+         'Yoda': queue_list[queue_map['Yoda']],
+         'WorkManager': queue_list[queue_map['WorkManager']],
+         'RequestHarvesterJob': queue_list[queue_map['RequestHarvesterJob']],
+         'RequestHarvesterEventRanges': queue_list[queue_map['RequestHarvesterEventRanges']],
+         'FileManager': queue_list[queue_map['FileManager']],
+      }
+   else:
+      queue_map['yoda_droid']    = 0
+      queue_map['MPIService']    = 1
+      queue_map['Droid']         = 2
+      queue_map['JobComm']       = 3
+      queue_map['TransformManager'] = 4
+
+
+      queues = {
+         'yoda_droid': queue_list[queue_map['yoda_droid']],
+         'MPIService': queue_list[queue_map['MPIService']],
+         'Droid': queue_list[queue_map['Droid']],
+         'JobComm': queue_list[queue_map['JobComm']],
+         'TransformManager': queue_list[queue_map['TransformManager']],
+      }
+   # tell MPIService we have set the queue_map
+   mpiService.queue_map_is_set()
+
+
+   logging_format = '%(asctime)s|%(process)s|%(thread)s|' + ('%05d' % rank) + '|%(levelname)s|%(name)s|%(message)s'
+   logging_datefmt = '%Y-%m-%d %H:%M:%S'
+   logging_filename = 'yoda_droid_%05d.log' % rank
+   for h in logging.root.handlers:
+      logging.root.removeHandler(h)
+   logging.basicConfig(level=logging.INFO,
+                       format=logging_format,
+                       datefmt=logging_datefmt,
+                       filename=logging_filename)
+   logger.info('Start yoda_droid: %s',__file__)
 
    if args.debug and not args.error and not args.warning:
       # remove existing root handlers and reconfigure with DEBUG
@@ -207,10 +193,99 @@ def main():
    
 
 
-   yoda_droid(args.working_path,
-              args.yoda_config,
-              args.wall_clock_limit,
-              start_time)
+      
+   # dereference any links on the working path
+   working_path = os.path.normpath(args.working_path)
+
+   # make we are in the working path
+   if os.getcwd() != working_path:
+      os.chdir(working_path)
+   
+   # get MPI world info
+   logger.debug(' rank %10i of %10i',rank,nranks)
+   
+   logger.info('working_path:                %s',working_path)
+   logger.info('config_filename:             %s',args.yoda_config)
+   logger.info('starting_path:               %s',os.getcwd())
+   logger.info('wall_clock_limit:            %d',args.wall_clock_limit)
+   
+   logger.info('running on hostname:         %s',socket.gethostname())
+
+   # parse wall_clock_limit
+   # the time in minutes of the wall clock given to the local
+   # batch scheduler. If a non-negative number, this value
+   # determines when yoda will signal all Droids to kill
+   # their running processes and exit
+   # after which yoda will peform clean up actions.
+   # It should be in number of minutes.
+   wall_clock_limit = datetime.timedelta(minutes=args.wall_clock_limit)
+
+   # track starting path
+   starting_path = os.path.normpath(os.getcwd())
+   if starting_path != working_path:
+      # move to working path
+      os.chdir(working_path)
+
+   yoda = None
+   droid = None
+   # if you are rank 0, start the yoda thread
+   if rank == 0:
+      try:
+         yoda = Yoda.Yoda(queues,
+                          config)
+         yoda.start()
+      except Exception:
+         logger.exception('failed to start Yoda.')
+         raise
+   else:
+      # all other ranks start Droid threads
+      try:
+         droid = Droid.Droid(queues,
+                             config,
+                             rank)
+         droid.start()
+      except Exception:
+         logger.exception('failed to start Droid')
+         raise
+
+   # loop until droid and/or yoda exit
+   while True:
+      logger.debug('yoda_droid start loop')
+
+      if wallclock_expiring(wall_clock_limit,start_time,wallclock_expiring_leadtime):
+         logger.info('wall clock is expiring')
+         if droid is not None:
+            droid.stop()
+         if yoda is not None:
+            yoda.wallclock_expired.set()
+            yoda.stop()
+         # MPIService.MPI.COMM_WORLD.Abort()
+         break
+
+      if droid and not droid.is_alive():
+         logger.debug('droid has finished')
+         if droid.get_state() == droid.EXITED:
+            logger.info('droid exited cleanly')
+         else:
+            logger.error('droid exited uncleanly, killing all ranks')
+            from mpi4py import MPI
+            MPI.COMM_WORLD.Abort()
+         break
+      if yoda and not yoda.is_alive():
+         logger.info('yoda has finished')
+         break
+      logger.debug('sleeping %s',loop_timeout)
+      time.sleep(loop_timeout)
+
+
+   # logger.info('Rank %s: waiting for other ranks to reach MPI Barrier',mpirank)
+   # MPI.COMM_WORLD.Barrier()
+   # logger.info('yoda_droid aborting all MPI ranks')
+   # MPIService.MPI.COMM_WORLD.Abort()
+
+   logger.info(' yoda_droid signaling for MPIService to exit')
+   mpiService.stop()
+   logger.info('yoda_droid exiting')
 
 
 def wallclock_expiring(wall_clock_limit,start_time,wallclock_expiring_leadtime):
@@ -218,7 +293,7 @@ def wallclock_expiring(wall_clock_limit,start_time,wallclock_expiring_leadtime):
       running_time = datetime.datetime.now() - start_time
       timeleft = wall_clock_limit - running_time
       if timeleft.total_seconds() < wallclock_expiring_leadtime:
-         logger.debug('time left %s is less than the leadtime %s, triggering exit.',timeleft,wallclock_expiring_leadtime)
+         logger.debug('time left %s is less than the leadtime %s, triggering exit.',timeleft.total_seconds(),wallclock_expiring_leadtime)
          return True
       else:
          logger.debug('time left %s before wall clock expires.',timeleft)
@@ -226,38 +301,39 @@ def wallclock_expiring(wall_clock_limit,start_time,wallclock_expiring_leadtime):
       logger.debug('no wallclock limit set, no exit will be triggered')
    return False
 
-def get_config(options):
+
+def get_config(config_filename):
 
    config = {}
    default = {}
-   if MPI.COMM_WORLD.Get_rank() == 0:
-      configfile = ConfigParser.ConfigParser()
-      # make config options case sensitive (insensitive by default)
-      configfile.optionxform = str
-      logger.debug('reading config file: %s',options.config)
-      with open(options.config) as fp:
-         configfile.readfp(fp)
-         for section in configfile.sections():
-            config[section] = {}
-            for key,value in configfile.items(section):
-               # exclude DEFAULT keys
-               if key not in configfile.defaults().keys():
-                  config[section][key] = value
-               else:
-                  default[key] = value
-   # logger.debug('at bcast %s',config)
-   config = MPI.COMM_WORLD.bcast(config,root=0)
-   default = MPI.COMM_WORLD.bcast(default,root=0)
+   configfile = ConfigParser.ConfigParser()
+   # make config options case sensitive (insensitive by default)
+   configfile.optionxform = str
+   logger.debug('reading config file: %s',config_filename)
+   with open(config_filename) as fp:
+      configfile.readfp(fp)
+      for section in configfile.sections():
+         config[section] = {}
+         for key,value in configfile.items(section):
+            # exclude DEFAULT keys
+            if key not in configfile.defaults().keys():
+               config[section][key] = value
+            else:
+               default[key] = value
    # logger.debug('after bcast %s',config)
 
    return config,default
 
+
 if __name__ == "__main__":
+   logging.basicConfig()
    try:
       main()
-   except Exception:
-      logger.exception('uncaught exception. Aborting all ranks')
+   except Exception as e:
+      import traceback
+      traceback.print_exc()
       from mpi4py import MPI
+      print('Rank %05d: uncaught exception. Aborting all ranks: %s' % (MPI.COMM_WORLD.Get_rank(),str(e)))
       MPI.COMM_WORLD.Abort()
       import sys
       sys.exit(-1)

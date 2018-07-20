@@ -1,9 +1,14 @@
+from multiprocessing import Queue
+from Queue import Empty
 import serializer
-from Queue import Queue,Full,Empty
+# from Queue import Queue,Full,Empty
 
 
+class SerialQueue(Queue):
+   pass
 
-class SerialQueue(Queue,object):
+
+class SerialQueue2(Queue,object):
    ''' custom version of Queue class which takes python objects and serializes them into strings '''
    def put(self,message,block=True,timeout=None):
       smsg = serializer.serialize(message)
