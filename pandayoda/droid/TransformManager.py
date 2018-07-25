@@ -1,4 +1,4 @@
-import os,logging,subprocess,random,glob
+import os,logging,subprocess,random,glob,time
 from pandayoda.common import VariableWithLock,MPIService,StatefulService
 logger = logging.getLogger(__name__)
 
@@ -73,8 +73,21 @@ class TransformManager(StatefulService.StatefulService):
    def get_returncode(self):
       self.returncode.get()
 
+   # this runs when 'droid_instance.start()' is called
    def run(self):
-      ''' start and monitor transform in subprocess '''
+      ''' this is the function called when the user runs droid_instance.start() '''
+
+      try:
+         self.subrun()
+      except Exception:
+         logger.exception('failed with uncaught exception')
+         from mpi4py import MPI
+         MPI.COMM_WORLD.Abort()
+         logger.error('exiting')
+
+
+   def subrun(self):
+      ''' this function is the business logic, but wrapped in exception '''
 
       # read config
       self.read_config()
@@ -105,6 +118,10 @@ class TransformManager(StatefulService.StatefulService):
       if self.exit.is_set() and self.is_subprocess_running():
          logger.info('signaled to exit before subprocess exited so killing it.')
          self.jobproc.kill()
+
+      while self.is_subprocess_running():
+         logger.info('waiting for subprocess to die with %s sleep intervals',1)
+         time.sleep(1)
 
       self.returncode.set(int(self.subprocess_returncode()))
 
