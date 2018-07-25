@@ -77,8 +77,21 @@ class MPIService(StatefulService):
    def queue_map_is_set(self):
       self.queue_map_set.set()
 
+   # this runs when 'instance.start()' is called
    def run(self):
-      ''' run when obj.start() is called '''
+      ''' this is the function called when the user runs instance.start() '''
+
+      try:
+         self.subrun()
+      except Exception:
+         self.logger.exception('failed with uncaught exception')
+         from mpi4py import MPI
+         MPI.COMM_WORLD.Abort()
+         self.logger.info('exiting')
+
+
+   def subrun(self):
+      ''' this function is the business logic, but wrapped in exception '''
 
 
       # this would be the first import of MPI

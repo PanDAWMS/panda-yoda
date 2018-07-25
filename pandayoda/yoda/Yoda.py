@@ -120,14 +120,15 @@ class Yoda(Process):
             self.queues['MPIService'].put({'type':MessageTypes.DROID_EXIT,'destination_rank':ranknum})
 
       # send the exit signal to all subthreads
-      logger.info('sending exit signal to subthreads')
-      for name,thread in subthreads.iteritems():
+      for name,thread in self.subthreads.iteritems():
+         logger.info('sending exit signal to %s',name)
          thread.stop()
 
       # wait for sub threads to exit
-      logger.info('waiting for subthreads to join')
-      for name,thread in subthreads.iteritems():
+      for name,thread in self.subthreads.iteritems():
+         logger.info('waiting for %s to join',name)
          thread.join()
+         logger.info('%s has joined',name)
 
 
       while not self.queues['MPIService'].empty():

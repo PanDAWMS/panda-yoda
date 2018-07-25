@@ -285,7 +285,13 @@ def main():
 
    logger.info(' yoda_droid signaling for MPIService to exit')
    mpiService.stop()
+   while mpiService.is_alive():
+      logger.info('waiting for MPIService to exit')
+      time.sleep(loop_timeout)
+   logger.info('join MPIService')
+   mpiService.join()
    logger.info('yoda_droid exiting')
+
 
 
 def wallclock_expiring(wall_clock_limit,start_time,wallclock_expiring_leadtime):
