@@ -218,6 +218,8 @@ class Droid(StatefulService.StatefulService):
          # The transform exited
          #########
          elif self.get_state() == Droid.TRANSFORM_EXITED:
+            # join the process
+            self.subthreads['transform'].join()
 
             # transform has exited
             if self.subthreads['transform'].in_state(self.subthreads['transform'].FINISHED):

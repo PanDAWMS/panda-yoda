@@ -287,6 +287,8 @@ class WorkManager(Process):
                         # there is a request, if it is has exited, check if there are events available
                         elif requestHarvesterEventRanges.exited():
                            logger.debug('requestHarvesterEventRanges exited, will check for new event ranges')
+                           
+                           requestHarvesterEventRanges.join()
 
                            # if no more events flag is set, there are no more events for this PandaID
                            if requestHarvesterEventRanges.no_more_eventranges():

@@ -283,11 +283,18 @@ def main():
    # logger.info('yoda_droid aborting all MPI ranks')
    # MPIService.MPI.COMM_WORLD.Abort()
 
+   if droid is not None:
+      logger.info('join Droid')
+      droid.join()
+      droid = None
+
+   if yoda is not None:
+      logger.info('join Yoda')
+      yoda.join()
+      yoda = None
+
    logger.info(' yoda_droid signaling for MPIService to exit')
    mpiService.stop()
-   while mpiService.is_alive():
-      logger.info('waiting for MPIService to exit')
-      time.sleep(loop_timeout)
    logger.info('join MPIService')
    mpiService.join()
    logger.info('yoda_droid exiting')
