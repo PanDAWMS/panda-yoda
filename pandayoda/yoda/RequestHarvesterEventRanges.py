@@ -141,7 +141,7 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
                time_waiting = time.time() - request_time
                if time_waiting > self.eventrange_timeout:
                   logger.info('have been waiting for eventranges for %d seconds, limited to %d, triggering exit',time_waiting,self.eventrange_timeout)
-                  self.no_more_eventranges_flag.set(True)
+                  self.no_more_eventranges_flag.set()
                   self.stop()
                   continue
                
@@ -168,7 +168,7 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
                   # if Harvester provided no event ranges for this panda ID, then set the no more events flag
                   if len(eventranges[str(self.job_def['pandaID'])]) == 0:
                      logger.debug('no new event ranges received. setting flag')
-                     self.no_more_eventranges_flag.set(True)
+                     self.no_more_eventranges_flag.set()
 
                   self.stop()
                else:
