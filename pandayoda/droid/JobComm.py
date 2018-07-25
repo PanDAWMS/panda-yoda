@@ -48,10 +48,11 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
    MESSAGE_RECEIVED              = 'MESSAGE_RECEIVED'
    SEND_EVENT_RANGE              = 'SEND_EVENT_RANGE'
    SEND_OUTPUT_FILE              = 'SEND_OUTPUT_FILE'
+   EXITED                     = 'EXITED'
 
    STATES = [WAITING_FOR_JOB,WAITING_FOR_EVENT_RANGES,
              REQUEST_EVENT_RANGES,WAIT_FOR_PAYLOAD_MESSAGE,
-             MESSAGE_RECEIVED,SEND_EVENT_RANGE,SEND_OUTPUT_FILE]
+             MESSAGE_RECEIVED,SEND_EVENT_RANGE,SEND_OUTPUT_FILE,EXITED]
 
    
    def __init__(self,config,queues,droid_working_path,yampl_socket_name):
@@ -214,9 +215,17 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                   # change state
                   self.set_state(self.WAIT_FOR_PAYLOAD_MESSAGE)
                elif qmsg['type'] == MessageTypes.NO_MORE_EVENT_RANGES:
-                  logger.info('no more event ranges for PandaID %s going to MONITORING state',qmsg['PandaID'])
+                  logger.info('no more event ranges for PandaID %s',qmsg['PandaID'])
                   no_more_events = True
-                  self.set_state(self.WAIT_FOR_PAYLOAD_MESSAGE)
+
+                  # check for running events
+                  if len(eventranges) == eventranges.number_completed():
+                     logger.info('no eventranges left to send so triggering exit')
+                     self.stop()
+                  else:
+                     logger.info('still have events to process so continuing')
+                     self.set_state(self.WAIT_FOR_PAYLOAD_MESSAGE)
+
                else:
                   logger.error('unknown message type: %s',qmsg['type'])
 
@@ -246,16 +255,10 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                   logger.error('received message of unknown type: %s',qmsg)
             except Queue.Empty:
                logger.debug('no messages on queue')
-
-            # if requests for events have been sent and we are waiting for event ranges
-            # do not block
-            temp_timeout = self.loop_timeout
-            if event_range_request_counter > 0:
-               temp_timeout = 1
             
             logger.info('checking for message from payload, block for %s, pending event range requests: %s',self.loop_timeout,event_range_request_counter)
 
-            payload_msg = athpayloadcomm.recv(temp_timeout)
+            payload_msg = athpayloadcomm.recv(self.loop_timeout)
 
             if len(payload_msg) > 0:
                logger.debug('received message: %s',payload_msg)
@@ -398,51 +401,6 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                self.set_state(self.WAIT_FOR_PAYLOAD_MESSAGE)
 
             payload_msg = None
-
-         ##################
-         # MONITORING: monitoring Payload and request events when needed
-         ######################################################################
-         elif self.get_state() == self.MONITORING:
-            logger.debug('monitoring payload')
-
-            # first check if there is an incoming message
-            try:
-               logger.debug('checking for queue message')
-               qmsg = self.queues['JobComm'].get(block=False)
-               if MessageTypes.NEW_EVENT_RANGES in qmsg['type']:
-                  logger.info('received new event range')
-                  eventranges += EventRangeList.EventRangeList(qmsg['eventranges'])
-                  waiting_for_eventranges = False
-               elif qmsg['type'] == MessageTypes.NO_MORE_EVENT_RANGES:
-                  logger.info('no more event ranges for PandaID %s',qmsg['PandaID'])
-                  no_more_events = True
-               else:
-                  logger.error('received message of unknown type: %s',qmsg)
-            except Queue.Empty:
-               logger.debug('no messages on queue')
-
-            # second block on message from payload
-            logger.info('blocking on payload message recv for %s',self.loop_timeout)
-            payload_msg = athpayloadcomm.recv(self.loop_timeout)
-            # parse message
-            if len(payload_msg) > 0:
-               logger.debug('received message: %s',payload_msg)
-               if athena_payloadcommunicator.READY_FOR_EVENTS in payload_msg:
-                  logger.debug('received event range request from AthenaMP, sending event range')
-                  if eventranges.number_ready() > 0:
-                     self.send_eventrange(eventranges,athpayloadcomm,no_more_events)
-                  ######
-               elif len(payload_msg.split(',')) == 4:
-                  # Athena sent details of an output file
-                  logger.debug('received output file from AthenaMP,sending to Yoda rank')
-                  self.send_output_file(payload_msg,current_job,eventranges,output_files)
-               else:
-                  logger.error('failed to parse AthenaMP message: %s',payload_msg)
-
-            else:
-               logger.debug('did not receive payload message')
-            
-            payload_msg = None
             
          # if ready_events is below the threshold and the no more events flag has not been set
          # request more event ranges
@@ -462,6 +420,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
          # logger.info('sleeping for %s',self.loop_timeout)
          # self.exit.wait(timeout=self.loop_timeout)
       
+      self.set_state(self.EXITED)
 
       logger.info('JobComm exiting')
 

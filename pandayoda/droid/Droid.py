@@ -237,13 +237,14 @@ class Droid(StatefulService.StatefulService):
       self.set_state(self.EXITING)
 
       # send the exit signal to all subthreads
-      logger.info('sending exit signal to subthreads')
       for name,thread in self.subthreads.iteritems():
+         logger.info('sending exit signal to %s',name)
+      
          thread.stop()
 
       # wait for sub threads to exit
-      logger.info('waiting for subthreads to join')
       for name,thread in self.subthreads.iteritems():
+         logger.info('waiting for %s to join',name)
          thread.join()
          logger.info('%s has joined',name)
 
