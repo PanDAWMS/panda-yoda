@@ -108,7 +108,7 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
          # REQUEST State
          ########################
          if self.get_state() == self.REQUEST:
-            logger.debug('making request for event ranges')
+            logger.info('making request for event ranges')
 
             # first check if events already on disk
             if self.harvester_messenger.eventranges_ready():
@@ -132,7 +132,7 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
          # WAITING State
          ########################
          if self.get_state() == self.WAITING:
-            logger.debug('checking for event ranges, will block for %s',self.loop_timeout)
+            logger.info('checking for event ranges, will block for %s',self.loop_timeout)
             # use messenger to check if event ranges are ready
             if self.harvester_messenger.eventranges_ready(block=True,timeout=self.loop_timeout):
                self.set_state(self.RETRIEVE_EVENTS)
@@ -150,7 +150,7 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
          #  RETRIEVE_EVENTS State
          ########################
          if self.get_state() == self.RETRIEVE_EVENTS:
-            logger.debug('reading event ranges')
+            logger.info('reading event ranges')
             # use messenger to get event ranges from Harvester
             try:
                eventranges = self.harvester_messenger.get_eventranges()
@@ -167,7 +167,7 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
                   
                   # if Harvester provided no event ranges for this panda ID, then set the no more events flag
                   if len(eventranges[str(self.job_def['pandaID'])]) == 0:
-                     logger.debug('no new event ranges received. setting flag')
+                     logger.info('received empty file, no new event ranges received')
                      self.no_more_eventranges_flag.set()
 
                   self.stop()

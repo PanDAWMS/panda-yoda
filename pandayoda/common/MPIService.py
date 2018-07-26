@@ -298,7 +298,7 @@ class MPIService(StatefulService):
       
       if message['type'] in self.forwarding_map:
          for thread_name in self.forwarding_map[message['type']]:
-            self.logger.info('forwarding recieve MPI message to %s',thread_name)
+            self.logger.info('forwarding recieved MPI with type %s message to %s',message['type'],thread_name)
             self.queues[thread_name].put(message)
       else:
          self.logger.warning('received message type with no forwarding defined: %s',message['type'])

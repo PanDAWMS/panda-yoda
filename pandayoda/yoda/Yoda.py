@@ -114,18 +114,19 @@ class Yoda(Process):
       # send the exit signal to all droid ranks
       logger.info('sending exit signal to droid ranks')
       for ranknum in range(1,MPIService.mpiworldsize.get()):
-         if self.wallclock_expired.is_set():
-            self.queues['MPIService'].put({'type':MessageTypes.WALLCLOCK_EXPIRING,'destination_rank':ranknum})
-         else:
-            self.queues['MPIService'].put({'type':MessageTypes.DROID_EXIT,'destination_rank':ranknum})
+         if ranknum not in self.exited_droids:
+            if self.wallclock_expired.is_set():
+               self.queues['MPIService'].put({'type':MessageTypes.WALLCLOCK_EXPIRING,'destination_rank':ranknum})
+            else:
+               self.queues['MPIService'].put({'type':MessageTypes.DROID_EXIT,'destination_rank':ranknum})
 
       # send the exit signal to all subthreads
-      for name,thread in self.subthreads.iteritems():
+      for name,thread in subthreads.iteritems():
          logger.info('sending exit signal to %s',name)
          thread.stop()
 
       # wait for sub threads to exit
-      for name,thread in self.subthreads.iteritems():
+      for name,thread in subthreads.iteritems():
          logger.info('waiting for %s to join',name)
          thread.join()
          logger.info('%s has joined',name)

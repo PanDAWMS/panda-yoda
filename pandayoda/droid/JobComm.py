@@ -251,6 +251,14 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                elif qmsg['type'] == MessageTypes.NO_MORE_EVENT_RANGES:
                   logger.info('no more event ranges for PandaID %s',qmsg['PandaID'])
                   no_more_events = True
+
+                  # check for running events
+                  if len(eventranges) == eventranges.number_completed():
+                     logger.info('no eventranges left to send so triggering exit')
+                     self.stop()
+                  else:
+                     logger.info('still have events to process so continuing')
+
                else:
                   logger.error('received message of unknown type: %s',qmsg)
             except Queue.Empty:
