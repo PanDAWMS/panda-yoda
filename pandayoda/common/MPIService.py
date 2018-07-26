@@ -250,7 +250,7 @@ class MPIService(StatefulService):
                self.logger.debug('no messages received this loop')
                no_message_on_last_loop = True
 
-      self.logger.info('reached barrier')
+      self.logger.info('waiting for all ranks to reach this point before exiting')
       self.MPI.COMM_WORLD.Barrier()
       self.logger.info('exiting')
 
