@@ -252,49 +252,56 @@ module swap PrgEnv-intel PrgEnv-gnu
 
 After installation, you will find a `yoda_template.cfg` file in your `$VIRTUAL_ENV/etc` folder. This file uses the `ConfigParser` syntax from the module of the same name. 
 
-Most subsections represents a different thread of Yoda. The generic `loop_timeout` parameter controls polling loops of running threads and can be finetuned for performance and responsiveness (60 seconds should generally be fast enough). 
+Most subsections represent a different process module of Yoda. Many modules have a `loop_timeout` parameter that controls polling loops of running sub processes and can be finetuned for performance and responsiveness (60 seconds should generally be fast enough). In addition, there is the `loglevel` setting to control the local log level and can be set to the usual DEBUG, INFO, WARNING, ERROR.
+
+Otherwise, custom settings are described below:
+
+## [yoda_droid]
+- `wallclock_expiring_leadtime`: this is experimental at the moment, but in the future would allow the user to specify how many seconds before the expected wall-clock of the batch job will expire that Yoda should kill all MPI ranks and exit. Currently the wall-clock time is passed to Yoda on the command line.
 
 ## [Yoda]
-- `wallclock_expiring_leadtime`: this is experimental at the moment, but in the future would allow the user to specify how many seconds before the expected wall-clock of the batch job will expire that Yoda should kill all MPI ranks and exit. Currently the wall-clock time is passed to Yoda on the command line. 
+- `messenger_plugin_module`: controls the plugin used to communicate with Harvester to request a job definition. Currently there is only one `pandayoda.yoda.shared_file_messenger`. In the future, there will likely also be sockets version.
+ 
 
 ## [WorkManager]
 - `send_n_eventranges`: controls the number of event ranges the `WorkManger` thread sends to Droids requesting more work. Current recommendation is to keep this value at the number of AthenaMP workers (128 on Theta, 136 on Cori, etc.). Multiplying by 2 or more could be recommended if long wall-clock times are anticipated.
 - `request_n_eventranges`: controls the number of event ranges to request from Harvester when there are no more to hand out to Droid instances. Current recommendation is to keep this value at the number total AthenaMP workers in your batch job, i.e. Number of Nodes times number of AthenaMP workers per node. Again, multiplying by 2 or more could be recommeneded if longer wall-clock times are anticipated. 
 
-## [RequestHarvesterJob]
-- `messenger_plugin_module`: controls the plugin used to communicate with Harvester to request a job definition. Currently there is only one `pandayoda.yoda.shared_file_messenger`. In the future, there will likely also be sockets version.
-
 ## [RequestHarvesterEventRanges]
-- `messenger_plugin_module`: controls the plugin used to communicate with Harvester to request a job definition. Currently there is only one `pandayoda.yoda.shared_file_messenger`. In the future, there will likely also be sockets version.
+- `eventrange_timeout`: If Harvester does not supply new event ranges within the number of seconds defined by this setting, measured from the time a request is made, then Yoda sends the 'no more event ranges' message to Droids which triggers an exit after all remaining events have been processed.
 
 ## [shared_file_messenger]
 - `harvester_config_file`: this should point at the harvester 'cfg' file. the Shared File Messenger needs to know the names of the JSON files Harvester intends to use for communication.
 
 ## [Droid]
-- `yampl_socket_name`: This is a string used to define the yampl socket name that is used to communicate with AthenaMP. It is placed on the command line of the transform (Sim_tf.py). Current setting is `EventServiceDroid_r{rank}` where `{rank}` takes advantage of the python string format command to replace rank with the ranknumber of the Droid running AthenaMP.
-- `subprocess_stdout`: This controls the transforms output log file name. Current settings is - `transform_stdout_r{rank}_pid{PandaID}.log` where `{rank}` and `{PandaID}` take advantage of the python string format command to replace rank/PandaID with the ranknumber/PandaID of the Droid/Job running AthenaMP. Keep in mind that if you change this name you must change the Harvester plugin that grabs log data to upload to the grid.
-- `subprocess_stderr`: same as above, but for the error stream. Currently set to `transform_stderr_r{rank}_pid{PandaID}.log`. 
-- `working_path`: controls the name of the working path for each Droid instance. This is a relative path to the working directory inwhich Yoda is launched by Harvester. Current setting is `droid_rank_{rank}` where `{rank}` takes advantage of the python string format command to replace rank with the ranknumber of the Droid running AthenaMP.
+- `yampl_socket_name`: This is a string used to define the yampl socket name that is used to communicate with AthenaMP. It is placed on the command line of the transform (Sim_tf.py). Current setting is `EventServiceDroid_r{rank}` where `{rank}` takes advantage of the python string format command to replace rank with the ranknumber of the Droid running AthenaMP. 
+- `working_path`: controls the name of the working path for each Droid instance. This is a relative path to the working directory inwhich Yoda is launched by Harvester. Current setting is `droid_rank_{rank:05d}` where `{rank:05d}` takes advantage of the python string format command to replace rank with the ranknumber of the Droid running AthenaMP padded with zeros.
 
 ## [FileManager]
 - `output_file_type`: This is a setting for the JSON output for Harvester. This setting doesn't need to be changed and should always be `es_output`.
-- `messenger_plugin_module`: controls the plugin used to communicate with Harvester to request a job definition. Currently there is only one `pandayoda.yoda.shared_file_messenger`. In the future, there will likely also be sockets version.
+- `harvester_output_timeout`: with the shared file messenger, the file manager writes a file containing information related to output files. This timeout controls how frequently it checks the filesystem to see if Harvester has consumed the output file. If the file is no longer on disk, more output files can be written.
 - `transfer_mode`: Currently ignored.
 
 ## [JobComm]
 - `get_more_events_threshold`: threshold at which the JobComm will request more events from Yoda.
+- `aggregate_output_files_time`: time in seconds for how frequently output files should be sent via MPI to Yoda from Droid rank. This ensures we are not overloading MPI message traffic and should be optimized for your system. If you have many AthenaMP workers per Droid, there are going to be more output files per second generated, which could warrant a larger value for this time.
+- `debug_message_char_length`: this controls how many characters to print when debugging and printing received messages.
+- `stage_outputs`: (experimental) boolean that when set triggers the copying of AthenaMP output files from the AthenaMP working directory to a specified staging directory
 
 ## [TransformManager]
 - `template`: The full path to a template file for running the Transform. An example of this template is included for running Sim_tf on Theta in `templates/ThetaSubmitTF.sh`. Another version for running inside a singularity container is provided in `templates/ThetaSubmitSingularity.sh`. The template file contains python string format variables like `{rank}`, `{processingType}`, `{taskID}`, `{pandaID}`, `{release}`, `{package}`, `{cmtConfig}`, `{gcclocation}`, `{transformation}`, `{jobPars}`.
 - `run_script`: The name of the script in which the `template` will be written.
-- `use_mock_athenamp`: ignored for now. Ideally for testing yoda without running Athena, but yeah... who has time for that.
-- `ATHENA_PROC_NUMBER`: Currently ignored. In the future, may override the number of AthenaMP workers on each node. 
+- `subprocess_stdout`: This controls the transforms output log file name. Current settings is - `transform_stdout_r{rank}_pid{PandaID}.log` where `{rank}` and `{PandaID}` take advantage of the python string format command to replace rank/PandaID with the ranknumber/PandaID of the Droid/Job running AthenaMP. Keep in mind that if you change this name you must change the Harvester plugin that grabs log data to upload to the grid.
+- `subprocess_stderr`: same as above, but for the error stream. Currently set to `transform_stderr_r{rank}_pid{PandaID}.log`.
+- `use_clean_env`: booean that determines if the `run_script` is executed in a `subprocess.Popen` object with a clean environment or using the current environment in which Yoda is running.
 - `use_container`: Set to `true` if you want the transform to run inside a container
 - `container_prefix`: Used to set the container execute command. For Theta this looks like `/usr/bin/singularity exec -B /lus/theta-fs0/projects/AtlasADSP:/lus/theta-fs0/projects/AtlasADSP:rw /lus/theta-fs0/projects/AtlasADSP/centos6-cvmfs.atlas.cern.ch.img.x86_64-slc6-gcc49+.201803081026 /bin/bash`
+- `run_directory`: (experimental) if `run_elsewhere` is set, this is the directory in which `run_script` will be launched in the `subprocess.Popen`.
+- `run_elsewhere`: (experimental) boolean that if set, triggers the running of AthenaMP in a custom directory specified by `run_directory`.
+- `logs_to_stage`: (experimental) A comma separated list of globs (globs can include wildcards `*`) that specifies the files to copy from the `run_directory` to the yoda working directory for capture by Harvester which tarballs log files for PanDA upload.
 
 ## [MPIService]
 - `default_message_buffer_size`: controls the MPI Message size limits in mpi4py. Current recommended value is `10000000`.
-
-
+- `debug_message_char_length`: this controls how many characters to print when debugging and printing received messages.
 
 
