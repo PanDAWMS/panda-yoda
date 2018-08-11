@@ -1,6 +1,7 @@
-import logging,os,time,socket,multiprocessing,platform,Queue
+import logging,os,time,socket,platform,Queue
 from pandayoda.common import MessageTypes,MPIService,StatefulService
 from pandayoda.droid import TransformManager,JobComm
+from pandayoda.common import yoda_multiprocessing as mp
 logger = logging.getLogger(__name__)
 
 
@@ -59,7 +60,7 @@ class Droid(StatefulService.StatefulService):
       logger.debug('config_section:             %s',config_section)
    
       logger.info('Droid running on hostname:   %s',socket.gethostname())
-      logger.info('Droid node has               %d cpus',multiprocessing.cpu_count())
+      logger.info('Droid node has               %d cpus',mp.cpu_count())
       logger.info('Droid uname:                 %s',','.join(platform.uname()))
       logger.info('Droid processor:             %s',platform.processor())
 

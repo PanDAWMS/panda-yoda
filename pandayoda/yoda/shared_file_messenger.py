@@ -1,5 +1,5 @@
 import os,json,logging,ConfigParser,time,glob,sys
-from multiprocessing import Lock,Manager,Event
+from pandayoda.common.yoda_multiprocessing import Lock,Manager,Event
 from pandayoda.common import exceptions,serializer,MPIService
 logger = logging.getLogger(__name__)
 

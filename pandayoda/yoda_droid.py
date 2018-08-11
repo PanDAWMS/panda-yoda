@@ -9,12 +9,14 @@ try:
    from pandayoda.yoda import Yoda
    from pandayoda.droid import Droid
    from pandayoda.common import MPIService
-   from multiprocessing import Queue,Manager
+   from pandayoda.common.yoda_multiprocessing import Queue,Manager
    logger = logging.getLogger(__name__)
 except Exception,e:
    print('Exception received during import: %s' % str(e))
-   import traceback
-   traceback.print_exc()
+   import traceback,sys
+   exc_type, exc_value, exc_traceback = sys.exc_info()
+   print(' '.join(line for line in traceback.format_exception(exc_type, exc_value,
+                                          exc_traceback)))
    from mpi4py import MPI
    MPI.COMM_WORLD.Abort()
    import sys
@@ -202,8 +204,8 @@ def main():
       os.chdir(working_path)
    
    # get MPI world info
-   logger.debug(' rank %10i of %10i',rank,nranks)
-   
+   logger.info('rank %10i of %10i',rank,nranks)
+   logger.info('python version:              %s',sys.version)
    logger.info('working_path:                %s',working_path)
    logger.info('config_filename:             %s',args.yoda_config)
    logger.info('starting_path:               %s',os.getcwd())

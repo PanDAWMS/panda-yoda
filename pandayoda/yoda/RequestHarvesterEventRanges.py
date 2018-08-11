@@ -1,5 +1,6 @@
-import logging,os,time,multiprocessing
+import logging,os,time
 from pandayoda.common import StatefulService,exceptions
+from pandayoda.common import yoda_multiprocessing as mp
 logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
@@ -26,10 +27,10 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
       # these variables used to return new event ranges
       self.mgr                         = mpmgr
       self.new_eventranges             = self.mgr.dict()
-      self.eventranges_avail           = multiprocessing.Event()
+      self.eventranges_avail           = mp.Event()
 
       # set if there are no more event ranges coming from Harvester
-      self.no_more_eventranges_flag    = multiprocessing.Event()
+      self.no_more_eventranges_flag    = mp.Event()
 
       # set this to define which job definition will be used to request event ranges
       self.job_def                     = job_def

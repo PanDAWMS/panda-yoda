@@ -1,5 +1,4 @@
-from multiprocessing import Queue
-from Queue import Empty
+from pandayoda.common.yoda_multiprocessing import Queue
 import serializer
 # from Queue import Queue,Full,Empty
 

@@ -1,4 +1,4 @@
-from multiprocessing import Lock,Event,Value
+from pandayoda.common.yoda_multiprocessing import Event,Value
 import logging,ctypes
 logger = logging.getLogger(__name__)
 
@@ -27,43 +27,13 @@ class VariableWithLock:
       self.is_set_flag = Event()
 
    def set(self,value):
-      with self.value.get_lock():
-         self.value.value = value
-         self.is_set_flag.set()
+      self.value.get_lock().acquire()
+      self.value.value = value
+      self.is_set_flag.set()
+      self.value.get_lock().release()
 
    def get(self):
       return self.value.value
-
-   def wait(self,timeout=None):
-      self.is_set_flag.wait(timeout)
-
-   def clear(self):
-      self.is_set_flag.clear()
-
-
-class VariableWithLock2:
-   ''' this class represents a variable that when accessed, needs a
-      Lock object set '''
-   def __init__(self,initial=None):
-      # the variable of interest
-      self.variable = initial
-      # the lock
-      self.lock = Lock()
-      # variable set event
-      self.is_set_flag = Event()
-
-   def set(self,value):
-      self.lock.acquire()
-      self.variable = value
-      self.is_set_flag.set()
-      self.lock.release()
-
-   def get(self):
-      value = None
-      self.lock.acquire()
-      value = self.variable
-      self.lock.release()
-      return value
 
    def wait(self,timeout=None):
       self.is_set_flag.wait(timeout)

@@ -1,7 +1,8 @@
 import logging,time
-from multiprocessing import Process,Event
 from pandayoda.common import VariableWithLock
+from pandayoda.common.yoda_multiprocessing import Process,Event
 logger = logging.getLogger()
+
 
 
 class StatefulService(Process):

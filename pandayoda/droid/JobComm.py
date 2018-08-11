@@ -1,5 +1,5 @@
 import os,logging,Queue,shutil,time
-from multiprocessing import Event
+from pandayoda.common.yoda_multiprocessing import Event
 from pandayoda.common import MessageTypes,EventRangeList,StatefulService,serializer
 
 logger = logging.getLogger(__name__)
@@ -613,8 +613,14 @@ class athena_payloadcommunicator:
 
    def recv(self,timeout=0):
       # receive yampl message, timeout is in milliseconds
-      size, buf = self.socket.try_recv_raw(timeout * 1000)
-      if size == -1:
-         return ''
+      t1 = time.time()
+      size = -1
+      buf = ''
+      while time.time() < (t1 + timeout * 1000):
+          size, buf = self.socket.try_recv_raw()
+          if size == -1:
+              time.sleep(1)
+          else:
+              break
       return str(buf)
 

@@ -1,7 +1,7 @@
 import logging,time,os,importlib
-from multiprocessing import Process,Event
-import WorkManager,FileManager,shared_file_messenger
+import WorkManager,FileManager
 from pandayoda.common import MessageTypes,MPIService
+from pandayoda.common.yoda_multiprocessing import Process,Event
 logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]

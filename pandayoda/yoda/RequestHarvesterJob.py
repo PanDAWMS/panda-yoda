@@ -1,5 +1,6 @@
-import logging,os,time,multiprocessing
+import logging,os,time
 from pandayoda.common import StatefulService,exceptions,MessageTypes
+from pandayoda.common import yoda_multiprocessing as mp
 logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
@@ -35,10 +36,10 @@ class RequestHarvesterJob(StatefulService.StatefulService):
       # if in state REQUEST_COMPLETE, this variable holds the job retrieved
       self.mgr                = mpmgr
       self.new_jobs           = self.mgr.dict()
-      self.jobs_avail         = multiprocessing.Event()
+      self.jobs_avail         = mp.Event()
 
       # set if there are no more jobs coming from Harvester
-      self.no_more_jobs_flag  = multiprocessing.Event()
+      self.no_more_jobs_flag  = mp.Event()
 
 
 

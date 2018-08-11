@@ -1,5 +1,5 @@
-import os,logging,importlib,time,Queue
-from multiprocessing import Process,Event
+import os,logging,time,Queue
+from pandayoda.common.yoda_multiprocessing import Process,Event
 from pandayoda.common import MessageTypes
 logger = logging.getLogger(__name__)
 

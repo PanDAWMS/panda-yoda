@@ -1,8 +1,7 @@
 import os,logging,Queue
-from multiprocessing import Process,Event,Manager
+from pandayoda.common.yoda_multiprocessing import Process,Event,Manager
 import RequestHarvesterJob,RequestHarvesterEventRanges,PandaJobDict
 from pandayoda.common import MessageTypes,EventRangeList
-from pandayoda.common import MPIService
 logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
