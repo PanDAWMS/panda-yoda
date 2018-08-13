@@ -616,7 +616,7 @@ class athena_payloadcommunicator:
       t1 = time.time()
       size = -1
       buf = ''
-      while time.time() < (t1 + timeout * 1000):
+      while time.time() < (t1 + timeout):
           size, buf = self.socket.try_recv_raw()
           if size == -1:
               time.sleep(1)

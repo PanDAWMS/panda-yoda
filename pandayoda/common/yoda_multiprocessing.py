@@ -11,6 +11,7 @@ import multiprocessing
 
 
 if 'RUN_YODA_IN_ATHENA' in os.environ:
+   print('Running with custom multiprocessing module')
    from multiprocessing import synchronize
    # for the Event object, in 2.6 the Event.wait(timeout=None) function
    # always returns None
@@ -25,6 +26,7 @@ if 'RUN_YODA_IN_ATHENA' in os.environ:
          return self.is_set()
 
 else:
+   print('Running with standard multiprocessing module')
    Event = multiprocessing.Event
 
 # no changes to these so just pass through
