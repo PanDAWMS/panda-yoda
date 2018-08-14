@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+DATE=`date -u '+%d-%m-%Y %H:%M:%S'`
+NAME=`git config --global user.name`
+BRANCH=`git rev-parse --abbrev-ref HEAD`
+FILE=pandayoda/commit_timestamp.py
+echo timestamp = \"$DATE on $BRANCH \(by $NAME\)\" > $FILE
+git add $FILE 
+echo version = \"$(git describe --tags)"\ > version.py
+git add version.py
+exit 0
+
