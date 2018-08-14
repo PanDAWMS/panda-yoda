@@ -6,7 +6,8 @@ BRANCH=`git rev-parse --abbrev-ref HEAD`
 FILE=pandayoda/commit_timestamp.py
 echo timestamp = \"$DATE on $BRANCH \(by $NAME\)\" > $FILE
 git add $FILE 
-echo version = \"$(git describe --tags)"\ > version.py
-git add version.py
+FILE=pandayoda/version.py
+echo version = \"$(git describe --tags)\" > $FILE
+git add $FILE
 exit 0
 

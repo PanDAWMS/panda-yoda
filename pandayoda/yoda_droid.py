@@ -10,6 +10,7 @@ try:
    from pandayoda.droid import Droid
    from pandayoda.common import MPIService
    from pandayoda.common.yoda_multiprocessing import Queue,Manager
+   from pandayoda import commit_timestamp,version
    logger = logging.getLogger(__name__)
 except Exception,e:
    print('Exception received during import: %s' % str(e))
@@ -17,6 +18,10 @@ except Exception,e:
    exc_type, exc_value, exc_traceback = sys.exc_info()
    print(' '.join(line for line in traceback.format_exception(exc_type, exc_value,
                                           exc_traceback)))
+   
+   from pandayoda import commit_timestamp,version
+   print('yoda version: %s' % version.version)
+   print('git commit string: %s' % commit_timestamp.timestamp)
    from mpi4py import MPI
    MPI.COMM_WORLD.Abort()
    import sys
@@ -204,6 +209,8 @@ def main():
       os.chdir(working_path)
    
    # get MPI world info
+   logger.info('yoda droid version:          %s',version.version)
+   logger.info('git repo commit string:      %s',commit_timestamp.timestamp)
    logger.info('rank %10i of %10i',rank,nranks)
    logger.info('python version:              %s',sys.version)
    logger.info('working_path:                %s',working_path)
@@ -341,6 +348,8 @@ def get_config(config_filename):
 
 
 if __name__ == "__main__":
+   print('yoda version: %s' % version.version)
+   print('git commit string: %s' % commit_timestamp.timestamp)
    logging.basicConfig()
    try:
       main()
