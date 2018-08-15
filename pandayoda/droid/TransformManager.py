@@ -1,4 +1,4 @@
-import os,logging,subprocess,random,glob,time
+import os,logging,subprocess,glob,time,importlib,sys
 from pandayoda.common import VariableWithLock,MPIService,StatefulService
 logger = logging.getLogger(__name__)
 
@@ -62,10 +62,13 @@ class TransformManager(StatefulService.StatefulService):
       self.logs_to_stage         = []
 
       # set default use_clean_env
-      self.use_clean_env    = False
+      self.use_clean_env         = False
 
       # return code, set only after exit
       self.returncode            = VariableWithLock.VariableWithLock(0)
+
+      # default job mods
+      self.jobmods               = []
 
       # set state to initial
       self.set_state(TransformManager.CREATED)
@@ -153,26 +156,25 @@ class TransformManager(StatefulService.StatefulService):
       # set transformation command
       transformation = self.job_def['transformation']
       logger.debug('got transformation: %s',transformation)
-   
 
-      # replace input file with full path
-      input_files = self.job_def['inFiles'].split(',')
+      # add full path to input file since Harvester places
+      # them in worker directory and Yoda runs AthenaMP
+      # inside a subdirectory. Previously copied or linked
+      # the input files into the droid working directory.
+
+      # first extract input files
+      start_index = self.job_def['jobPars'].find('--inputEVNTFile=') + len('--inputEVNTFile=')
+      end_index   = self.job_def['jobPars'].find(' ',start_index)
+      # loop over and add path
+      input_files = self.job_def['jobPars'][start_index:end_index].split(',')
       updated_input_files = []
       for input_file in input_files:
          updated_input_files.append(os.path.join(self.yoda_working_path,input_file))
-      
-      # too long for jumbo jobs
-      # logger.debug('inFiles: %s',input_files)
-      # logger.debug('new files: %s',updated_input_files)
+      # place them back in jobPars
+      jobPars = self.job_def['jobPars'][:start_index] + ','.join(x for x in updated_input_files) + ' ' + self.job_def['jobPars'][end_index:]
 
-      start_index = self.job_def['jobPars'].find('--inputEVNTFile=') + len('--inputEVNTFile=')
-      end_index   = self.job_def['jobPars'].find(' ',start_index)
-      
-      file_index = random.randint(0,len(updated_input_files) - 1)
 
-      jobPars = self.job_def['jobPars'][:start_index] + updated_input_files[file_index] + ' ' + self.job_def['jobPars'][end_index:] + ' --fileValidation=FALSE'
-
-      # insert the Yampl AthenaMP setting
+      # insert the Yampl AthenaMP setting so Yoda can communicate with AthenaMP
       if "--preExec" not in jobPars:
          jobPars += " --preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % self.yampl_socket_name
       else:
@@ -180,15 +182,6 @@ class TransformManager(StatefulService.StatefulService):
             jobPars = jobPars.replace("import jobproperties as jps;", "import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\";" % self.yampl_socket_name)
          else:
             jobPars = jobPars.replace("--preExec ", "--preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % self.yampl_socket_name)
-      
-      if '--postExec' not in jobPars:
-         jobPars += " --postExec 'svcMgr.MessageSvc.defaultLimit = 9999999;' "
-      else:
-         jobPars = jobPars.replace('--postExec ','--postExec "svcMgr.MessageSvc.defaultLimit = 9999999;" ')
-
-      # these prints are too long with jumbo jobs
-      # logger.debug('jobPars: %s',self.job_def['jobPars'])
-      # logger.debug('new jobPars: %s',jobPars)
 
       # change working dir if need be
       working_dir = self.droid_working_path
@@ -220,10 +213,34 @@ class TransformManager(StatefulService.StatefulService):
       # else:
       #    raise Exception('specified template does not exist: %s',template_filename)
 
+   def apply_jobmods(self):
+      ''' apply job mods specified by the configuration settings '''
+
+      package_name = 'pandayoda.jobmod.'
+      for mod in self.jobmods:
+
+         module_name = package_name + mod
+         logger.info('importing jobmod: %s', module_name)
+         try:
+            local_mod = importlib.import_module(module_name)
+         except ImportError:
+            logger.exception('Failed to import jobmod: %s\n curret python path: %s',module_name,sys.path)
+            raise
+
+         try:
+            self.job_def = local_mod.apply_mod(self.job_def)
+         except Exception:
+            logger.exception('Failed to execute jobmod: %s',module_name)
+            raise
+
+
    def start_subprocess(self):
       ''' start the job subprocess, handling the command parsing and log file naming '''
       
       logger.debug('start JobSubProcess')
+
+      # run all jobmods on the job definition
+      self.apply_jobmods()
 
       # parse the job into a command
       script_name = self.create_job_run_script()
@@ -386,6 +403,15 @@ class TransformManager(StatefulService.StatefulService):
             logger.info('%s subprocess_stderr: %s',config_section,self.stderr_filename)
          else:
             raise Exception('must specify "subprocess_stderr" in "%s" section of config file' % config_section)
+
+
+         # read jobmods:
+         if 'jobmods' in self.config[config_section]:
+            self.jobmods = self.config[config_section]['jobmods']
+            self.jobmods = self.jobmods.split(',')
+            logger.info('%s jobmods: %s',config_section,self.jobmods)
+         else:
+            logger.warning('no "jobmods" in "%s" section of config file, using default %s',config_section,self.jobmods)
 
 
          # pipe the stdout/stderr from the Subprocess.Popen object to these files

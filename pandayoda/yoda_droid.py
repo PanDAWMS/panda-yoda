@@ -1,15 +1,21 @@
 #!/usr/bin/env python
 try:
    import argparse,logging,os,sys,datetime,time,socket
+   imptime = time.time()
    if sys.version_info >= (3, 0, 0):
       import configparser as ConfigParser
    else:
       import ConfigParser
 
+   # print('%06.2f import yoda' % (time.time() - imptime))
    from pandayoda.yoda import Yoda
+   # print('%06.2f import droid' % (time.time() - imptime))
    from pandayoda.droid import Droid
+   # print('%06.2f import MPIService' % (time.time() - imptime))
    from pandayoda.common import MPIService
+   # print('%06.2f import yoda_multiprocessing' % (time.time() - imptime))
    from pandayoda.common.yoda_multiprocessing import Queue,Manager
+   # print('%06.2f import commit_timestamp & version' % (time.time() - imptime))
    from pandayoda import commit_timestamp,version
    logger = logging.getLogger(__name__)
 except Exception,e:
@@ -31,7 +37,7 @@ config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.
 
 
 def main():
-
+   # print('%06.2f yoda_droid main' % (imptime - time.time()))
    # keep track of start time for wall-clock monitoring
    start_time = datetime.datetime.now()
    
@@ -348,8 +354,8 @@ def get_config(config_filename):
 
 
 if __name__ == "__main__":
-   print('yoda version: %s' % version.version)
-   print('git commit string: %s' % commit_timestamp.timestamp)
+   print('%06.2f yoda version: %s' % (imptime - time.time(),version.version))
+   print('%06.2f git commit string: %s' % (imptime - time.time(),commit_timestamp.timestamp))
    logging.basicConfig()
    try:
       main()

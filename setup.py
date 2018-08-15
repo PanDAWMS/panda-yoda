@@ -1,14 +1,14 @@
 
-# get release version
-verFile = open('version')
-release_version = verFile.read()
-verFile.close()
 
 from distutils.core import setup
+import subprocess
+
+desc = subprocess.check_output(['git','describe','--tags'])
+tag = desc.split('-')[0]
 
 setup(
    name="panda-yoda",
-   version=release_version,
+   version=tag,
    description=' PanDA Yoda Package',
    long_description="This package contains PanDA Yoda Components",
    license='GPL',
@@ -19,6 +19,7 @@ setup(
               'pandayoda/yoda',
               'pandayoda/droid',
               'pandayoda/common',
+              'pandayoda/jobmod',
               ],
    entry_points = {
            'console_scripts': ['yoda_droid=pandayoda.yoda_droid:main'],
