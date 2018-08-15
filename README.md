@@ -299,6 +299,11 @@ Otherwise, custom settings are described below:
 - `run_directory`: (experimental) if `run_elsewhere` is set, this is the directory in which `run_script` will be launched in the `subprocess.Popen`.
 - `run_elsewhere`: (experimental) boolean that if set, triggers the running of AthenaMP in a custom directory specified by `run_directory`.
 - `logs_to_stage`: (experimental) A comma separated list of globs (globs can include wildcards `*`) that specifies the files to copy from the `run_directory` to the yoda working directory for capture by Harvester which tarballs log files for PanDA upload.
+- `jobmods`: A comma separated list of modules that modify the panda job definition. These modules need to live in the `pandayoda/jobmod` directory of the repo. Current jobmods include:
+   - `no_file_validation`: This simply adds the command line option `--fileValidation=False` to your job to reduce runtime by skipping the file validation
+   - `remove_dbrelease`: This searches the command line arguments for the transformation and removes any `--DBRelease=` option.
+   - `shorten_input_evnt_file_list`: This searches the command line arguments and includes only one file in the `--inputEVNTFile=` command line argument. This is used for JumboJobs because the job definition includes EVERY input file on the command line and Athena will try to open them all if you include them there. Therefore, this removes all but the first file.
+   - `unlimited_athenamp_messages`: This adds python code to extend the allowed number of Athena messages that can be printed. This is helpful when debugging Athena.
 
 ## [MPIService]
 - `default_message_buffer_size`: controls the MPI Message size limits in mpi4py. Current recommended value is `10000000`.
