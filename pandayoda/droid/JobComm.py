@@ -427,6 +427,22 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
          # else:
          # logger.info('sleeping for %s',self.loop_timeout)
          # self.exit.wait(timeout=self.loop_timeout)
+
+      # send any remaining output files to Yoda before exitingn.
+      # don't want to hammer Yoda with lots of little messages for output files
+      # so aggregate output files for some time period then send as a group
+      if len(output_files) == 0:
+         
+         # send output file data to Yoda/FileManager
+         logger.info('sending %s output files to Yoda/FileManager',len(output_files))
+         mpi_message = {'type':MessageTypes.OUTPUT_FILE,
+                        'filelist':output_files,
+                        'destination_rank': 0
+                       }
+         self.queues['MPIService'].put(mpi_message)
+
+         # reset output file list
+         output_files = []
       
       self.set_state(self.EXITED)
 
