@@ -53,11 +53,11 @@ def main():
    oparser.add_argument('--error', dest='error', default=False, action='store_true', help="Set Logger to ERROR")
    oparser.add_argument('--warning', dest='warning', default=False, action='store_true', help="Set Logger to ERROR")
 
-   args = oparser.parse_args()
+   args, unknown_args = oparser.parse_known_args()
 
    # parse configuration file
    try:
-      config,default = get_config(args.yoda_config)
+      config,default = get_config(args.yoda_config,unknown_args)
 
       # loop timeout
       if config_section in config:
@@ -330,7 +330,7 @@ def wallclock_expiring(wall_clock_limit,start_time,wallclock_expiring_leadtime):
    return False
 
 
-def get_config(config_filename):
+def get_config(config_filename,unknown_args):
 
    config = {}
    default = {}
@@ -349,6 +349,27 @@ def get_config(config_filename):
             else:
                default[key] = value
    # logger.debug('after bcast %s',config)
+
+   # user can parse arguments on the command line that have the config name
+   # then the passed variable overrides that in the config file
+   for i in range(len(unknown_args)):
+      arg = unknown_args[i]
+      if arg.startswith('--'):
+         arg = arg[2:]
+         for section in config.keys():
+            seclist = config[section]
+
+            if arg in seclist.keys():
+               logger.info('overriding configuration file value %s:%s = %s', section, arg, unknown_args[i + 1])
+               config[section][arg] = unknown_args[i + 1]
+               del unknown_args[i]
+               del unknown_args[i + 1]
+               break
+
+   # make sure no args are left unused
+   if len(unknown_args) > 0:
+      raise Exception('unused arguments remain unparsed: %s' % unknown_args)
+   
 
    return config,default
 
