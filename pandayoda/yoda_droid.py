@@ -352,23 +352,26 @@ def get_config(config_filename,unknown_args):
 
    # user can parse arguments on the command line that have the config name
    # then the passed variable overrides that in the config file
-   for i in range(len(unknown_args)):
+   i = 0
+   while i < len(unknown_args):
       arg = unknown_args[i]
       if arg.startswith('--'):
          arg = arg[2:]
-         for section in config.keys():
-            seclist = config[section]
+         if i + 1 < len(unknown_args):
+            value = unknown_args[i + 1]
+            for section in config.keys():
+               seclist = config[section]
 
-            if arg in seclist.keys():
-               logger.info('overriding configuration file value %s:%s = %s', section, arg, unknown_args[i + 1])
-               config[section][arg] = unknown_args[i + 1]
-               del unknown_args[i]
-               del unknown_args[i + 1]
-               break
-
-   # make sure no args are left unused
-   if len(unknown_args) > 0:
-      raise Exception('unused arguments remain unparsed: %s' % unknown_args)
+               if arg in seclist.keys():
+                  print('overriding configuration file value %s:%s = %s' % (section, arg, value))
+                  config[section][arg] = value
+            i += 2  # increment past arg & value, to go to next arg
+         else:
+            print('no value to go with arg %s, reached end of unknown_args' % arg)
+            break
+      else:
+         raise Exception('found arg %s not starting with "--" on command line, configuration failed' % arg)
+   
    
 
    return config,default
