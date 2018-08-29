@@ -46,7 +46,7 @@ def main():
 
    # set yoda config file where most settings are placed
    oparser.add_argument('-c','--yoda-config', dest='yoda_config', help='The Yoda Config file is where most configuration information is set.',required=True)
-   oparser.add_argument('-w','--working-path', dest='working_path', help='The Directory in which to run yoda_droid',required=True)
+   oparser.add_argument('-w','--working-path', dest='working_path', help='The Directory in which to run yoda_droid',default='.')
    oparser.add_argument('-t','--wall-clock-limit',dest='wall_clock_limit', help='The wall clock time limit in minutes. If given, yoda will trigger all droid ranks to kill their subprocesses and exit. Then Yoda will perform log/output file cleanup.',default=-1,type=int)
    # control output level
    oparser.add_argument('--debug', dest='debug', default=False, action='store_true', help="Set Logger to DEBUG")
@@ -208,7 +208,7 @@ def main():
 
       
    # dereference any links on the working path
-   working_path = os.path.normpath(args.working_path)
+   working_path = os.path.abspath(args.working_path)
 
    # make we are in the working path
    if os.getcwd() != working_path:
