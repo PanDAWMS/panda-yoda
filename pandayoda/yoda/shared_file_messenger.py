@@ -1,6 +1,6 @@
 import os,json,logging,ConfigParser,time,glob,sys
 from pandayoda.common.yoda_multiprocessing import Lock,Manager,Event
-from pandayoda.common import exceptions,serializer,MPIService
+from pandayoda.common import exceptions,serializer
 logger = logging.getLogger(__name__)
 
 '''
@@ -170,7 +170,7 @@ def setup(config):
             harvester_config_file = config['shared_file_messenger']['harvester_config_file']
             logger.info('harvester_config_file: %s',harvester_config_file)
          else:
-            raise Exception('Rank %05i: must specify "harvester_config_file" in shared_file_messenger config section' % MPIService.mpirank)
+            raise Exception('must specify "harvester_config_file" in shared_file_messenger config section')
 
          # get harvester config filename
          if 'loglevel' in config['shared_file_messenger']:
@@ -178,7 +178,7 @@ def setup(config):
             logger.info('loglevel: %s',loglevel)
             logger.setLevel(logging.getLevelName(loglevel))
       else:
-         raise Exception('Rank %05i: must include "shared_file_messenger" section in config file' % MPIService.mpirank)
+         raise Exception('must include "shared_file_messenger" section in config file')
 
       # parse harvester configuration file
       try:
@@ -187,7 +187,7 @@ def setup(config):
             for key in har_config[harConfSect].keys():
                sfm_har_config[key] = har_config[harConfSect][key]
          else:
-            raise Exception('Rank %05i: harvester config file has no "payload_interaction" section' % MPIService.mpirank)
+            raise Exception('harvester config file has no "payload_interaction" section')
       except Exception:
          sfm_har_config_lock.release()
          logger.exception('error parsing harvester config')
@@ -195,7 +195,7 @@ def setup(config):
 
       if len(har_config) == 0:
          sfm_har_config_lock.release()
-         raise Exception('Rank %05i: Failed to parse config file: %s' % (MPIService.mpirank,harvester_config_file))
+         raise Exception('Failed to parse config file: %s' % (harvester_config_file))
 
       sfm_har_config_done.set()
    else:
@@ -446,10 +446,10 @@ def stage_out_file(output_type,output_path,eventRangeID,eventStatus,pandaID,chks
    sfm_har_config_done.wait()
 
    if output_type not in ['output','es_output','log']:
-      raise Exception('Rank %05i: incorrect type provided: %s' % (MPIService.rank,output_type))
+      raise Exception('incorrect type provided: %s' % (output_type))
 
    if not os.path.exists(output_path):
-      raise Exception('Rank %05i: output file not found: %s' % (MPIService.rank,output_path))
+      raise Exception('output file not found: %s' % (output_path))
 
    # make sure pandaID is a string
    pandaID = str(pandaID)
@@ -517,7 +517,7 @@ def stage_out_files(file_list,output_type):
    sfm_har_config_done.wait()
 
    if output_type not in ['output','es_output','log']:
-      raise Exception('Rank %05i: incorrect type provided: %s' % (MPIService.rank,output_type))
+      raise Exception('incorrect type provided: %s' % (output_type))
 
 
    # load name of eventStatusDumpJsonFile file

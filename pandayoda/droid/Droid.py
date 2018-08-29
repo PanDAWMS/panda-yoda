@@ -1,5 +1,5 @@
 import logging,os,time,socket,platform,Queue
-from pandayoda.common import MessageTypes,MPIService,StatefulService
+from pandayoda.common import MessageTypes,StatefulService
 from pandayoda.droid import TransformManager,JobComm
 from pandayoda.common import yoda_multiprocessing as mp
 logger = logging.getLogger(__name__)
@@ -156,6 +156,7 @@ class Droid(StatefulService.StatefulService):
             # launch TransformManager to run job
             self.subthreads['transform'] = TransformManager.TransformManager(new_job_msg['job'],
                                                                              self.config,
+                                                                             self.rank,
                                                                              self.queues,
                                                                              droid_working_path,
                                                                              os.getcwd(),
@@ -281,7 +282,7 @@ class Droid(StatefulService.StatefulService):
          # read droid yampl_socket_name:
          if 'yampl_socket_name' in self.config[config_section]:
             self.yampl_socket_name = self.config[config_section]['yampl_socket_name']
-            self.yampl_socket_name = self.yampl_socket_name.format(rank=MPIService.mpirank.get())
+            self.yampl_socket_name = self.yampl_socket_name.format(rank=self.rank)
             logger.info('%s yampl_socket_name: %s',config_section,self.yampl_socket_name)
          else:
             self.yampl_socket_name = 'EventServiceDroid_r{rank}'.format(rank=self.rank)
@@ -291,7 +292,7 @@ class Droid(StatefulService.StatefulService):
          # read droid working_path:
          if 'working_path' in self.config[config_section]:
             self.working_path = self.config[config_section]['working_path']
-            self.working_path = self.working_path.format(rank=MPIService.mpirank.get())
+            self.working_path = self.working_path.format(rank=self.rank)
             logger.info('%s working_path: %s',config_section,self.working_path)
          else:
             self.working_path = 'droid_rank_{rank}'.format(rank=self.rank)

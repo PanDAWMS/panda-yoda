@@ -1,6 +1,6 @@
 import logging,time,os,importlib
 import WorkManager,FileManager
-from pandayoda.common import MessageTypes,MPIService
+from pandayoda.common import MessageTypes
 from pandayoda.common.yoda_multiprocessing import Process,Event
 logger = logging.getLogger(__name__)
 
@@ -8,7 +8,7 @@ config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.
 
 
 class Yoda(Process):
-   def __init__(self,queues,config):
+   def __init__(self,queues,config,rank,worldsize):
       ''' config: configuration of Yoda
       '''
       # call Thread constructor
@@ -16,6 +16,12 @@ class Yoda(Process):
 
       # message queues
       self.queues             = queues
+
+      # rank number
+      self.rank               = rank
+
+      # world size
+      self.worldsize          = worldsize
 
       # config settings
       self.config             = config
@@ -81,7 +87,7 @@ class Yoda(Process):
          self.process_incoming_messages()
 
          # check if all droids have exited
-         if len(self.exited_droids) >= (MPIService.mpiworldsize.get() - 1):
+         if len(self.exited_droids) >= (self.worldsize - 1):
             logger.info('all droids have exited, exiting yoda')
             self.stop()
             break
@@ -113,7 +119,7 @@ class Yoda(Process):
       
       # send the exit signal to all droid ranks
       logger.info('sending exit signal to droid ranks')
-      for ranknum in range(1,MPIService.mpiworldsize.get()):
+      for ranknum in range(1,self.worldsize):
          if ranknum not in self.exited_droids:
             if self.wallclock_expired.is_set():
                self.queues['MPIService'].put({'type':MessageTypes.WALLCLOCK_EXPIRING,'destination_rank':ranknum})

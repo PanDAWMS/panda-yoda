@@ -1,5 +1,5 @@
 import os,logging,subprocess,glob,time,importlib,sys
-from pandayoda.common import VariableWithLock,MPIService,StatefulService
+from pandayoda.common import VariableWithLock,StatefulService
 logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
@@ -18,6 +18,7 @@ class TransformManager(StatefulService.StatefulService):
 
    def __init__(self,job_def,
                      config,
+                     rank,
                      queues,
                      droid_working_path,
                      yoda_working_path,
@@ -33,6 +34,9 @@ class TransformManager(StatefulService.StatefulService):
 
       # yoda config file
       self.config                = config
+
+      # rank number
+      self.rank                  = rank
 
       # job definition from panda
       self.job_def               = job_def
@@ -415,14 +419,14 @@ class TransformManager(StatefulService.StatefulService):
 
 
          # pipe the stdout/stderr from the Subprocess.Popen object to these files
-         self.stdout_filename    = self.stdout_filename.format(rank=MPIService.mpirank.get(),PandaID=self.job_def['PandaID'])
+         self.stdout_filename    = self.stdout_filename.format(rank=self.rank,PandaID=self.job_def['PandaID'])
          # add working path to stdout filename if it is not already
          if not self.stdout_filename.startswith(self.droid_working_path):
             self.stdout_filename = os.path.join(self.droid_working_path,self.stdout_filename)
          logger.info('%s subprocess_stdout: %s',config_section,self.stdout_filename)
 
          # pipe Popen error to this file
-         self.stderr_filename    = self.stderr_filename.format(rank=MPIService.mpirank.get(),PandaID=self.job_def['PandaID'])
+         self.stderr_filename    = self.stderr_filename.format(rank=self.rank,PandaID=self.job_def['PandaID'])
          # add working path to stderr filename if it is not already
          if not self.stderr_filename.startswith(self.droid_working_path):
             self.stderr_filename = os.path.join(self.droid_working_path,self.stderr_filename)

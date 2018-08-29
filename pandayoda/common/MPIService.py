@@ -1,14 +1,11 @@
 import logging,time,sys,copy
-from pandayoda.common import VariableWithLock,MessageTypes
+from pandayoda.common import MessageTypes
+from pandayoda.common import VariableWithLock
 from Queue import Empty
-from pandayoda.common.StatefulService import StatefulService,Event
+from pandayoda.common import StatefulService
 
 
-mpirank = VariableWithLock.VariableWithLock(-1)
-mpiworldsize = VariableWithLock.VariableWithLock(-1)
-
-
-class MPIService(StatefulService):
+class MPIService(StatefulService.StatefulService):
    ''' this thread class should be used for running MPI operations
        within a single MPI rank '''
 
@@ -41,15 +38,14 @@ class MPIService(StatefulService):
       # a list of queues to send out messages to other processes
       self.queue_list = queue_list
       self.queue_map  = queue_map
-      self.queue_map_set = Event()
+      self.queue_map_set = StatefulService.Event()
+
+      self.rank = VariableWithLock.VariableWithLock(-1)
+      self.worldsize = VariableWithLock.VariableWithLock(-1)
 
       self.loglevel = loglevel
       self.debug_message_char_length = debug_message_char_length
       self.default_message_buffer_size = default_message_buffer_size
-
-      self.rank = VariableWithLock.VariableWithLock(-1)
-      self.nranks = VariableWithLock.VariableWithLock(-1)
-
 
       self.set_state(self.CREATED)
 
@@ -83,26 +79,32 @@ class MPIService(StatefulService):
 
       try:
          self.subrun()
-      except Exception:
-         self.logger.exception('failed with uncaught exception')
+      except Exception as e:
+         import traceback
+         traceback.print_exc()
          from mpi4py import MPI
+         print('Rank %05d: uncaught exception in MPIService. Aborting all ranks: %s' % (MPI.COMM_WORLD.Get_rank(),str(e)))
          MPI.COMM_WORLD.Abort()
-         self.logger.info('exiting')
+         import sys
+         sys.exit(-1)
 
 
    def subrun(self):
       ''' this function is the business logic, but wrapped in exception '''
-
-
+      
       # this would be the first import of MPI
       # resutling in MPI_INIT being called
       from mpi4py import MPI
       self.MPI = MPI
 
+      string = 'from MPI: %s of %s\n' % (MPI.COMM_WORLD.Get_rank(),MPI.COMM_WORLD.Get_size())
+      string += 'from mpirank: %s of %s\n' % (self.rank.get(),self.worldsize.get())
+
       self.rank.set(MPI.COMM_WORLD.Get_rank())
-      mpirank.set(MPI.COMM_WORLD.Get_rank())
-      self.nranks.set(MPI.COMM_WORLD.Get_size())
-      mpiworldsize.set(MPI.COMM_WORLD.Get_size())
+      self.worldsize.set(MPI.COMM_WORLD.Get_size())
+      
+      string += ('from mpirank: %s of %s\n' % (self.rank.get(),self.worldsize.get()))
+      string += ('from MPI: %s of %s\n' % (MPI.COMM_WORLD.Get_rank(),MPI.COMM_WORLD.Get_size()))
 
       self.queue_map_set.wait()
       self.logger = logging.getLogger(__name__)
@@ -115,7 +117,11 @@ class MPIService(StatefulService):
                           format=logging_format,
                           datefmt=logging_datefmt,
                           filename=logging_filename)
+
+      self.logger.info('string = %s',string)
+
       
+      self.logger.info('setup rank %s of %s',self.rank.get(),self.worldsize.get())
       self.logger.info('queue_map:                   %s',self.queue_map)
 
       # build queues object:
@@ -125,7 +131,7 @@ class MPIService(StatefulService):
 
       # set forwarding_map
       self.forwarding_map = {}
-      if MPI.COMM_WORLD.Get_rank() == 0:
+      if self.rank.get() == 0:
          self.forwarding_map = MessageTypes.forwarding_map[0]
       else:
          self.forwarding_map = MessageTypes.forwarding_map[1]
@@ -151,6 +157,10 @@ class MPIService(StatefulService):
       # Only perform blocking receives when no message was
       # received during the previous loop
       no_message_on_last_loop = False
+
+
+      self.logger.info('from mpirank: %s of %s' % (self.rank.get(),self.worldsize.get()))
+      self.logger.info('from MPI: %s of %s' % (MPI.COMM_WORLD.Get_rank(),MPI.COMM_WORLD.Get_size()))
       
       while not self.exit.is_set():
          self.logger.debug('starting loop, queue empty = %s, state = %s',

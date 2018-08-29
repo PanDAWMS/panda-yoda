@@ -124,8 +124,8 @@ def main():
    # get rank and world size
    mpiService.rank.wait()
    rank = mpiService.rank.get()
-   mpiService.nranks.wait()
-   nranks = mpiService.nranks.get()
+   mpiService.worldsize.wait()
+   nranks = mpiService.worldsize.get()
 
    # set the queue map
    if rank == 0:
@@ -247,7 +247,9 @@ def main():
    if rank == 0:
       try:
          yoda = Yoda.Yoda(queues,
-                          config)
+                          config,
+                          rank,
+                          nranks)
          yoda.start()
       except Exception:
          logger.exception('failed to start Yoda.')
@@ -378,12 +380,13 @@ def get_config(config_filename,unknown_args):
 
 
 if __name__ == "__main__":
-   print('%06.2f yoda version: %s' % (imptime - time.time(),version.version))
-   print('%06.2f git commit string: %s' % (imptime - time.time(),commit_timestamp.timestamp))
+   print('%06.2f yoda version: %s' % (time.time() - imptime,version.version))
+   print('%06.2f git commit string: %s' % (time.time() - imptime,commit_timestamp.timestamp))
    logging.basicConfig()
    try:
       main()
    except Exception as e:
+      print('received exception')
       import traceback
       traceback.print_exc()
       from mpi4py import MPI
