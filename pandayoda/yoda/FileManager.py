@@ -90,6 +90,9 @@ class FileManager(Process):
             else:
                logger.error('message type not recognized')
 
+      if local_filelist:
+          logger.info('staging %s files to Harvester',len(local_filelist))
+          self.harvester_messenger.stage_out_files(local_filelist, self.output_file_type)
 
       # exit
       logger.info('FileManager exiting')
