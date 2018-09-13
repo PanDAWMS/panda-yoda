@@ -431,7 +431,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       # send any remaining output files to Yoda before exitingn.
       # don't want to hammer Yoda with lots of little messages for output files
       # so aggregate output files for some time period then send as a group
-      if len(output_files) == 0:
+      if len(output_files) > 0:
          
          # send output file data to Yoda/FileManager
          logger.info('sending %s output files to Yoda/FileManager',len(output_files))
