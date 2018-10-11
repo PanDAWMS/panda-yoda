@@ -97,7 +97,7 @@ You should be able to run the `yoda_droid` command from the command line at this
 
 In the ideal case yoda is updated via this command while inside the virtual environment:
 ```bash
-pip install --update git+git://github.com/PanDAWMS/panda-yoda
+pip install --upgrade git+git://github.com/PanDAWMS/panda-yoda
 ```
 
 In my experience with these pip installs from github, this method can fail. If it does you must do the following to update or uninstall:
