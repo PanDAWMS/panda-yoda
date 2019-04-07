@@ -1,4 +1,4 @@
-import os,logging,Queue,shutil,time
+import os,os.path,logging,Queue,shutil,time
 from pandayoda.common.yoda_multiprocessing import Event
 from pandayoda.common import MessageTypes,EventRangeList,StatefulService,serializer
 
@@ -55,12 +55,13 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
              MESSAGE_RECEIVED,SEND_EVENT_RANGE,SEND_OUTPUT_FILE,EXITED]
 
    
-   def __init__(self,config,queues,droid_working_path,yampl_socket_name):
+   def __init__(self,config,queues,droid_working_path,droid_output_path,yampl_socket_name):
       '''
         queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send
                      messages to other Droid components about errors, etc.
         config: the ConfigParser handle for yoda
         droid_working_path: The location of the Droid working area
+        droid_output_path: The location of output files from the Payload
         '''
       # call base class init function
       super(JobComm,self).__init__()
@@ -71,8 +72,11 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       # configuration of Yoda
       self.config                      = config
 
-      # working path for droid, where output files will be placed if state_outputs is set to True
+      # working path for droid
       self.working_path                = droid_working_path
+
+      # where output files will be placed if stage_outputs is set to True
+      self.staging_path                 = droid_output_path
 
       # socket name to pass to transform for use when communicating via yampl
       self.yampl_socket_name           = yampl_socket_name
@@ -83,6 +87,7 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
       # set some defaults
       self.debug_message_char_length   = 100
       self.stage_outputs               = False
+
 
       # set initial state
       self.set_state(self.WAITING_FOR_JOB)
@@ -370,8 +375,8 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
                # if staging, stage and change output filename
                if self.stage_outputs:
-                  # copy file to staging_path
-                  shutil.copy(outputfilename,self.staging_path)
+                  # move file to staging_path
+                  shutil.move(outputfilename,self.staging_path)
                   # change output filename
                   outputfilename = os.path.join(self.staging_path,os.path.basename(outputfilename))
 
@@ -529,8 +534,8 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
 
          # if staging, stage and change output filename
          if self.stage_outputs:
-            # copy file to staging_path
-            shutil.copy(outputfilename,self.staging_path)
+            # move file to staging_path
+            shutil.move(outputfilename,self.staging_path)
             # change output filename
             outputfilename = os.path.join(self.staging_path,os.path.basename(outputfilename))
 

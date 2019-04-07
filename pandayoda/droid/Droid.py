@@ -84,12 +84,28 @@ class Droid(StatefulService.StatefulService):
          logger.exception('exception raised while trying to mkdirs %s',droid_working_path)
          raise
 
+      # create custom droid output directory (it is a subdirectory of droid working dir)
+      droid_output_path = droid_working_path
+      if self.output_subdir is not None:
+         droid_output_path = os.path.join(self.working_path,self.output_subdir)
+         try:
+            os.makedirs(droid_output_path,0775)
+         except OSError,e:
+            if 'File exists' in str(e):
+               pass
+            else:
+               logger.exception('exception raised while trying to mkdirs %s',droid_output_path)
+               raise
+         except Exception,e:
+            logger.exception('exception raised while trying to mkdirs %s',droid_output_path)
+            raise
+
       
       # a dictionary of subthreads
       self.subthreads = {}
       
       # create job comm thread
-      self.subthreads['JobComm']      = JobComm.JobComm(self.config,self.queues,droid_working_path,self.yampl_socket_name)
+      self.subthreads['JobComm']      = JobComm.JobComm(self.config,self.queues,droid_working_path,droid_output_path,self.yampl_socket_name)
       self.subthreads['JobComm'].start()
 
       # begin in the REQUEST_JOB state
@@ -297,6 +313,11 @@ class Droid(StatefulService.StatefulService):
          else:
             self.working_path = 'droid_rank_{rank}'.format(rank=self.rank)
             logger.warning('no "working_path" in "%s" section of config file, keeping default %s',config_section,self.working_path)
+         
+         # read droid output subdirectory 
+         self.output_subdir = None
+         if 'output_subdir' in self.config[config_section]:
+            self.output_subdir = self.config[config_section]['output_subdir']
 
       else:
          raise Exception('no %s section in the configuration' % config_section)
