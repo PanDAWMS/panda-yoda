@@ -376,9 +376,11 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
                # if staging, stage and change output filename
                if self.stage_outputs:
                   # move file to staging_path
+                  logger.debug('shutil.move(%s,%s)',outputfilename,self.staging_path)
                   shutil.move(outputfilename,self.staging_path)
                   # change output filename
                   outputfilename = os.path.join(self.staging_path,os.path.basename(outputfilename))
+                  logger.info('outputfilename - %s',outputfilename)
 
                # build the data for Harvester output file
                output_file_data = {'type':MessageTypes.OUTPUT_FILE,
@@ -535,9 +537,11 @@ The event range format is json and is this: [{"eventRangeID": "8848710-300531650
          # if staging, stage and change output filename
          if self.stage_outputs:
             # move file to staging_path
+            logger.debug('shutil.move(%s,%s)',outputfilename,self.staging_path)
             shutil.move(outputfilename,self.staging_path)
             # change output filename
             outputfilename = os.path.join(self.staging_path,os.path.basename(outputfilename))
+            logger.info('outputfilename - %s',outputfilename)
 
          # build the data for Harvester output file
          output_file_data = {'type':MessageTypes.OUTPUT_FILE,

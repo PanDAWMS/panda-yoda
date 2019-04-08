@@ -73,6 +73,7 @@ class Droid(StatefulService.StatefulService):
       # create custom droid working directory
       droid_working_path = os.path.join(os.getcwd(),self.working_path)
       try:
+         logger.info('Droid make working directory: %s',droid_working_path)
          os.makedirs(droid_working_path,0775)
       except OSError,e:
          if 'File exists' in str(e):
@@ -87,8 +88,9 @@ class Droid(StatefulService.StatefulService):
       # create custom droid output directory (it is a subdirectory of droid working dir)
       droid_output_path = droid_working_path
       if self.output_subdir is not None:
-         droid_output_path = os.path.join(self.working_path,self.output_subdir)
+         droid_output_path = os.path.join(droid_working_path,self.output_subdir)
          try:
+            logger.info('Droid make output directory: %s',droid_output_path)
             os.makedirs(droid_output_path,0775)
          except OSError,e:
             if 'File exists' in str(e):
