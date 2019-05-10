@@ -27,7 +27,7 @@ setup(
    data_files=[
       ('etc/panda', ['pandayoda/yoda_template.cfg']),
       ('templates', ['templates/ThetaSubmitTF.sh', 'templates/CoriHaswellSubmitTF.sh']),
-      ],
+   ],
    classifiers=[
       'Development Status :: 3 - Alpha',
       'Environment :: Console',
