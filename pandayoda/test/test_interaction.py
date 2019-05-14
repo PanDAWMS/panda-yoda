@@ -19,4 +19,3 @@ else:
     res = snd.sendRequest('dummy',{1:2,3:4,'rank':mpirank})
     print res
     print mpirank,"done"
-    
