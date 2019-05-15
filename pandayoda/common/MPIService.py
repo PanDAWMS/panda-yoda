@@ -7,7 +7,10 @@
 # Authors:
 # - ..
 
-import logging,time,sys,copy
+import logging
+import time
+import sys
+import copy
 from pandayoda.common import MessageTypes
 from pandayoda.common import VariableWithLock
 from Queue import Empty
@@ -30,12 +33,9 @@ class MPIService(StatefulService.StatefulService):
 
     EXITED = 'EXITED'
 
-    STATES = [CREATED,INITILIZED,BALANCED_MODE,MPI_BLOCKING_MODE,QUEUE_BLOCKING_MODE,EXITED]
+    STATES = [CREATED, INITILIZED, BALANCED_MODE, MPI_BLOCKING_MODE, QUEUE_BLOCKING_MODE, EXITED]
 
-
-
-
-    def __init__(self,queue_list,queue_map,
+    def __init__(self, queue_list, queue_map,
                  loglevel = 'INFO',
                  debug_message_char_length = 200,
                  default_message_buffer_size = 10000000,
@@ -84,7 +84,7 @@ class MPIService(StatefulService.StatefulService):
 
     # this runs when 'instance.start()' is called
     def run(self):
-        ''' this is the function called when the user runs instance.start() '''
+        """ this is the function called when the user runs instance.start() """
 
         try:
             self.subrun()
@@ -92,28 +92,27 @@ class MPIService(StatefulService.StatefulService):
             import traceback
             traceback.print_exc()
             from mpi4py import MPI
-            print('Rank %05d: uncaught exception in MPIService. Aborting all ranks: %s' % (MPI.COMM_WORLD.Get_rank(),str(e)))
+            print('Rank %05d: uncaught exception in MPIService. Aborting all ranks: %s' % (MPI.COMM_WORLD.Get_rank(), e))
             MPI.COMM_WORLD.Abort()
             import sys
             sys.exit(-1)
 
-
     def subrun(self):
-        ''' this function is the business logic, but wrapped in exception '''
+        """ this function is the business logic, but wrapped in exception """
 
         # this would be the first import of MPI
         # resutling in MPI_INIT being called
         from mpi4py import MPI
         self.MPI = MPI
 
-        string = 'from MPI: %s of %s\n' % (MPI.COMM_WORLD.Get_rank(),MPI.COMM_WORLD.Get_size())
-        string += 'from mpirank: %s of %s\n' % (self.rank.get(),self.worldsize.get())
+        string = 'from MPI: %s of %s\n' % (MPI.COMM_WORLD.Get_rank(), MPI.COMM_WORLD.Get_size())
+        string += 'from mpirank: %s of %s\n' % (self.rank.get(), self.worldsize.get())
 
         self.rank.set(MPI.COMM_WORLD.Get_rank())
         self.worldsize.set(MPI.COMM_WORLD.Get_size())
 
-        string += ('from mpirank: %s of %s\n' % (self.rank.get(),self.worldsize.get()))
-        string += ('from MPI: %s of %s\n' % (MPI.COMM_WORLD.Get_rank(),MPI.COMM_WORLD.Get_size()))
+        string += ('from mpirank: %s of %s\n' % (self.rank.get(), self.worldsize.get()))
+        string += ('from MPI: %s of %s\n' % (MPI.COMM_WORLD.Get_rank(), MPI.COMM_WORLD.Get_size()))
 
         self.queue_map_set.wait()
         self.logger = logging.getLogger(__name__)
@@ -130,8 +129,8 @@ class MPIService(StatefulService.StatefulService):
         self.logger.info('string = %s',string)
 
 
-        self.logger.info('setup rank %s of %s',self.rank.get(),self.worldsize.get())
-        self.logger.info('queue_map:                   %s',self.queue_map)
+        self.logger.info('setup rank %s of %s',self.rank.get(), self.worldsize.get())
+        self.logger.info('queue_map:                   %s', self.queue_map)
 
         # build queues object:
         self.queues = {}
@@ -145,17 +144,15 @@ class MPIService(StatefulService.StatefulService):
         else:
             self.forwarding_map = MessageTypes.forwarding_map[1]
 
-
         # set logging level here
         self.logger.setLevel(self.loglevel)
-        self.logger.debug('file:                       %s',__file__)
-        self.logger.info('loglevel:                    %s',self.loglevel)
-        self.logger.info('debug_message_char_length:   %s',self.debug_message_char_length)
-        self.logger.info('default_message_buffer_size: %s',self.default_message_buffer_size)
-        self.logger.info('loop_timeout:                %s',self.loop_timeout)
+        self.logger.debug('file:                       %s', __file__)
+        self.logger.info('loglevel:                    %s', self.loglevel)
+        self.logger.info('debug_message_char_length:   %s', self.debug_message_char_length)
+        self.logger.info('default_message_buffer_size: %s', self.default_message_buffer_size)
+        self.logger.info('loop_timeout:                %s', self.loop_timeout)
 
         self.receiveRequest = None
-
 
         self.send_requests = []
 
@@ -166,7 +163,6 @@ class MPIService(StatefulService.StatefulService):
         # Only perform blocking receives when no message was
         # received during the previous loop
         no_message_on_last_loop = False
-
 
         self.logger.info('from mpirank: %s of %s' % (self.rank.get(),self.worldsize.get()))
         self.logger.info('from MPI: %s of %s' % (MPI.COMM_WORLD.Get_rank(),MPI.COMM_WORLD.Get_size()))
@@ -235,7 +231,6 @@ class MPIService(StatefulService.StatefulService):
                 if 'tag' in qmsg:
                     tag = qmsg['tag']
 
-
                 # send message
                 msgbuff = copy.deepcopy(qmsg)
                 self.logger.info('sending msg of size %s bytes and type %s with destination %s',sys.getsizeof(msgbuff),msgbuff['type'],destination_rank)
@@ -273,17 +268,17 @@ class MPIService(StatefulService.StatefulService):
         self.MPI.COMM_WORLD.Barrier()
         self.logger.info('exiting')
 
-    def receive_message(self,block=False,timeout=None):
+    def receive_message(self, block=False, timeout=None):
         # there should always be a request waiting for this rank to receive data
         self.logger.debug('receive_message: entering function')
         if self.receiveRequest is None:
             self.logger.debug('receive_message: creating request')
-            self.receiveRequest = self.MPI.COMM_WORLD.irecv(self.default_message_buffer_size,self.MPI.ANY_SOURCE)
+            self.receiveRequest = self.MPI.COMM_WORLD.irecv(self.default_message_buffer_size, self.MPI.ANY_SOURCE)
         # check status of current request
         if self.receiveRequest is not None:
             self.logger.debug('receive_message: checking request state')
             starttime = time.time()
-            self.logger.debug('receive_message: enter block loop, block = %s, timeout = %s',block,timeout)
+            self.logger.debug('receive_message: enter block loop, block = %s, timeout = %s', block, timeout)
             while True:
                 # self.logger.debug('check for MPI message')
                 status = self.MPI.Status()
@@ -312,8 +307,7 @@ class MPIService(StatefulService.StatefulService):
         # no message received return nothing
         return None
 
-
-    def forward_message(self,message):
+    def forward_message(self, message):
 
         if message['type'] in self.forwarding_map:
             for thread_name in self.forwarding_map[message['type']]:
@@ -365,5 +359,3 @@ class MPIService(StatefulService.StatefulService):
 
 # mpiService = MPIService()
 # mpiService.start()
-
-

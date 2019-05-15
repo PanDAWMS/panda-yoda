@@ -9,10 +9,14 @@
 
 
 #!/usr/bin/env python
-import os,sys,time,logging,multiprocessing
-logger = logging.getLogger(__name__)
+import os
+import time
+import logging
+import multiprocessing
 
-from pandayoda.common import MessageTypes,serializer
+from pandayoda.common import serializer
+
+logger = logging.getLogger(__name__)
 
 try:
     import yampl
@@ -21,11 +25,11 @@ except:
     raise
 
 ATHENA_READY_FOR_EVENTS = 'Ready for events'
-NO_MORE_EVENTS          = 'No more events'
+NO_MORE_EVENTS = 'No more events'
 
 class athena_communicator:
-    ''' small class to handle yampl communication exception handling '''
-    def __init__(self,socketname='EventService_EventRanges',context='local'):
+    """ small class to handle yampl communication exception handling """
+    def __init__(self, socketname='EventService_EventRanges', context='local'):
 
         # create server socket for yampl
         try:
@@ -34,11 +38,11 @@ class athena_communicator:
             logger.exception('failed to create yampl client socket')
             raise
 
-    def send(self,message):
+    def send(self, message):
         # send message using yampl
         try:
             self.socket.send_raw(message)
-        except:
+        except Exception:
             logger.exception("Failed to send yampl message: %s",message)
             raise
 
@@ -54,7 +58,6 @@ class athena_communicator:
         if size == -1:
             return ''
         return str(buf)
-
 
 
 def athenamp_worker():
@@ -77,7 +80,7 @@ def athenamp_worker():
         if msg.startswith('['):
             try:
                 l = serializer.deserialize(msg)
-            except:
+            except Exception:
                 logger.error('failed to deserialize msg')
                 continue
 
@@ -87,17 +90,15 @@ def athenamp_worker():
             # return file info
             # "/build1/tsulaia/20.3.7.5/run-es/athenaMP-workers-AtlasG4Tf-sim/worker_1/myHITS.pool.root_000.Range-6,ID:Range-6,CPU:1,WALL:1"
 
-            outputfilename = os.path.join(os.getcwd(),'TEST'+l['eventRangeID']+'.ROOT')
-            msg = outputfilename +',ID:'+l['eventRangeID']+',CPU:1,WALL:1'
-            logger.info('sending output file: %s',msg)
-            com.send(msg)
+            outputfilename = os.path.join(os.getcwd(), 'TEST' + l['eventRangeID'] + '.ROOT')
+            msg = outputfilename + ',ID:' + l['eventRangeID'] + ',CPU:1,WALL:1'
+            logger.info('sending output file: %s', msg)
+            comm.send(msg)
 
         elif NO_MORE_EVENTS in msg:
             break
 
     logger.info('worker exiting')
-
-
 
 
 def athenamp():
@@ -115,10 +116,6 @@ def athenamp():
         p.join()
 
     logger.info('exiting')
-
-
-
-
 
 
 # testing this thread
@@ -260,6 +257,3 @@ if __name__ == '__main__':
       }
    ]
 '''
-
-
-

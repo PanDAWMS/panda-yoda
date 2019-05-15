@@ -69,7 +69,4 @@ forwarding_map = [
         DROID_EXIT: ['Droid'],
         NO_MORE_EVENT_RANGES: ['JobComm'],
     }
-
 ]
-
-

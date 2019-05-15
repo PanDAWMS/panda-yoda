@@ -17,7 +17,7 @@ class RequestedMoreRangesThanAvailable(Exception): pass
 class EventRangeIdNotFound(Exception): pass
 
 class EventRangeList(object):
-    def __init__(self,eventranges = None):
+    def __init__(self, eventranges=None):
         """ initialize object, can pass optional argument:
             eventranges:      list that looks like this
                  [{"eventRangeID": "8848710-3005316503-6391858827-3-10", "LFN":"EVNT.06402143._012906.pool.root.1", "lastEvent": 3, "startEvent": 3, "scope": "mc15_13TeV", "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"}]
@@ -58,12 +58,11 @@ class EventRangeList(object):
         """ provide the number of ranges completed """
         return len(self.ids_by_state[EventRange.EventRange.READY])
 
-
-    def fill_from_list(self,list_of_eventrange_dicts):
+    def fill_from_list(self, list_of_eventrange_dicts):
         for eventrange in list_of_eventrange_dicts:
             self.append(EventRange.EventRange(eventrange))
 
-    def change_eventrange_state(self,eventRangeID,new_state):
+    def change_eventrange_state(self, eventRangeID, new_state):
         if eventRangeID in self.eventranges:
             logger.debug('changing id %s to %s',eventRangeID,new_state)
             eventrange = self.eventranges[eventRangeID]
@@ -74,15 +73,15 @@ class EventRangeList(object):
         else:
             raise EventRangeIdNotFound('eventRangeID %s not found' % eventRangeID)
 
-    def mark_completed(self,eventRangeID):
+    def mark_completed(self, eventRangeID):
         logger.debug('marking eventRangeID %s as completed',eventRangeID)
         self.change_eventrange_state(eventRangeID,EventRange.EventRange.COMPLETED)
 
-    def mark_assigned(self,eventRangeID):
+    def mark_assigned(self, eventRangeID):
         logger.debug('marking eventRangeID %s as assigned',eventRangeID)
         self.change_eventrange_state(eventRangeID,EventRange.EventRange.ASSIGNED)
 
-    def get_next(self,number_of_ranges=1):
+    def get_next(self, number_of_ranges=1):
         """ method for retrieving number_of_ranges worth of event ranges,
               which will be marked as 'assigned'
         """
@@ -105,7 +104,7 @@ class EventRangeList(object):
       
         return output
 
-    def __add__(self,other):
+    def __add__(self, other):
         if isinstance(other,EventRangeList):
             newone = EventRangeList()
 
@@ -123,16 +122,14 @@ class EventRangeList(object):
         else:
             raise TypeError('other is not of type EventRangeList: %s' % type(other).__name__)
 
-
-    def append(self,eventRange):
+    def append(self, eventRange):
         if isinstance(eventRange,EventRange.EventRange):
             self.eventranges[eventRange.id] = eventRange
             self.ids_by_state[eventRange.state].append(eventRange.id)
         else:
             raise TypeError('object is not of type EventRange: %s' % type(eventRange).__name__)
 
-
-    def pop(self,key,default=None):
+    def pop(self, key, default=None):
         return self.eventranges.pop(key,default)
     def iteritems(self):
         return self.eventranges.iteritems()
@@ -140,25 +137,25 @@ class EventRangeList(object):
         return self.eventranges.keys()
     def values(self):
         return self.eventranges.values()
-    def get(self,key,default=None):
+    def get(self, key, default=None):
         return self.eventranges.get(key,default)
-    def has_key(self,key):
+    def has_key(self, key):
         return self.eventranges.has_key(key)
 
-    def __iter__(self,key):
+    def __iter__(self, key):
         return iter(self.eventranges)
     def __len__(self):
         return len(self.eventranges)
-    def __getitem__(self,key):
+    def __getitem__(self, key):
         return self.eventranges[key]
-    def __setitem__(self,key,value):
-        if isinstance(value,EventRange.EventRange):
+    def __setitem__(self, key, value):
+        if isinstance(value, EventRange.EventRange):
             self.eventranges[key] = value
         else:
             raise TypeError('object is not of type EventRange: %s' % type(value).__name__)
-    def __delitem__(self,key):
+    def __delitem__(self, key):
         del self.eventranges[key]
-    def __contains__(self,key):
+    def __contains__(self, key):
         return self.eventranges.__contains__(key)
 
 

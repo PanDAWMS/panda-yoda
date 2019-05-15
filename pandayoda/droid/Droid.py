@@ -7,7 +7,12 @@
 # Authors:
 # - ..
 
-import logging,os,time,socket,platform,Queue
+import logging
+import os
+import time
+import socket
+import platform
+import Queue
 from pandayoda.common import MessageTypes,StatefulService
 from pandayoda.droid import TransformManager,JobComm
 from pandayoda.common import yoda_multiprocessing as mp
@@ -19,22 +24,22 @@ config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.
 class Droid(StatefulService.StatefulService):
     """ 1 Droid runs per node of a parallel job and launches the AthenaMP process """
 
-    CREATED           = 'CREATED'
-    REQUEST_JOB       = 'REQUEST_JOB'
-    WAITING_FOR_JOB   = 'WAITING_FOR_JOB'
-    JOB_RECEIVED      = 'JOB_RECEIVED'
-    MONITORING        = 'MONITORING'
-    TRANSFORM_EXITED  = 'TRANSFORM_EXITED'
-    EXITING           = 'EXITING'
-    EXITED            = 'EXITED'
+    CREATED = 'CREATED'
+    REQUEST_JOB = 'REQUEST_JOB'
+    WAITING_FOR_JOB = 'WAITING_FOR_JOB'
+    JOB_RECEIVED = 'JOB_RECEIVED'
+    MONITORING = 'MONITORING'
+    TRANSFORM_EXITED = 'TRANSFORM_EXITED'
+    EXITING = 'EXITING'
+    EXITED = 'EXITED'
 
-    STATES = [CREATED,REQUEST_JOB,WAITING_FOR_JOB,JOB_RECEIVED,MONITORING,TRANSFORM_EXITED,EXITING,EXITED]
+    STATES = [CREATED, REQUEST_JOB, WAITING_FOR_JOB, JOB_RECEIVED, MONITORING, TRANSFORM_EXITED, EXITING, EXITED]
 
-    def __init__(self,queues,config,rank):
+    def __init__(self, queues, config, rank):
         """ config: the ConfigParser handle for yoda """
 
         # call Thread constructor
-        super(Droid,self).__init__()
+        super(Droid, self).__init__()
 
         # message queues
         self.queues = queues
@@ -46,7 +51,6 @@ class Droid(StatefulService.StatefulService):
         self.rank   = rank
 
         self.set_state(Droid.CREATED)
-
 
     # this runs when 'droid_instance.start()' is called
     def run(self):
@@ -60,54 +64,51 @@ class Droid(StatefulService.StatefulService):
             MPI.COMM_WORLD.Abort()
             logger.info('Droid is exiting')
 
-
     def subrun(self):
         """ this function is the business logic, but wrapped in exception """
 
         logger.info('Droid Thread starting')
-        logger.debug('config_section:             %s',config_section)
+        logger.debug('config_section:             %s', config_section)
 
-        logger.info('Droid running on hostname:   %s',socket.gethostname())
-        logger.info('Droid node has               %d cpus',mp.cpu_count())
-        logger.info('Droid uname:                 %s',','.join(platform.uname()))
-        logger.info('Droid processor:             %s',platform.processor())
-
+        logger.info('Droid running on hostname:   %s', socket.gethostname())
+        logger.info('Droid node has               %d cpus', mp.cpu_count())
+        logger.info('Droid uname:                 %s', ','.join(platform.uname()))
+        logger.info('Droid processor:             %s', platform.processor())
 
         # read in config variables inside the thread run function to avoid
         # duplicating objects in memory across threads
         self.read_config()
 
-
         # create custom droid working directory
-        droid_working_path = os.path.join(os.getcwd(),self.working_path)
+        droid_working_path = os.path.join(os.getcwd(), self.working_path)
         try:
-            logger.info('Droid make working directory: %s',droid_working_path)
-            os.makedirs(droid_working_path,0775)
-        except OSError,e:
+            logger.info('Droid make working directory: %s', droid_working_path)
+            os.makedirs(droid_working_path, 0775)
+        except OSError as e:
             if 'File exists' in str(e):
                 pass
             else:
-                logger.exception('exception raised while trying to mkdirs %s',droid_working_path)
+                logger.exception('exception raised while trying to mkdirs %s', droid_working_path)
                 raise
-        except Exception,e:
-            logger.exception('exception raised while trying to mkdirs %s',droid_working_path)
+        except Exception:
+            logger.exception('exception raised while trying to mkdirs %s', droid_working_path)
             raise
 
         # create custom droid output directory (it is a subdirectory of droid working dir)
         droid_output_path = droid_working_path
         if self.output_subdir is not None:
-            droid_output_path = os.path.join(droid_working_path,self.output_subdir)
+            droid_output_path = os.path.join(droid_working_path, self.output_subdir)
             try:
-                logger.info('Droid make output directory: %s',droid_output_path)
+                logger.info('Droid make output directory: %s', droid_output_path)
                 os.makedirs(droid_output_path,0775)
             except OSError,e:
                 if 'File exists' in str(e):
                     pass
                 else:
-                    logger.exception('exception raised while trying to mkdirs %s',droid_output_path)
+                    logger.exception('exception raised while trying to mkdirs %s', droid_output_path)
                     raise
-            except Exception,e:
-                logger.exception('exception raised while trying to mkdirs %s',droid_output_path)
+            except Exception:
+                logger.exception('exception raised while trying to mkdirs %s', droid_output_path)
                 raise
 
 
@@ -115,18 +116,18 @@ class Droid(StatefulService.StatefulService):
         self.subthreads = {}
 
         # create job comm thread
-        self.subthreads['JobComm']      = JobComm.JobComm(self.config,self.queues,droid_working_path,droid_output_path,self.yampl_socket_name)
+        self.subthreads['JobComm'] = JobComm.JobComm(self.config,self.queues,droid_working_path,droid_output_path,self.yampl_socket_name)
         self.subthreads['JobComm'].start()
 
         # begin in the REQUEST_JOB state
         self.set_state(Droid.REQUEST_JOB)
 
-        logger.debug('cwd: %s',os.getcwd())
+        logger.debug('cwd: %s', os.getcwd())
 
         # begin while loop
         while not self.exit.is_set():
             state = self.get_state()
-            logger.debug('droid start loop, state = %s',state)
+            logger.debug('droid start loop, state = %s', state)
 
             ###############################################
             # Request a job definition from Yoda

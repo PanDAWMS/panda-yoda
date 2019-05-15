@@ -7,19 +7,22 @@
 # Authors:
 # - ..
 
-import os,os.path,logging,Queue,shutil,time
+import os
+import os.path
+import logging
+import Queue
+import shutil
+import time
 from pandayoda.common.yoda_multiprocessing import Event
-from pandayoda.common import MessageTypes,EventRangeList,StatefulService,serializer
+from pandayoda.common import MessageTypes, EventRangeList, StatefulService, serializer
 
 logger = logging.getLogger(__name__)
 
 try:
     import yampl
-except Exception,e:
+except Exception:
     logger.exception("Failed to import yampl")
     raise
-
-
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
@@ -63,8 +66,7 @@ class JobComm(StatefulService.StatefulService):
               REQUEST_EVENT_RANGES, WAIT_FOR_PAYLOAD_MESSAGE,
               MESSAGE_RECEIVED, SEND_EVENT_RANGE, SEND_OUTPUT_FILE, EXITED]
 
-
-    def __init__(self,config,queues,droid_working_path,droid_output_path,yampl_socket_name):
+    def __init__(self, config, queues, droid_working_path, droid_output_path, yampl_socket_name):
         """
           queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send
                        messages to other Droid components about errors, etc.
@@ -99,6 +101,9 @@ class JobComm(StatefulService.StatefulService):
 
         # set initial state
         self.set_state(self.WAITING_FOR_JOB)
+
+        # to be set
+        self.loglevel = None
 
     def no_more_work(self):
         return self.all_work_done.is_set()
@@ -408,7 +413,7 @@ class JobComm(StatefulService.StatefulService):
                     try:
                         eventranges.mark_completed(output_file_data['eventrangeid'])
                     except Exception:
-                        logger.error('failed to mark eventrangeid %s as completed',output_file_data['eventrangeid'])
+                        logger.error('failed to mark eventrangeid %s as completed', output_file_data['eventrangeid'])
                         self.stop()
 
                     # return to state requesting a message
@@ -423,7 +428,7 @@ class JobComm(StatefulService.StatefulService):
             # if ready_events is below the threshold and the no more events flag has not been set
             # request more event ranges
             if eventranges.number_ready() < self.get_more_events_threshold and not no_more_events and not waiting_for_eventranges and current_job is not None:
-                logger.info('number of ready events %s below request threshold %s, asking for more.',eventranges.number_ready(),self.get_more_events_threshold)
+                logger.info('number of ready events %s below request threshold %s, asking for more.', eventranges.number_ready(), self.get_more_events_threshold)
                 # send MPI message to Yoda for more event ranges
                 self.request_events(current_job)
                 waiting_for_eventranges = True
@@ -444,9 +449,9 @@ class JobComm(StatefulService.StatefulService):
         if len(output_files) > 0:
 
             # send output file data to Yoda/FileManager
-            logger.info('sending %s output files to Yoda/FileManager',len(output_files))
-            mpi_message = {'type':MessageTypes.OUTPUT_FILE,
-                           'filelist':output_files,
+            logger.info('sending %s output files to Yoda/FileManager', len(output_files))
+            mpi_message = {'type': MessageTypes.OUTPUT_FILE,
+                           'filelist': output_files,
                            'destination_rank': 0
                            }
             self.queues['MPIService'].put(mpi_message)
@@ -464,7 +469,7 @@ class JobComm(StatefulService.StatefulService):
             # read loglevel:
             if 'loglevel' in self.config[config_section]:
                 self.loglevel = self.config[config_section]['loglevel']
-                logger.info('%s loglevel: %s',config_section,self.loglevel)
+                logger.info('%s loglevel: %s',config_section, self.loglevel)
                 logger.setLevel(logging.getLevelName(self.loglevel))
             else:
                 logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
@@ -522,7 +527,7 @@ class JobComm(StatefulService.StatefulService):
         }
         self.queues['MPIService'].put(msg)
 
-    def send_output_file(self, payload_msg,current_job,eventranges,output_files):
+    def send_output_file(self, payload_msg,current_job, eventranges,output_files):
         logger.debug('sending output file information')
 
         # parse message
@@ -532,35 +537,35 @@ class JobComm(StatefulService.StatefulService):
         if len(parts) == 4:
             # parse the parts
             outputfilename = parts[0]
-            eventrangeid = parts[1].replace('ID:','')
-            cpu = parts[2].replace('CPU:','')
-            wallclock = parts[3].replace('WALL:','')
+            eventrangeid = parts[1].replace('ID:', '')
+            cpu = parts[2].replace('CPU:', '')
+            wallclock = parts[3].replace('WALL:', '')
 
             # if staging, stage and change output filename
             if self.stage_outputs:
                 # move file to staging_path
-                logger.debug('shutil.move(%s,%s)',outputfilename,self.staging_path)
-                shutil.move(outputfilename,self.staging_path)
+                logger.debug('shutil.move(%s,%s)', outputfilename, self.staging_path)
+                shutil.move(outputfilename, self.staging_path)
                 # change output filename
-                outputfilename = os.path.join(self.staging_path,os.path.basename(outputfilename))
-                logger.info('outputfilename - %s',outputfilename)
+                outputfilename = os.path.join(self.staging_path, os.path.basename(outputfilename))
+                logger.info('outputfilename - %s', outputfilename)
 
             # build the data for Harvester output file
-            output_file_data = {'type':MessageTypes.OUTPUT_FILE,
-                                'filename':outputfilename,
-                                'eventrangeid':eventrangeid,
-                                'cpu':cpu,
-                                'wallclock':wallclock,
-                                'scope':current_job['scopeOut'],
-                                'pandaid':current_job['PandaID'],
-                                'eventstatus':'finished',
+            output_file_data = {'type': MessageTypes.OUTPUT_FILE,
+                                'filename': outputfilename,
+                                'eventrangeid': eventrangeid,
+                                'cpu': cpu,
+                                'wallclock': wallclock,
+                                'scope': current_job['scopeOut'],
+                                'pandaid': current_job['PandaID'],
+                                'eventstatus': 'finished',
                                 'destination_rank': 0,
                                 }
             # self.output_file_data.set(output_file_data)
 
             # append output file data to list of files for transfer via MPI
             output_files.append(output_file_data)
-            logger.info('received output file from AthenaMP; %s output files now on waiting list',len(output_files))
+            logger.info('received output file from AthenaMP; %s output files now on waiting list', len(output_files))
 
             # return to state requesting a message
             # self.set_state(self.WAIT_FOR_PAYLOAD_MESSAGE)
@@ -570,17 +575,17 @@ class JobComm(StatefulService.StatefulService):
             try:
                 eventranges.mark_completed(output_file_data['eventrangeid'])
             except Exception:
-                logger.error('failed to mark eventrangeid %s as completed',output_file_data['eventrangeid'])
+                logger.error('failed to mark eventrangeid %s as completed', output_file_data['eventrangeid'])
                 self.stop()
 
         else:
             logger.error('failed to parse output file')
 
-    def send_eventrange(self, eventranges,athpayloadcomm,no_more_events):
+    def send_eventrange(self, eventranges, athpayloadcomm, no_more_events):
         logger.debug('sending event to payload')
         # if event ranges available, send one
         try:
-            logger.debug('have %d ready event ranges to send to AthenaMP',eventranges.number_ready())
+            logger.debug('have %d ready event ranges to send to AthenaMP', eventranges.number_ready())
             local_eventranges = eventranges.get_next()
 
         # no more event ranges available

@@ -13,30 +13,30 @@ class EventRange:
         {"eventRangeID": "8848710-3005316503-6391858827-3-10", "LFN":"EVNT.06402143._012906.pool.root.1", "lastEvent": 3, "startEvent": 3, "scope": "mc15_13TeV", "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"}
     """
 
-    READY       = 'READY'
-    ASSIGNED    = 'ASSIGNED'
-    COMPLETED   = 'COMPLETED'
+    READY = 'READY'
+    ASSIGNED = 'ASSIGNED'
+    COMPLETED = 'COMPLETED'
 
     # order matters in this list, see EventRangeList.__add__ function for reason why
-    STATES = [COMPLETED,ASSIGNED,READY]
+    STATES = [COMPLETED, ASSIGNED, READY]
 
-    def __init__(self,eventrange=None):
+    def __init__(self, eventrange=None):
         """ Event Range representation, can pass optional dictionary as described above for filling object """
         # the event range ID, format = "8848710-3005316503-6391858827-3-10"
-        self.id           = ''
+        self.id = ''
         # filename in which events reside
-        self.lfn          = ''
+        self.lfn = ''
         # filename scope
-        self.scope        = ''
+        self.scope = ''
         # start of event range
-        self.startEvent   = -1
+        self.startEvent = -1
         # end of event range
-        self.lastEvent    = -1
+        self.lastEvent = -1
         # GUID for this event range
-        self.GUID         = ''
+        self.GUID = ''
 
         # state for tracking processed event ranges
-        self.state        = EventRange.READY
+        self.state = EventRange.READY
 
         if eventrange:
             self.fill_from_dict(eventrange)
@@ -48,13 +48,13 @@ class EventRange:
 
         return self.lastEvent - self.startEvent + 1
 
-    def fill_from_dict(self,eventrange):
-        self.id           = eventrange['eventRangeID']
-        self.lfn          = eventrange['LFN']
-        self.scope        = eventrange['scope']
-        self.startEvent   = eventrange['startEvent']
-        self.lastEvent    = eventrange['lastEvent']
-        self.GUID         = eventrange['GUID']
+    def fill_from_dict(self, eventrange):
+        self.id = eventrange['eventRangeID']
+        self.lfn = eventrange['LFN']
+        self.scope = eventrange['scope']
+        self.startEvent = eventrange['startEvent']
+        self.lastEvent = eventrange['lastEvent']
+        self.GUID = eventrange['GUID']
 
     def get_dict(self):
         return {'eventRangeID':self.id,'LFN':self.lfn,'scope':self.scope,
@@ -95,8 +95,4 @@ if __name__ == '__main__':
 
     logger.info('test get dict')
     d = er.get_dict()
-    logger.info('  output = %s',d)
-
-
-
-
+    logger.info('  output = %s', d)

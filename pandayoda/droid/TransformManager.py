@@ -21,83 +21,86 @@ config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.
 
 
 class TransformManager(StatefulService.StatefulService):
-    ''' This service is handed a job definition and when the parent process
+    """ This service is handed a job definition and when the parent process
         calls the start() function, it launches the transform defined by the
-        panda job.'''
+        panda job."""
 
-    CREATED     = 'CREATED'
-    STARTED     = 'STARTED'
-    MONITORING  = 'MONITORING'
-    FINISHED    = 'FINISHED'
-    STATES      = [CREATED,STARTED,MONITORING,FINISHED]
+    CREATED = 'CREATED'
+    STARTED = 'STARTED'
+    MONITORING = 'MONITORING'
+    FINISHED = 'FINISHED'
+    STATES = [CREATED,STARTED,MONITORING,FINISHED]
 
-    def __init__(self,job_def,
+    def __init__(self, job_def,
                  config,
                  rank,
                  queues,
                  droid_working_path,
                  yoda_working_path,
                  yampl_socket_name):
-        '''
+        """
           queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send
                        messages to other Droid components about errors, etc.
           config: the ConfigParser handle for yoda
           droid_working_path: the path where athena will execute
-          '''
+        """
         # call base class init function
-        super(TransformManager,self).__init__()
+        super(TransformManager, self).__init__()
 
         # yoda config file
-        self.config                = config
+        self.config = config
 
         # rank number
-        self.rank                  = rank
+        self.rank = rank
 
         # job definition from panda
-        self.job_def               = job_def
+        self.job_def = job_def
 
         # dictionary of queues for sending messages to Droid components
-        self.queues                = queues
+        self.queues = queues
 
         # working path for athenaMP
-        self.droid_working_path    = droid_working_path
+        self.droid_working_path = droid_working_path
 
         # working path for Yoda (where input files are located)
-        self.yoda_working_path     = yoda_working_path
+        self.yoda_working_path = yoda_working_path
 
         # socket name to pass to transform for use when communicating via yampl
-        self.yampl_socket_name     = yampl_socket_name
+        self.yampl_socket_name = yampl_socket_name
 
         # set default runscript filename
-        self.runscript_filename    = 'runscript.sh'
+        self.runscript_filename = 'runscript.sh'
 
         # set default use_container
-        self.use_container         = False
+        self.use_container = False
 
         # set default run_elsewhere
-        self.run_elsewhere         = False
+        self.run_elsewhere = False
 
         # set default logs_to_stage
-        self.logs_to_stage         = []
+        self.logs_to_stage = []
 
         # set default use_clean_env
-        self.use_clean_env         = False
+        self.use_clean_env = False
 
         # return code, set only after exit
-        self.returncode            = VariableWithLock.VariableWithLock(0)
+        self.returncode = VariableWithLock.VariableWithLock(0)
 
         # default job mods
-        self.jobmods               = []
+        self.jobmods = []
 
         # set state to initial
         self.set_state(TransformManager.CREATED)
+
+        # to be set
+        self.jobproc = None
 
     def get_returncode(self):
         self.returncode.get()
 
     # this runs when 'droid_instance.start()' is called
     def run(self):
-        ''' this is the function called when the user runs droid_instance.start() '''
+        """ this is the function called when the user runs droid_instance.start() """
 
         try:
             self.subrun()
@@ -107,13 +110,11 @@ class TransformManager(StatefulService.StatefulService):
             MPI.COMM_WORLD.Abort()
             logger.error('exiting')
 
-
     def subrun(self):
-        ''' this function is the business logic, but wrapped in exception '''
+        """ this function is the business logic, but wrapped in exception """
 
         # read config
         self.read_config()
-
 
         self.set_state(TransformManager.STARTED)
 
@@ -122,7 +123,7 @@ class TransformManager(StatefulService.StatefulService):
         self.start_subprocess()
 
         # third step, loop to monitor process
-        logger.info('monitoring subprocess for transform, blocking for %s',self.loop_timeout)
+        logger.info('monitoring subprocess for transform, blocking for %s', self.loop_timeout)
         self.set_state(TransformManager.MONITORING)
         while not self.exit.wait(timeout=self.loop_timeout):
             # logger.debug('start moinitor loop, timeout = %s',self.loop_timeout)
@@ -131,18 +132,18 @@ class TransformManager(StatefulService.StatefulService):
                 logger.info('transform has finished')
                 self.exit.set()
             else:
-                logger.info('transform is still running, blocking for %s',self.loop_timeout)
+                logger.info('transform is still running, blocking for %s', self.loop_timeout)
 
         self.set_state(TransformManager.FINISHED)
 
-        # incase we are exiting because parent process told us to exit
+        # in case we are exiting because parent process told us to exit
         # we should kill the subprocess
         if self.exit.is_set() and self.is_subprocess_running():
             logger.info('signaled to exit before subprocess exited so killing it.')
             self.jobproc.kill()
 
         while self.is_subprocess_running():
-            logger.info('waiting for subprocess to die with %s sleep intervals',1)
+            logger.info('waiting for subprocess to die with %s sleep intervals', 1)
             time.sleep(1)
 
         self.returncode.set(int(self.subprocess_returncode()))
@@ -155,8 +156,8 @@ class TransformManager(StatefulService.StatefulService):
         logger.info('exiting')
 
     def create_job_run_script(self):
-        ''' using the template set in the configuration, create a script that
-            will run the panda job with the appropriate environment '''
+        """ using the template set in the configuration, create a script that
+            will run the panda job with the appropriate environment """
         logger.debug('create job run script')
         template_filename = self.runscript_template
 
@@ -164,7 +165,7 @@ class TransformManager(StatefulService.StatefulService):
         template = template_file.read()
         template_file.close()
 
-        package,release = self.job_def['homepackage'].split('/')
+        package, release = self.job_def['homepackage'].split('/')
         gcclocation = ''
         if release.startswith('19'):
             gcclocation  = '--gcclocation=$VO_ATLAS_SW_DIR/software/'
@@ -174,7 +175,7 @@ class TransformManager(StatefulService.StatefulService):
 
         # set transformation command
         transformation = self.job_def['transformation']
-        logger.debug('got transformation: %s',transformation)
+        logger.debug('got transformation: %s', transformation)
 
         # add full path to input file since Harvester places
         # them in worker directory and Yoda runs AthenaMP
@@ -183,7 +184,7 @@ class TransformManager(StatefulService.StatefulService):
 
         # first extract input files
         start_index = self.job_def['jobPars'].find('--inputEVNTFile=') + len('--inputEVNTFile=')
-        end_index   = self.job_def['jobPars'].find(' ',start_index)
+        end_index   = self.job_def['jobPars'].find(' ', start_index)
         # loop over and add path
         input_files = self.job_def['jobPars'][start_index:end_index].split(',')
         updated_input_files = []
@@ -233,7 +234,7 @@ class TransformManager(StatefulService.StatefulService):
         #    raise Exception('specified template does not exist: %s',template_filename)
 
     def apply_jobmods(self):
-        ''' apply job mods specified by the configuration settings '''
+        """ apply job mods specified by the configuration settings """
 
         package_name = 'pandayoda.jobmod.'
         for mod in self.jobmods:
@@ -254,7 +255,7 @@ class TransformManager(StatefulService.StatefulService):
 
 
     def start_subprocess(self):
-        ''' start the job subprocess, handling the command parsing and log file naming '''
+        """ start the job subprocess, handling the command parsing and log file naming """
 
         logger.debug('start JobSubProcess')
 
@@ -281,7 +282,6 @@ class TransformManager(StatefulService.StatefulService):
             cwd = self.run_directory
 
         logger.info('running directory: %s',cwd)
-
 
         logger.info('starting run_script: %s',cmd)
 
@@ -313,7 +313,6 @@ class TransformManager(StatefulService.StatefulService):
             raise Exception('tried to get return code, but subprocess is empty')
         return self.jobproc.returncode
 
-
     def stage_logs(self):
         start_dir = os.getcwd()
         os.chdir(self.run_directory)
@@ -331,8 +330,6 @@ class TransformManager(StatefulService.StatefulService):
 
         os.chdir(start_dir)
         logger.debug('staging files completed')
-
-
 
     def read_config(self):
 
@@ -423,7 +420,6 @@ class TransformManager(StatefulService.StatefulService):
             else:
                 raise Exception('must specify "subprocess_stderr" in "%s" section of config file' % config_section)
 
-
             # read jobmods:
             if 'jobmods' in self.config[config_section]:
                 self.jobmods = self.config[config_section]['jobmods']
@@ -431,7 +427,6 @@ class TransformManager(StatefulService.StatefulService):
                 logger.info('%s jobmods: %s',config_section,self.jobmods)
             else:
                 logger.warning('no "jobmods" in "%s" section of config file, using default %s',config_section,self.jobmods)
-
 
             # pipe the stdout/stderr from the Subprocess.Popen object to these files
             self.stdout_filename    = self.stdout_filename.format(rank=self.rank,PandaID=self.job_def['PandaID'])
@@ -449,7 +444,7 @@ class TransformManager(StatefulService.StatefulService):
         else:
             raise Exception('must specify %s section in config file' % config_section)
 
-    def get_boolean(self,string):
+    def get_boolean(self, string):
         if 'true' in string.lower():
             return True
         return False
