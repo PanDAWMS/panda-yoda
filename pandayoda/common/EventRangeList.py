@@ -6,15 +6,25 @@
 #
 # Authors:
 # - Taylor Childers (john.taylor.childers@cern.ch)
+# - Paul Nilsson (paul.nilsson@cern.ch)
 
 import logging
-logger = logging.getLogger(__name__)
 import EventRange
 
+logger = logging.getLogger(__name__)
 
-class NoMoreEventRanges(Exception): pass
-class RequestedMoreRangesThanAvailable(Exception): pass
-class EventRangeIdNotFound(Exception): pass
+
+class NoMoreEventRanges(Exception):
+    pass
+
+
+class RequestedMoreRangesThanAvailable(Exception):
+    pass
+
+
+class EventRangeIdNotFound(Exception):
+    pass
+
 
 class EventRangeList(object):
     def __init__(self, eventranges=None):

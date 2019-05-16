@@ -5,4 +5,3 @@
 #
 # Authors:
 # - Taylor Childers (john.taylor.childers@cern.ch)
-

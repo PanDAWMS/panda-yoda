@@ -29,13 +29,13 @@ try:
     # print('%06.2f import MPIService' % (time.time() - imptime))
     from pandayoda.common import MPIService
     # print('%06.2f import yoda_multiprocessing' % (time.time() - imptime))
-    from pandayoda.common.yoda_multiprocessing import Queue,Manager
+    from pandayoda.common.yoda_multiprocessing import Queue, Manager
     # print('%06.2f import commit_timestamp & version' % (time.time() - imptime))
-    from pandayoda import commit_timestamp,version
+    from pandayoda import commit_timestamp, version
     logger = logging.getLogger(__name__)
-except Exception,e:
+except Exception as e:
     print('Exception received during import: %s' % e)
-    import traceback,sys
+    import traceback, sys
     exc_type, exc_value, exc_traceback = sys.exc_info()
     print(' '.join(line for line in traceback.format_exception(exc_type, exc_value,
                                                                exc_traceback)))
@@ -167,7 +167,6 @@ def main():
         queue_map['Droid'] = 2
         queue_map['JobComm'] = 3
         queue_map['TransformManager'] = 4
-
 
         queues = {
             'yoda_droid': queue_list[queue_map['yoda_droid']],
@@ -305,7 +304,6 @@ def main():
         logger.debug('sleeping %s', loop_timeout)
         time.sleep(loop_timeout)
 
-
     # logger.info('Rank %s: waiting for other ranks to reach MPI Barrier',mpirank)
     # MPI.COMM_WORLD.Barrier()
     # logger.info('yoda_droid aborting all MPI ranks')
@@ -354,7 +352,7 @@ def get_config(config_filename, unknown_args):
         configfile.readfp(fp)
         for section in configfile.sections():
             config[section] = {}
-            for key,value in configfile.items(section):
+            for key, value in configfile.items(section):
                 # exclude DEFAULT keys
                 if key not in configfile.defaults().keys():
                     config[section][key] = value

@@ -57,15 +57,16 @@ class EventRange:
         self.GUID = eventrange['GUID']
 
     def get_dict(self):
-        return {'eventRangeID':self.id,'LFN':self.lfn,'scope':self.scope,
-                'startEvent':self.startEvent,'lastEvent':self.lastEvent,
-                'GUID':self.GUID}
+        return {'eventRangeID': self.id, 'LFN': self.lfn, 'scope':self.scope,
+                'startEvent': self.startEvent, 'lastEvent': self.lastEvent,
+                'GUID': self.GUID}
 
     def set_assigned(self):
         self.state = EventRange.ASSIGNED
 
     def set_completed(self):
         self.state = EventRange.COMPLETED
+
 
 # testing this thread
 if __name__ == '__main__':
@@ -76,17 +77,17 @@ if __name__ == '__main__':
     logger = logging.getLogger(__name__)
     logger.info('Start test of EventRange')
 
-    #import argparse
-    #oparser = argparse.ArgumentParser()
-    #oparser.add_argument('-l','--jobWorkingDir', dest="jobWorkingDir", default=None, help="Job's working directory.",required=True)
-    #args = oparser.parse_args()
+    # import argparse
+    # oparser = argparse.ArgumentParser()
+    # oparser.add_argument('-l','--jobWorkingDir', dest="jobWorkingDir", default=None, help="Job's working directory.",required=True)
+    # args = oparser.parse_args()
 
     logger.info('test object creation')
     er = EventRange()
 
     logger.info('test fill_from_dict ')
     d = {"eventRangeID": "8848710-3005316503-6391858827-3-10",
-         "LFN":"EVNT.06402143._012906.pool.root.1",
+         "LFN": "EVNT.06402143._012906.pool.root.1",
          "lastEvent": 3,
          "startEvent": 3,
          "scope": "mc15_13TeV",
