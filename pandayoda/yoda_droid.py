@@ -35,7 +35,8 @@ try:
     logger = logging.getLogger(__name__)
 except Exception as e:
     print('Exception received during import: %s' % e)
-    import traceback, sys
+    import traceback
+    import sys
     exc_type, exc_value, exc_traceback = sys.exc_info()
     print(' '.join(line for line in traceback.format_exception(exc_type, exc_value,
                                                                exc_traceback)))
@@ -62,7 +63,9 @@ def main():
     # set yoda config file where most settings are placed
     oparser.add_argument('-c', '--yoda-config', dest='yoda_config', help='The Yoda Config file is where most configuration information is set.', required=True)
     oparser.add_argument('-w', '--working-path', dest='working_path', help='The Directory in which to run yoda_droid', default='.')
-    oparser.add_argument('-t', '--wall-clock-limit', dest='wall_clock_limit', help='The wall clock time limit in minutes. If given, yoda will trigger all droid ranks to kill their subprocesses and exit. Then Yoda will perform log/output file cleanup.', default=-1, type=int)
+    oparser.add_argument('-t', '--wall-clock-limit', dest='wall_clock_limit',
+                         help='The wall clock time limit in minutes. If given, yoda will trigger all droid ranks to kill their subprocesses and exit. Then Yoda will perform log/output file cleanup.',
+                         default=-1, type=int)
     # control output level
     oparser.add_argument('--debug', dest='debug', default=False, action='store_true', help="Set Logger to DEBUG")
     oparser.add_argument('--error', dest='error', default=False, action='store_true', help="Set Logger to ERROR")

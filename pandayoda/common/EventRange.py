@@ -10,7 +10,9 @@
 
 class EventRange:
     """ An Event Service Event Range:
-        {"eventRangeID": "8848710-3005316503-6391858827-3-10", "LFN":"EVNT.06402143._012906.pool.root.1", "lastEvent": 3, "startEvent": 3, "scope": "mc15_13TeV", "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"}
+        {"eventRangeID": "8848710-3005316503-6391858827-3-10",
+        "LFN":"EVNT.06402143._012906.pool.root.1", "lastEvent": 3,
+        "startEvent": 3, "scope": "mc15_13TeV", "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"}
     """
 
     READY = 'READY'
@@ -57,7 +59,7 @@ class EventRange:
         self.GUID = eventrange['GUID']
 
     def get_dict(self):
-        return {'eventRangeID': self.id, 'LFN': self.lfn, 'scope':self.scope,
+        return {'eventRangeID': self.id, 'LFN': self.lfn, 'scope': self.scope,
                 'startEvent': self.startEvent, 'lastEvent': self.lastEvent,
                 'GUID': self.GUID}
 

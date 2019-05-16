@@ -30,9 +30,11 @@ class EventRangeList(object):
     def __init__(self, eventranges=None):
         """ initialize object, can pass optional argument:
             eventranges:      list that looks like this
-                 [{"eventRangeID": "8848710-3005316503-6391858827-3-10", "LFN":"EVNT.06402143._012906.pool.root.1", "lastEvent": 3, "startEvent": 3, "scope": "mc15_13TeV", "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"}]
+                 [{"eventRangeID": "8848710-3005316503-6391858827-3-10",
+                 "LFN":"EVNT.06402143._012906.pool.root.1", "lastEvent": 3, "startEvent": 3,
+                 "scope": "mc15_13TeV", "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"}]
 
-          some warnings: this class assumes that the list of EventRange objects is always orded by the 
+          some warnings: this class assumes that the list of EventRange objects is always orded by the
                         EventRange.STATES list, with READY being at the end.
         """
 
@@ -41,16 +43,15 @@ class EventRangeList(object):
 
         # flag to track if no events remain
         self.no_more_event_ranges = False
-      
+
         # internal list of indices of those ranges which have already been assigned to droid ranks
         # indices point back to self.eventranges
         self.ids_by_state = {}
         for state in EventRange.EventRange.STATES:
             self.ids_by_state[state] = []
-      
+
         if eventranges:
             self.fill_from_list(eventranges)
-
 
     def number_processing(self):
         """ provide the number of ranges still to be completed """
@@ -74,9 +75,9 @@ class EventRangeList(object):
 
     def change_eventrange_state(self, eventRangeID, new_state):
         if eventRangeID in self.eventranges:
-            logger.debug('changing id %s to %s',eventRangeID,new_state)
+            logger.debug('changing id %s to %s', eventRangeID, new_state)
             eventrange = self.eventranges[eventRangeID]
-            logger.debug('current state of id %s is %s',eventRangeID,eventrange.state)
+            logger.debug('current state of id %s is %s', eventRangeID, eventrange.state)
             self.ids_by_state[eventrange.state].remove(eventrange.id)
             eventrange.state = new_state
             self.ids_by_state[eventrange.state].append(eventrange.id)
@@ -84,44 +85,44 @@ class EventRangeList(object):
             raise EventRangeIdNotFound('eventRangeID %s not found' % eventRangeID)
 
     def mark_completed(self, eventRangeID):
-        logger.debug('marking eventRangeID %s as completed',eventRangeID)
-        self.change_eventrange_state(eventRangeID,EventRange.EventRange.COMPLETED)
+        logger.debug('marking eventRangeID %s as completed', eventRangeID)
+        self.change_eventrange_state(eventRangeID, EventRange.EventRange.COMPLETED)
 
     def mark_assigned(self, eventRangeID):
-        logger.debug('marking eventRangeID %s as assigned',eventRangeID)
-        self.change_eventrange_state(eventRangeID,EventRange.EventRange.ASSIGNED)
+        logger.debug('marking eventRangeID %s as assigned', eventRangeID)
+        self.change_eventrange_state(eventRangeID, EventRange.EventRange.ASSIGNED)
 
     def get_next(self, number_of_ranges=1):
         """ method for retrieving number_of_ranges worth of event ranges,
               which will be marked as 'assigned'
         """
-        logger.debug('getting %d event ranges.',number_of_ranges)
+        logger.debug('getting %d event ranges.', number_of_ranges)
         if self.number_ready() <= 0:
-            raise NoMoreEventRanges(' number ready = %d; len(eventranges) = %d' % (self.number_ready(),len(self.eventranges)))
+            raise NoMoreEventRanges(' number ready = %d; len(eventranges) = %d' % (self.number_ready(), len(self.eventranges)))
         if self.number_ready() < number_of_ranges:
             raise RequestedMoreRangesThanAvailable
         output = []
-        for i  in range(number_of_ranges):
+        for i in range(number_of_ranges):
             # pop one id off the ready list
-            id = self.ids_by_state[EventRange.EventRange.READY].pop()
+            _id = self.ids_by_state[EventRange.EventRange.READY].pop()
 
             # add the dictionary from the event range for that id to the output
-            output.append(self.eventranges[id].get_dict())
-            self.eventranges[id].set_assigned()
-            self.ids_by_state[EventRange.EventRange.ASSIGNED].append(id)
+            output.append(self.eventranges[_id].get_dict())
+            self.eventranges[_id].set_assigned()
+            self.ids_by_state[EventRange.EventRange.ASSIGNED].append(_id)
 
-            logger.debug('marked id %s as assigned',id)
+            logger.debug('marked id %s as assigned', _id)
       
         return output
 
     def __add__(self, other):
-        if isinstance(other,EventRangeList):
+        if isinstance(other, EventRangeList):
             newone = EventRangeList()
 
             # combine range lists
-            for eventrangeid,eventrange in self.iteritems():
+            for eventrangeid, eventrange in self.iteritems():
                 newone.append(eventrange)
-            for eventrangeid,eventrange in other.iteritems():
+            for eventrangeid, eventrange in other.iteritems():
                 newone.append(eventrange)
          
             # combine the lists of ids_by_state
@@ -133,38 +134,48 @@ class EventRangeList(object):
             raise TypeError('other is not of type EventRangeList: %s' % type(other).__name__)
 
     def append(self, eventRange):
-        if isinstance(eventRange,EventRange.EventRange):
+        if isinstance(eventRange, EventRange.EventRange):
             self.eventranges[eventRange.id] = eventRange
             self.ids_by_state[eventRange.state].append(eventRange.id)
         else:
             raise TypeError('object is not of type EventRange: %s' % type(eventRange).__name__)
 
     def pop(self, key, default=None):
-        return self.eventranges.pop(key,default)
+        return self.eventranges.pop(key, default)
+
     def iteritems(self):
         return self.eventranges.iteritems()
+
     def keys(self):
         return self.eventranges.keys()
+
     def values(self):
         return self.eventranges.values()
+
     def get(self, key, default=None):
-        return self.eventranges.get(key,default)
+        return self.eventranges.get(key, default)
+
     def has_key(self, key):
         return self.eventranges.has_key(key)
 
     def __iter__(self, key):
         return iter(self.eventranges)
+
     def __len__(self):
         return len(self.eventranges)
+
     def __getitem__(self, key):
         return self.eventranges[key]
+
     def __setitem__(self, key, value):
         if isinstance(value, EventRange.EventRange):
             self.eventranges[key] = value
         else:
             raise TypeError('object is not of type EventRange: %s' % type(value).__name__)
+
     def __delitem__(self, key):
         del self.eventranges[key]
+
     def __contains__(self, key):
         return self.eventranges.__contains__(key)
 
@@ -222,31 +233,31 @@ if __name__ == '__main__':
 
     erl.fill_from_list(l)
 
-    logger.info('n-ready: %d  n-processing: %d',erl.number_ready(),erl.number_processing())
+    logger.info('n-ready: %d  n-processing: %d', erl.number_ready(), erl.number_processing())
 
     ers = erl.get_next()
-    logger.info('ers = %s',ers)
+    logger.info('ers = %s', ers)
 
-    logger.info('n-ready: %d  n-processing: %d',erl.number_ready(),erl.number_processing())
+    logger.info('n-ready: %d  n-processing: %d', erl.number_ready(), erl.number_processing())
     erl.mark_completed(ers[0]['eventRangeID'])
 
-    logger.info('n-ready: %d  n-processing: %d',erl.number_ready(),erl.number_processing())
+    logger.info('n-ready: %d  n-processing: %d', erl.number_ready(), erl.number_processing())
 
     ers = erl.get_next(2)
-    logger.info('ers = %s',ers)
+    logger.info('ers = %s', ers)
 
-    logger.info('n-ready: %d  n-processing: %d',erl.number_ready(),erl.number_processing())
+    logger.info('n-ready: %d  n-processing: %d', erl.number_ready(), erl.number_processing())
 
     for er in ers:
         erl.mark_completed(er['eventRangeID'])
 
-    logger.info('n-ready: %d  n-processing: %d',erl.number_ready(),erl.number_processing())
+    logger.info('n-ready: %d  n-processing: %d', erl.number_ready(), erl.number_processing())
 
     logger.info(' testing add function' )
     erl2 = EventRangeList()
     erl2.fill_from_list(l)
     er = erl2.get_next(2)
-    logger.info('2 n-ready: %d  n-processing: %d',erl2.number_ready(),erl2.number_processing())
+    logger.info('2 n-ready: %d  n-processing: %d', erl2.number_ready(), erl2.number_processing())
 
     erl3 = erl + erl2
-    logger.info('3 n-ready: %d  n-processing: %d',erl3.number_ready(),erl3.number_processing())
+    logger.info('3 n-ready: %d  n-processing: %d', erl3.number_ready(), erl3.number_processing())
