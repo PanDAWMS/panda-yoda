@@ -1,6 +1,21 @@
 #!/usr/bin/env python
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Authors:
+# - Taylor Childers (john.taylor.childers@cern.ch)
+# - Paul Nilsson (paul.nilsson@cern.ch)
+
 try:
-    import argparse,logging,os,sys,datetime,time,socket
+    import argparse
+    import logging
+    import os
+    import sys
+    import datetime
+    import time
+    import socket
     imptime = time.time()
     if sys.version_info >= (3, 0, 0):
         import configparser as ConfigParser
@@ -19,13 +34,13 @@ try:
     from pandayoda import commit_timestamp,version
     logger = logging.getLogger(__name__)
 except Exception,e:
-    print('Exception received during import: %s' % str(e))
+    print('Exception received during import: %s' % e)
     import traceback,sys
     exc_type, exc_value, exc_traceback = sys.exc_info()
     print(' '.join(line for line in traceback.format_exception(exc_type, exc_value,
                                                                exc_traceback)))
 
-    from pandayoda import commit_timestamp,version
+    from pandayoda import commit_timestamp, version
     print('yoda version: %s' % version.version)
     print('git commit string: %s' % commit_timestamp.timestamp)
     from mpi4py import MPI
@@ -45,9 +60,9 @@ def main():
     oparser = argparse.ArgumentParser()
 
     # set yoda config file where most settings are placed
-    oparser.add_argument('-c','--yoda-config', dest='yoda_config', help='The Yoda Config file is where most configuration information is set.',required=True)
-    oparser.add_argument('-w','--working-path', dest='working_path', help='The Directory in which to run yoda_droid',default='.')
-    oparser.add_argument('-t','--wall-clock-limit',dest='wall_clock_limit', help='The wall clock time limit in minutes. If given, yoda will trigger all droid ranks to kill their subprocesses and exit. Then Yoda will perform log/output file cleanup.',default=-1,type=int)
+    oparser.add_argument('-c', '--yoda-config', dest='yoda_config', help='The Yoda Config file is where most configuration information is set.', required=True)
+    oparser.add_argument('-w', '--working-path', dest='working_path', help='The Directory in which to run yoda_droid', default='.')
+    oparser.add_argument('-t', '--wall-clock-limit', dest='wall_clock_limit', help='The wall clock time limit in minutes. If given, yoda will trigger all droid ranks to kill their subprocesses and exit. Then Yoda will perform log/output file cleanup.', default=-1, type=int)
     # control output level
     oparser.add_argument('--debug', dest='debug', default=False, action='store_true', help="Set Logger to DEBUG")
     oparser.add_argument('--error', dest='error', default=False, action='store_true', help="Set Logger to ERROR")
@@ -57,7 +72,7 @@ def main():
 
     # parse configuration file
     try:
-        config,default = get_config(args.yoda_config,unknown_args)
+        config, default = get_config(args.yoda_config, unknown_args)
 
         # loop timeout
         if config_section in config:
@@ -129,13 +144,13 @@ def main():
 
     # set the queue map
     if rank == 0:
-        queue_map['yoda_droid']    = 0
-        queue_map['MPIService']    = 1
-        queue_map['Yoda']          = 2
-        queue_map['WorkManager']   = 3
-        queue_map['RequestHarvesterJob']          = 4
-        queue_map['RequestHarvesterEventRanges']  = 5
-        queue_map['FileManager']   = 6
+        queue_map['yoda_droid'] = 0
+        queue_map['MPIService'] = 1
+        queue_map['Yoda'] = 2
+        queue_map['WorkManager'] = 3
+        queue_map['RequestHarvesterJob'] = 4
+        queue_map['RequestHarvesterEventRanges'] = 5
+        queue_map['FileManager'] = 6
 
         queues = {
             'yoda_droid': queue_list[queue_map['yoda_droid']],
@@ -147,10 +162,10 @@ def main():
             'FileManager': queue_list[queue_map['FileManager']],
         }
     else:
-        queue_map['yoda_droid']    = 0
-        queue_map['MPIService']    = 1
-        queue_map['Droid']         = 2
-        queue_map['JobComm']       = 3
+        queue_map['yoda_droid'] = 0
+        queue_map['MPIService'] = 1
+        queue_map['Droid'] = 2
+        queue_map['JobComm'] = 3
         queue_map['TransformManager'] = 4
 
 
@@ -164,7 +179,6 @@ def main():
     # tell MPIService we have set the queue_map
     mpiService.queue_map_is_set()
 
-
     logging_format = '%(asctime)s|%(process)s|%(thread)s|' + ('%05d' % rank) + '|%(levelname)s|%(name)s|%(message)s'
     logging_datefmt = '%Y-%m-%d %H:%M:%S'
     logging_filename = 'yoda_droid_%05d.log' % rank
@@ -174,7 +188,7 @@ def main():
                         format=logging_format,
                         datefmt=logging_datefmt,
                         filename=logging_filename)
-    logger.info('Start yoda_droid: %s',__file__)
+    logger.info('Start yoda_droid: %s', __file__)
 
     if args.debug and not args.error and not args.warning:
         # remove existing root handlers and reconfigure with DEBUG
@@ -204,9 +218,6 @@ def main():
                             filename=logging_filename)
         logger.setLevel(logging.WARNING)
 
-
-
-
     # dereference any links on the working path
     working_path = os.path.abspath(args.working_path)
 
@@ -215,16 +226,16 @@ def main():
         os.chdir(working_path)
 
     # get MPI world info
-    logger.info('yoda droid version:          %s',version.version)
-    logger.info('git repo commit string:      %s',commit_timestamp.timestamp)
-    logger.info('rank %10i of %10i',rank,nranks)
-    logger.info('python version:              %s',sys.version)
-    logger.info('working_path:                %s',working_path)
-    logger.info('config_filename:             %s',args.yoda_config)
-    logger.info('starting_path:               %s',os.getcwd())
-    logger.info('wall_clock_limit:            %d',args.wall_clock_limit)
+    logger.info('yoda droid version:          %s', version.version)
+    logger.info('git repo commit string:      %s', commit_timestamp.timestamp)
+    logger.info('rank %10i of %10i', rank, nranks)
+    logger.info('python version:              %s', sys.version)
+    logger.info('working_path:                %s', working_path)
+    logger.info('config_filename:             %s', args.yoda_config)
+    logger.info('starting_path:               %s', os.getcwd())
+    logger.info('wall_clock_limit:            %d', args.wall_clock_limit)
 
-    logger.info('running on hostname:         %s',socket.gethostname())
+    logger.info('running on hostname:         %s', socket.gethostname())
 
     # parse wall_clock_limit
     # the time in minutes of the wall clock given to the local
@@ -269,7 +280,7 @@ def main():
     while True:
         logger.debug('yoda_droid start loop')
 
-        if wallclock_expiring(wall_clock_limit,start_time,wallclock_expiring_leadtime):
+        if wallclock_expiring(wall_clock_limit, start_time, wallclock_expiring_leadtime):
             logger.info('wall clock is expiring')
             if droid is not None:
                 droid.stop()
@@ -291,7 +302,7 @@ def main():
         if yoda and not yoda.is_alive():
             logger.info('yoda has finished')
             break
-        logger.debug('sleeping %s',loop_timeout)
+        logger.debug('sleeping %s', loop_timeout)
         time.sleep(loop_timeout)
 
 
@@ -317,29 +328,28 @@ def main():
     logger.info('yoda_droid exiting')
 
 
-
-def wallclock_expiring(wall_clock_limit,start_time,wallclock_expiring_leadtime):
+def wallclock_expiring(wall_clock_limit, start_time, wallclock_expiring_leadtime):
     if wall_clock_limit.total_seconds() > 0:
         running_time = datetime.datetime.now() - start_time
         timeleft = wall_clock_limit - running_time
         if timeleft.total_seconds() < wallclock_expiring_leadtime:
-            logger.debug('time left %s is less than the leadtime %s, triggering exit.',timeleft.total_seconds(),wallclock_expiring_leadtime)
+            logger.debug('time left %s is less than the leadtime %s, triggering exit.', timeleft.total_seconds(), wallclock_expiring_leadtime)
             return True
         else:
-            logger.debug('time left %s before wall clock expires.',timeleft)
+            logger.debug('time left %s before wall clock expires.', timeleft)
     else:
         logger.debug('no wallclock limit set, no exit will be triggered')
     return False
 
 
-def get_config(config_filename,unknown_args):
+def get_config(config_filename, unknown_args):
 
     config = {}
     default = {}
     configfile = ConfigParser.ConfigParser()
     # make config options case sensitive (insensitive by default)
     configfile.optionxform = str
-    logger.debug('reading config file: %s',config_filename)
+    logger.debug('reading config file: %s', config_filename)
     with open(config_filename) as fp:
         configfile.readfp(fp)
         for section in configfile.sections():
@@ -374,14 +384,12 @@ def get_config(config_filename,unknown_args):
         else:
             raise Exception('found arg %s not starting with "--" on command line, configuration failed' % arg)
 
-
-
-    return config,default
+    return config, default
 
 
 if __name__ == "__main__":
-    print('%06.2f yoda version: %s' % (time.time() - imptime,version.version))
-    print('%06.2f git commit string: %s' % (time.time() - imptime,commit_timestamp.timestamp))
+    print('%06.2f yoda version: %s' % (time.time() - imptime, version.version))
+    print('%06.2f git commit string: %s' % (time.time() - imptime, commit_timestamp.timestamp))
     logging.basicConfig()
     try:
         main()
@@ -390,7 +398,7 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         from mpi4py import MPI
-        print('Rank %05d: uncaught exception. Aborting all ranks: %s' % (MPI.COMM_WORLD.Get_rank(),str(e)))
+        print('Rank %05d: uncaught exception. Aborting all ranks: %s' % (MPI.COMM_WORLD.Get_rank(), e))
         MPI.COMM_WORLD.Abort()
         import sys
         sys.exit(-1)

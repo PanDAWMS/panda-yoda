@@ -4,8 +4,7 @@
 # You may obtain a copy of the License at
 # http://www.apache.org/licenses/LICENSE-2.0
 #
-# Authors:
-# - ..
+# - Taylor Childers (john.taylor.childers@cern.ch)
 
 import os
 from multiprocessing import *

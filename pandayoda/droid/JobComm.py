@@ -5,7 +5,8 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - ..
+# - Taylor Childers (john.taylor.childers@cern.ch)
+# - Paul Nilsson (paul.nilsson@cern.ch)
 
 import os
 import os.path
@@ -17,6 +18,7 @@ from pandayoda.common.yoda_multiprocessing import Event
 from pandayoda.common import MessageTypes, EventRangeList, StatefulService, serializer
 
 logger = logging.getLogger(__name__)
+
 
 try:
     import yampl

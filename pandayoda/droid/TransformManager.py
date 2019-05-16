@@ -5,7 +5,8 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - ..
+# - Taylor Childers (john.taylor.childers@cern.ch)
+# - Paul Nilsson (paul.nilsson@cern.ch)
 
 import os
 import logging
@@ -94,6 +95,8 @@ class TransformManager(StatefulService.StatefulService):
 
         # to be set
         self.jobproc = None
+        self.stdout_filename = None
+        self.stderr_filename = None
 
     def get_returncode(self):
         self.returncode.get()
@@ -208,7 +211,6 @@ class TransformManager(StatefulService.StatefulService):
         if self.run_elsewhere:
             working_dir = self.run_directory
 
-
         script = template.format(transformation=transformation,
                                  jobPars=jobPars,
                                  cmtConfig=self.job_def['cmtConfig'],
@@ -253,7 +255,6 @@ class TransformManager(StatefulService.StatefulService):
                 logger.exception('Failed to execute jobmod: %s',module_name)
                 raise
 
-
     def start_subprocess(self):
         """ start the job subprocess, handling the command parsing and log file naming """
 
@@ -281,13 +282,13 @@ class TransformManager(StatefulService.StatefulService):
         if self.run_elsewhere:
             cwd = self.run_directory
 
-        logger.info('running directory: %s',cwd)
+        logger.info('running directory: %s', cwd)
 
-        logger.info('starting run_script: %s',cmd)
+        logger.info('starting run_script: %s', cmd)
 
         self.jobproc = subprocess.Popen(cmd.split(),
-                                        stdout=open(self.stdout_filename,'w'),
-                                        stderr=open(self.stderr_filename,'w'),
+                                        stdout=open(self.stdout_filename, 'w'),  # who closes this file?
+                                        stderr=open(self.stderr_filename, 'w'),  # who closes this file?
                                         cwd=cwd,
                                         env=env,
                                         )
@@ -316,16 +317,16 @@ class TransformManager(StatefulService.StatefulService):
     def stage_logs(self):
         start_dir = os.getcwd()
         os.chdir(self.run_directory)
-        for file in os.listdir(os.getcwd()):
-            logger.info('files: %s',file)
+        for _file in os.listdir(os.getcwd()):
+            logger.info('files: %s', _file)
         logs = []
         for entry in self.logs_to_stage:
             logs += glob.glob(entry)
-        logger.info('staging %s files from %s to %s',len(logs),self.run_directory,self.droid_working_path)
+        logger.info('staging %s files from %s to %s', len(logs), self.run_directory, self.droid_working_path)
 
         for filename in logs:
             cmd = 'cp --parents ' + filename + ' ' + self.droid_working_path + '/'
-            logger.debug('copying: %s',cmd)
+            logger.debug('copying: %s', cmd)
             os.system(cmd)
 
         os.chdir(start_dir)
@@ -337,7 +338,7 @@ class TransformManager(StatefulService.StatefulService):
             # read loglevel:
             if 'loglevel' in self.config[config_section]:
                 self.loglevel = self.config[config_section]['loglevel']
-                logger.info('%s loglevel: %s',config_section,self.loglevel)
+                logger.info('%s loglevel: %s', config_section, self.loglevel)
                 logger.setLevel(logging.getLevelName(self.loglevel))
             else:
                 logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
@@ -345,56 +346,56 @@ class TransformManager(StatefulService.StatefulService):
             # read loop_timeout:
             if 'loop_timeout' in self.config[config_section]:
                 self.loop_timeout = int(self.config[config_section]['loop_timeout'])
-                logger.info('%s loop_timeout: %s',config_section,self.loop_timeout)
+                logger.info('%s loop_timeout: %s',config_section, self.loop_timeout)
             else:
                 logger.warning('no "loop_timeout" in "%s" section of config file, keeping default %s',config_section,self.loop_timeout)
 
             # read template:
             if 'template' in self.config[config_section]:
                 self.runscript_template = self.config[config_section]['template']
-                logger.info('%s template: %s',config_section,self.runscript_template)
+                logger.info('%s template: %s', config_section, self.runscript_template)
             else:
                 raise Exception('must specify "template" in "%s" section of config file' % config_section)
 
             # read run_script:
             if 'run_script' in self.config[config_section]:
                 self.runscript_filename = self.config[config_section]['run_script']
-                logger.info('%s run_script: %s',config_section,self.runscript_filename)
+                logger.info('%s run_script: %s', config_section, self.runscript_filename)
             else:
-                logger.warning('no "run_script" in "%s" section of config file, using default %s',config_section,self.runscript_filename)
+                logger.warning('no "run_script" in "%s" section of config file, using default %s', config_section, self.runscript_filename)
 
             # read use_clean_env:
             if 'use_clean_env' in self.config[config_section]:
                 self.use_clean_env = self.get_boolean(self.config[config_section]['use_clean_env'])
-                logger.info('%s use_clean_env: %s',config_section,self.use_clean_env)
+                logger.info('%s use_clean_env: %s', config_section, self.use_clean_env)
             else:
-                logger.warning('no "use_clean_env" in "%s" section of config file, using default %s',config_section,self.use_clean_env)
+                logger.warning('no "use_clean_env" in "%s" section of config file, using default %s', config_section, self.use_clean_env)
 
             # read use_container:
             if 'use_container' in self.config[config_section]:
                 self.use_container = self.get_boolean(self.config[config_section]['use_container'])
-                logger.info('%s use_container: %s',config_section,self.use_container)
+                logger.info('%s use_container: %s', config_section, self.use_container)
             else:
-                logger.warning('no "use_container" in "%s" section of config file, using default %s',config_section,self.use_container)
+                logger.warning('no "use_container" in "%s" section of config file, using default %s', config_section, self.use_container)
 
             # read container_prefix:
             if 'container_prefix' in self.config[config_section]:
                 self.container_prefix = self.config[config_section]['container_prefix']
-                logger.info('%s container_prefix: %s',config_section,self.container_prefix)
+                logger.info('%s container_prefix: %s', config_section, self.container_prefix)
             elif self.use_container:
                 raise Exception('must specify "container_prefix" in "%s" section of config file when "use_container" set to true' % config_section)
 
             # read run_elsewhere:
             if 'run_elsewhere' in self.config[config_section]:
                 self.run_elsewhere = self.get_boolean(self.config[config_section]['run_elsewhere'])
-                logger.info('%s run_elsewhere: %s',config_section,self.run_elsewhere)
+                logger.info('%s run_elsewhere: %s', config_section, self.run_elsewhere)
             else:
                 logger.warning('no "run_elsewhere" in "%s" section of config file, using default %s',config_section,self.run_elsewhere)
 
             # read run_directory:
             if 'run_directory' in self.config[config_section]:
                 self.run_directory = self.config[config_section]['run_directory']
-                logger.info('%s run_directory: %s',config_section,self.run_directory)
+                logger.info('%s run_directory: %s', config_section, self.run_directory)
             elif self.run_elsewhere:
                 raise Exception('must specify "run_directory" in "%s" section of config file when "run_elsewhere" set to true' % config_section)
 
@@ -402,21 +403,21 @@ class TransformManager(StatefulService.StatefulService):
             if 'logs_to_stage' in self.config[config_section]:
                 self.logs_to_stage = self.config[config_section]['logs_to_stage']
                 self.logs_to_stage = self.logs_to_stage.split(',')
-                logger.info('%s logs_to_stage: %s',config_section,self.logs_to_stage)
+                logger.info('%s logs_to_stage: %s', config_section, self.logs_to_stage)
             else:
                 logger.warning('no "logs_to_stage" in "%s" section of config file, using default %s',config_section,self.logs_to_stage)
 
             # read template:
             if 'subprocess_stdout' in self.config[config_section]:
                 self.stdout_filename = self.config[config_section]['subprocess_stdout']
-                logger.info('%s subprocess_stdout: %s',config_section,self.stdout_filename)
+                logger.info('%s subprocess_stdout: %s', config_section, self.stdout_filename)
             else:
                 raise Exception('must specify "subprocess_stdout" in "%s" section of config file' % config_section)
 
             # read template:
             if 'subprocess_stderr' in self.config[config_section]:
                 self.stderr_filename = self.config[config_section]['subprocess_stderr']
-                logger.info('%s subprocess_stderr: %s',config_section,self.stderr_filename)
+                logger.info('%s subprocess_stderr: %s', config_section, self.stderr_filename)
             else:
                 raise Exception('must specify "subprocess_stderr" in "%s" section of config file' % config_section)
 
@@ -424,23 +425,23 @@ class TransformManager(StatefulService.StatefulService):
             if 'jobmods' in self.config[config_section]:
                 self.jobmods = self.config[config_section]['jobmods']
                 self.jobmods = self.jobmods.split(',')
-                logger.info('%s jobmods: %s',config_section,self.jobmods)
+                logger.info('%s jobmods: %s', config_section, self.jobmods)
             else:
-                logger.warning('no "jobmods" in "%s" section of config file, using default %s',config_section,self.jobmods)
+                logger.warning('no "jobmods" in "%s" section of config file, using default %s', config_section, self.jobmods)
 
             # pipe the stdout/stderr from the Subprocess.Popen object to these files
-            self.stdout_filename    = self.stdout_filename.format(rank=self.rank,PandaID=self.job_def['PandaID'])
+            self.stdout_filename = self.stdout_filename.format(rank=self.rank, PandaID=self.job_def['PandaID'])
             # add working path to stdout filename if it is not already
             if not self.stdout_filename.startswith(self.droid_working_path):
-                self.stdout_filename = os.path.join(self.droid_working_path,self.stdout_filename)
-            logger.info('%s subprocess_stdout: %s',config_section,self.stdout_filename)
+                self.stdout_filename = os.path.join(self.droid_working_path, self.stdout_filename)
+            logger.info('%s subprocess_stdout: %s', config_section, self.stdout_filename)
 
             # pipe Popen error to this file
-            self.stderr_filename    = self.stderr_filename.format(rank=self.rank,PandaID=self.job_def['PandaID'])
+            self.stderr_filename = self.stderr_filename.format(rank=self.rank, PandaID=self.job_def['PandaID'])
             # add working path to stderr filename if it is not already
             if not self.stderr_filename.startswith(self.droid_working_path):
-                self.stderr_filename = os.path.join(self.droid_working_path,self.stderr_filename)
-            logger.info('%s subprocess_stderr: %s',config_section,self.stderr_filename)
+                self.stderr_filename = os.path.join(self.droid_working_path, self.stderr_filename)
+            logger.info('%s subprocess_stderr: %s', config_section, self.stderr_filename)
         else:
             raise Exception('must specify %s section in config file' % config_section)
 

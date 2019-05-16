@@ -5,8 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - ..
-
+# - Taylor Childers (john.taylor.childers@cern.ch)
 
 #!/usr/bin/env python
 import os
@@ -26,6 +25,7 @@ except:
 
 ATHENA_READY_FOR_EVENTS = 'Ready for events'
 NO_MORE_EVENTS = 'No more events'
+
 
 class athena_communicator:
     """ small class to handle yampl communication exception handling """
@@ -104,7 +104,7 @@ def athenamp_worker():
 def athenamp():
     # get the number of workers that are suppose to be running
     workers = int(os.environ['ATHENA_PROC_NUMBER'])
-    logger.info('workers %d',workers)
+    logger.info('workers %d', workers)
 
     procs = []
     for i in range(workers):

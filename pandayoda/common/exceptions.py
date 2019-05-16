@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - ..
+# - Taylor Childers (john.taylor.childers@cern.ch)
 
 
 class MessengerJobAlreadyRequested(Exception):

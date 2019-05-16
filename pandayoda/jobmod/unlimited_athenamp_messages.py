@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - ..
+# - Taylor Childers (john.taylor.childers@cern.ch)
 
 
 # increase athena message message limit
@@ -14,7 +14,7 @@ def apply_mod(job_def):
     if '--postExec' not in jobPars:
         jobPars += " --postExec 'svcMgr.MessageSvc.defaultLimit = 9999999;' "
     else:
-        jobPars = jobPars.replace('--postExec ','--postExec "svcMgr.MessageSvc.defaultLimit = 9999999;" ')
+        jobPars = jobPars.replace('--postExec ', '--postExec "svcMgr.MessageSvc.defaultLimit = 9999999;" ')
 
     job_def['jobPars'] = jobPars
 

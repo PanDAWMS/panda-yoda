@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - ..
+# - Taylor Childers (john.taylor.childers@cern.ch)
 
 
 # when jobPars has very long '--inputEVNTFiles' list
@@ -18,7 +18,7 @@ def apply_mod(job_def):
     input_files = inFiles.split(',')
 
     start_index = jobPars.find('--inputEVNTFile=') + len('--inputEVNTFile=')
-    end_index   = jobPars.find(' ',start_index)
+    end_index = jobPars.find(' ', start_index)
 
     jobPars = jobPars[:start_index] + input_files[0] + ' ' + jobPars[end_index:]
 
