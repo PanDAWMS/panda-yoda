@@ -112,7 +112,7 @@ class EventRangeList(object):
             self.ids_by_state[EventRange.EventRange.ASSIGNED].append(_id)
 
             logger.debug('marked id %s as assigned', _id)
-      
+
         return output
 
     def __add__(self, other):
@@ -124,7 +124,7 @@ class EventRangeList(object):
                 newone.append(eventrange)
             for eventrangeid, eventrange in other.iteritems():
                 newone.append(eventrange)
-         
+
             # combine the lists of ids_by_state
             for state in EventRange.EventRange.STATES:
                 newone.ids_by_state[state] = self.ids_by_state[state] + other.ids_by_state[state]
@@ -156,7 +156,7 @@ class EventRangeList(object):
         return self.eventranges.get(key, default)
 
     def has_key(self, key):
-        return self.eventranges.has_key(key)
+        return key in self.eventranges
 
     def __iter__(self, key):
         return iter(self.eventranges)
@@ -198,40 +198,39 @@ if __name__ == '__main__':
     erl = EventRangeList()
 
     logger.info('test fill_from_list ')
-    l = [{"eventRangeID": "8848710-3005316503-6391858827-3-10",
-          "LFN":"EVNT.06402143._012906.pool.root.1",
-          "lastEvent": 3,
-          "startEvent": 3,
-          "scope": "mc15_13TeV",
-          "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"},
-         {"eventRangeID": "8848710-3005316503-6391858827-4-10",
-          "LFN":"EVNT.06402143._012906.pool.root.1",
-          "lastEvent": 4,
-          "startEvent": 4,
-          "scope": "mc15_13TeV",
-          "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"},
-         {"eventRangeID": "8848710-3005316503-6391858827-5-10",
-          "LFN":"EVNT.06402143._012906.pool.root.1",
-          "lastEvent": 5,
-          "startEvent": 5,
-          "scope": "mc15_13TeV",
-          "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"},
-         {"eventRangeID": "8848710-3005316503-6391858827-6-10",
-          "LFN":"EVNT.06402143._012906.pool.root.1",
-          "lastEvent": 6,
-          "startEvent": 6,
-          "scope": "mc15_13TeV",
-          "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"},
-         {"eventRangeID": "8848710-3005316503-6391858827-7-10",
-          "LFN":"EVNT.06402143._012906.pool.root.1",
-          "lastEvent": 7,
-          "startEvent": 7,
-          "scope": "mc15_13TeV",
-          "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"},
-         ]
+    _l = [{"eventRangeID": "8848710-3005316503-6391858827-3-10",
+           "LFN": "EVNT.06402143._012906.pool.root.1",
+           "lastEvent": 3,
+           "startEvent": 3,
+           "scope": "mc15_13TeV",
+           "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"},
+          {"eventRangeID": "8848710-3005316503-6391858827-4-10",
+           "LFN": "EVNT.06402143._012906.pool.root.1",
+           "lastEvent": 4,
+           "startEvent": 4,
+           "scope": "mc15_13TeV",
+           "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"},
+          {"eventRangeID": "8848710-3005316503-6391858827-5-10",
+           "LFN": "EVNT.06402143._012906.pool.root.1",
+           "lastEvent": 5,
+           "startEvent": 5,
+           "scope": "mc15_13TeV",
+           "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"},
+          {"eventRangeID": "8848710-3005316503-6391858827-6-10",
+           "LFN": "EVNT.06402143._012906.pool.root.1",
+           "lastEvent": 6,
+           "startEvent": 6,
+           "scope": "mc15_13TeV",
+           "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"},
+          {"eventRangeID": "8848710-3005316503-6391858827-7-10",
+           "LFN": " EVNT.06402143._012906.pool.root.1",
+           "lastEvent": 7,
+           "startEvent": 7,
+           "scope": "mc15_13TeV",
+           "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"},
+          ]
 
-
-    erl.fill_from_list(l)
+    erl.fill_from_list(_l)
 
     logger.info('n-ready: %d  n-processing: %d', erl.number_ready(), erl.number_processing())
 
@@ -253,9 +252,9 @@ if __name__ == '__main__':
 
     logger.info('n-ready: %d  n-processing: %d', erl.number_ready(), erl.number_processing())
 
-    logger.info(' testing add function' )
+    logger.info(' testing add function')
     erl2 = EventRangeList()
-    erl2.fill_from_list(l)
+    erl2.fill_from_list(_l)
     er = erl2.get_next(2)
     logger.info('2 n-ready: %d  n-processing: %d', erl2.number_ready(), erl2.number_processing())
 
