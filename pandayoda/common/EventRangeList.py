@@ -72,24 +72,24 @@ class EventRangeList(object):
         for eventrange in list_of_eventrange_dicts:
             self.append(EventRange.EventRange(eventrange))
 
-    def change_eventrange_state(self, eventRangeID, new_state):
-        if eventRangeID in self.eventranges:
-            logger.debug('changing id %s to %s', eventRangeID, new_state)
-            eventrange = self.eventranges[eventRangeID]
-            logger.debug('current state of id %s is %s', eventRangeID, eventrange.state)
+    def change_eventrange_state(self, eventrangeid, new_state):
+        if eventrangeid in self.eventranges:
+            logger.debug('changing id %s to %s', eventrangeid, new_state)
+            eventrange = self.eventranges[eventrangeid]
+            logger.debug('current state of id %s is %s', eventrangeid, eventrange.state)
             self.ids_by_state[eventrange.state].remove(eventrange.id)
             eventrange.state = new_state
             self.ids_by_state[eventrange.state].append(eventrange.id)
         else:
-            raise EventRangeIdNotFound('eventRangeID %s not found' % eventRangeID)
+            raise EventRangeIdNotFound('eventRangeID %s not found' % eventrangeid)
 
-    def mark_completed(self, eventRangeID):
-        logger.debug('marking eventRangeID %s as completed', eventRangeID)
-        self.change_eventrange_state(eventRangeID, EventRange.EventRange.COMPLETED)
+    def mark_completed(self, eventrangeid):
+        logger.debug('marking eventRangeID %s as completed', eventrangeid)
+        self.change_eventrange_state(eventrangeid, EventRange.EventRange.COMPLETED)
 
-    def mark_assigned(self, eventRangeID):
-        logger.debug('marking eventRangeID %s as assigned', eventRangeID)
-        self.change_eventrange_state(eventRangeID, EventRange.EventRange.ASSIGNED)
+    def mark_assigned(self, eventrangeid):
+        logger.debug('marking eventRangeID %s as assigned', eventrangeid)
+        self.change_eventrange_state(eventrangeid, EventRange.EventRange.ASSIGNED)
 
     def get_next(self, number_of_ranges=1):
         """ method for retrieving number_of_ranges worth of event ranges,
@@ -132,12 +132,12 @@ class EventRangeList(object):
         else:
             raise TypeError('other is not of type EventRangeList: %s' % type(other).__name__)
 
-    def append(self, eventRange):
-        if isinstance(eventRange, EventRange.EventRange):
-            self.eventranges[eventRange.id] = eventRange
-            self.ids_by_state[eventRange.state].append(eventRange.id)
+    def append(self, eventrange):
+        if isinstance(eventrange, EventRange.EventRange):
+            self.eventranges[eventrange.id] = eventrange
+            self.ids_by_state[eventrange.state].append(eventrange.id)
         else:
-            raise TypeError('object is not of type EventRange: %s' % type(eventRange).__name__)
+            raise TypeError('object is not of type EventRange: %s' % type(eventrange).__name__)
 
     def pop(self, key, default=None):
         return self.eventranges.pop(key, default)

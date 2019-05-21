@@ -25,7 +25,7 @@ def get_array_type(var):
         else:
             return ctypes.c_char_p
     else:
-        logger.error('invalid type object %s',str(var))
+        logger.error('invalid type object %s', str(var))
 
 
 class VariableWithLock:

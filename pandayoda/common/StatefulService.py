@@ -9,7 +9,7 @@
 import logging
 import time
 from pandayoda.common import VariableWithLock
-from pandayoda.common.yoda_multiprocessing import Process,Event
+from pandayoda.common.yoda_multiprocessing import Process, Event
 logger = logging.getLogger()
 
 
@@ -35,7 +35,6 @@ class StatefulService(Process):
 
         # loop_timeout decided loop sleep times
         self.loop_timeout = loop_timeout
-
 
     def stop(self):
         """ this function can be called by outside threads to cause the JobManager thread to exit """

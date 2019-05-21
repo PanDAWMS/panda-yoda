@@ -6,7 +6,7 @@
 # Authors:
 # - Taylor Childers (john.taylor.childers@cern.ch)
 
-# Theses are the Queue message and MPI message types 
+# Theses are the Queue message and MPI message types
 
 
 # sent by Droid to Yoda to get a job
@@ -62,7 +62,7 @@ forwarding_map = [
         DROID_HAS_EXITED: ['Yoda'],
     },
     {
-        NEW_JOB: ['Droid','JobComm'],
+        NEW_JOB: ['Droid', 'JobComm'],
         NEW_EVENT_RANGES: ['JobComm'],
         WALLCLOCK_EXPIRING: ['Droid'],
         DROID_EXIT: ['Droid'],

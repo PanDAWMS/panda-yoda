@@ -11,7 +11,7 @@ import logging
 import threading
 from pandayoda.common import MessageTypes
 logger = logging.getLogger(__name__)
-''' 
+'''
 This module should provide all the messaging functions for communication between Yoda & Droid.
 The current implementation uses MPI, but could easily be replaced with another form.
 '''
@@ -72,7 +72,7 @@ def recv_job():
 
 # yoda sends new event ranges to droid
 def send_droid_new_eventranges(eventranges, droid_rank):
-    msg = {'type': MessageTypes.NEW_EVENT_RANGES, 'eventranges':eventranges}
+    msg = {'type': MessageTypes.NEW_EVENT_RANGES, 'eventranges': eventranges}
     return send_message(msg, dest=droid_rank, tag=FROM_YODA_WORKMANAGER)
 
 
@@ -101,7 +101,7 @@ def recv_yoda_message():
 
 
 def send_droid_has_exited(msg):
-    msg = {'type': MessageTypes.DROID_HAS_EXITED, 'message':msg}
+    msg = {'type': MessageTypes.DROID_HAS_EXITED, 'message': msg}
     return send_message(msg, dest=YODA_RANK, tag=TO_YODA)
 
 
@@ -147,6 +147,7 @@ def send_message(data, dest=None, tag=None):
         raise
 
     return request
+
 
 def receive_message(source=MPI.ANY_SOURCE, tag=None):
     """ basic MPI_ISend but mpi4py handles the object tranlation for sending

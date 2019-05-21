@@ -6,7 +6,8 @@
 # Authors:
 # - Taylor Childers (john.taylor.childers@cern.ch)
 
-import json,logging
+import json
+import logging
 logger = logging.getLogger(__name__)
 
 

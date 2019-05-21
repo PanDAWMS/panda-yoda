@@ -21,6 +21,6 @@ class SerialQueue2(Queue, object):
         smsg = serializer.serialize(message)
         super(SerialQueue, self).put(smsg, block=block, timeout=timeout)
 
-    def get(self,block=True, timeout=None):
+    def get(self, block=True, timeout=None):
         smsg = super(SerialQueue, self).get(block=block, timeout=timeout)
         return serializer.deserialize(smsg)
