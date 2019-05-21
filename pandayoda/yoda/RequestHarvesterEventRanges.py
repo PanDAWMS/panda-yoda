@@ -1,5 +1,16 @@
-import logging,os,time
-from pandayoda.common import StatefulService,exceptions
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Authors:
+# - Taylor Childers (john.taylor.childers@cern.ch)
+# - Paul Nilsson (paul.nilsson@cern.ch)
+
+import logging
+import os
+import time
+from pandayoda.common import StatefulService, exceptions
 from pandayoda.common import yoda_multiprocessing as mp
 logger = logging.getLogger(__name__)
 
@@ -9,37 +20,39 @@ config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.
 class RequestHarvesterEventRanges(StatefulService.StatefulService):
     ''' This thread is spawned to request event ranges from Harvester '''
 
-    CREATED                 = 'CREATED'
-    REQUEST                 = 'REQUEST'
-    WAITING                 = 'WAITING'
-    RETRIEVE_EVENTS         = 'RETRIEVE_EVENTS'
-    EXITED                  = 'EXITED'
+    CREATED = 'CREATED'
+    REQUEST = 'REQUEST'
+    WAITING = 'WAITING'
+    RETRIEVE_EVENTS = 'RETRIEVE_EVENTS'
+    EXITED = 'EXITED'
 
-    STATES = [CREATED,REQUEST,WAITING,RETRIEVE_EVENTS,EXITED]
-    RUNNING_STATES = [CREATED,REQUEST,WAITING,RETRIEVE_EVENTS]
+    STATES = [CREATED, REQUEST, WAITING, RETRIEVE_EVENTS, EXITED]
+    RUNNING_STATES = [CREATED, REQUEST, WAITING, RETRIEVE_EVENTS]
 
-    def __init__(self,config,job_def,mpmgr,harvester_messenger):
-        super(RequestHarvesterEventRanges,self).__init__()
+    def __init__(self, config, job_def, mpmgr, harvester_messenger):
+        super(RequestHarvesterEventRanges, self).__init__()
 
         # local config options
-        self.config                      = config
+        self.config = config
 
         # these variables used to return new event ranges
-        self.mgr                         = mpmgr
-        self.new_eventranges             = self.mgr.dict()
-        self.eventranges_avail           = mp.Event()
+        self.mgr = mpmgr
+        self.new_eventranges = self.mgr.dict()
+        self.eventranges_avail = mp.Event()
 
         # set if there are no more event ranges coming from Harvester
-        self.no_more_eventranges_flag    = mp.Event()
+        self.no_more_eventranges_flag = mp.Event()
 
         # set this to define which job definition will be used to request event ranges
-        self.job_def                     = job_def
+        self.job_def = job_def
 
         # messenger module for communicating with harvester
-        self.harvester_messenger         = harvester_messenger
+        self.harvester_messenger = harvester_messenger
 
         self.set_state(self.CREATED)
 
+        # to be set
+        self.loglevel = None
 
     def exited(self):
         return self.in_state(self.EXITED)
@@ -50,10 +63,10 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
         return False
 
     def get_eventranges(self):
-        ''' parent thread calls this function to retrieve the event ranges sent by Harevester '''
+        """ Parent thread calls this function to retrieve the event ranges sent by Harvester. """
         return self.new_eventranges
 
-    def set_eventranges(self,eventranges):
+    def set_eventranges(self, eventranges):
         for key in eventranges.keys():
             self.new_eventranges[key] = eventranges[key]
             self.eventranges_avail.set()
@@ -65,7 +78,7 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
         return self.no_more_eventranges_flag.is_set()
 
     def run(self):
-        ''' overriding base class function '''
+        """ Overriding base class function. """
 
         # get the messenger for communicating with Harvester
         logger.debug('starting requestHarvesterEventRanges thread')
@@ -74,25 +87,25 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
             # read log level:
             if 'loglevel' in self.config[config_section]:
                 self.loglevel = self.config[config_section]['loglevel']
-                logger.info('%s loglevel: %s',config_section,self.loglevel)
+                logger.info('%s loglevel: %s', config_section, self.loglevel)
                 logger.setLevel(logging.getLevelName(self.loglevel))
             else:
-                logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
+                logger.warning('no "loglevel" in "%s" section of config file, keeping default', config_section)
 
             # read droid loop timeout:
             if 'loop_timeout' in self.config[config_section]:
                 self.loop_timeout = int(self.config[config_section]['loop_timeout'])
-                logger.info('%s loop_timeout: %s',config_section,self.loop_timeout)
+                logger.info('%s loop_timeout: %s', config_section, self.loop_timeout)
             else:
-                logger.warning('no "loop_timeout" in "%s" section of config file, keeping default %s',config_section,self.loop_timeout)
+                logger.warning('no "loop_timeout" in "%s" section of config file, keeping default %s',config_section, self.loop_timeout)
 
             # read droid eventrange_timeout:
             if 'eventrange_timeout' in self.config[config_section]:
                 self.eventrange_timeout = int(self.config[config_section]['eventrange_timeout'])
-                logger.info('%s eventrange_timeout: %s',config_section,self.eventrange_timeout)
+                logger.info('%s eventrange_timeout: %s', config_section, self.eventrange_timeout)
             else:
                 self.eventrange_timeout = 0
-                logger.warning('no "eventrange_timeout" in "%s" section of config file, keeping default %s',config_section,self.eventrange_timeout)
+                logger.warning('no "eventrange_timeout" in "%s" section of config file, keeping default %s', config_section, self.eventrange_timeout)
 
         else:
             raise Exception('no %s section in the configuration' % config_section)
@@ -103,7 +116,7 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
 
         while not self.exit.is_set():
             # get state
-            logger.debug('start loop, current state: %s',self.get_state())
+            logger.debug('start loop, current state: %s', self.get_state())
 
             ########
             # REQUEST State
@@ -128,24 +141,22 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
                     # request events
                     self.set_state(self.WAITING)
 
-
             #########
             # WAITING State
             ########################
             if self.get_state() == self.WAITING:
-                logger.info('checking for event ranges, will block for %s',self.loop_timeout)
+                logger.info('checking for event ranges, will block for %s', self.loop_timeout)
                 # use messenger to check if event ranges are ready
-                if self.harvester_messenger.eventranges_ready(block=True,timeout=self.loop_timeout):
+                if self.harvester_messenger.eventranges_ready(block=True, timeout=self.loop_timeout):
                     self.set_state(self.RETRIEVE_EVENTS)
                 else:
                     logger.debug('no event ranges yet received.')
                     time_waiting = time.time() - request_time
                     if time_waiting > self.eventrange_timeout:
-                        logger.info('have been waiting for eventranges for %d seconds, limited to %d, triggering exit',time_waiting,self.eventrange_timeout)
+                        logger.info('have been waiting for eventranges for %d seconds, limited to %d, triggering exit', time_waiting, self.eventrange_timeout)
                         self.no_more_eventranges_flag.set()
                         self.stop()
                         continue
-
 
             #########
             #  RETRIEVE_EVENTS State
@@ -161,8 +172,8 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
                         if logger.getEffectiveLevel() == logging.DEBUG:
                             tmpstr = ''
                             for jobid in eventranges.keys():
-                                tmpstr += ' %s:%s' % (jobid,len(eventranges[jobid]))
-                            logger.debug('received new eventranges for PandaID:N-ranges: %s',tmpstr)
+                                tmpstr += ' %s:%s' % (jobid, len(eventranges[jobid]))
+                            logger.debug('received new eventranges for PandaID:N-ranges: %s', tmpstr)
 
                         self.set_eventranges(eventranges)
 
@@ -173,12 +184,11 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
 
                         self.stop()
                     else:
-                        logger.debug('received no eventranges: %s',eventranges)
+                        logger.debug('received no eventranges: %s', eventranges)
                         self.stop()
-                except exceptions.MessengerFailedToParse,e:
-                    logger.error('failed to parse an event file: %s',str(e))
+                except exceptions.MessengerFailedToParse as e:
+                    logger.error('failed to parse an event file: %s', str(e))
                     self.stop()
 
         self.set_state(self.EXITED)
         logger.debug('thread is exiting')
-   

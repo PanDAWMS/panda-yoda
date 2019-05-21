@@ -49,7 +49,7 @@ class FileManager(Process):
         self.harvester_output_timeout = 10
 
     def stop(self):
-        ''' this function can be called by outside threads to cause the JobManager thread to exit'''
+        """ this function can be called by outside threads to cause the JobManager thread to exit. """
         self.exit.set()
 
     def run(self):
