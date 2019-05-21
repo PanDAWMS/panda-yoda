@@ -1,5 +1,17 @@
-import os,logging,time,Queue
-from pandayoda.common.yoda_multiprocessing import Process,Event
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Authors:
+# - Taylor Childers (john.taylor.childers@cern.ch)
+# - Paul Nilsson (paul.nilsson@cern.ch)
+
+import os
+import logging
+import time
+import Queue
+from pandayoda.common.yoda_multiprocessing import Process, Event
 from pandayoda.common import MessageTypes
 logger = logging.getLogger(__name__)
 
@@ -7,7 +19,6 @@ config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.
 
 
 class FileManager(Process):
-
 
    IDLE                 = 'IDLE'
    STAGE_OUT            = 'STAGE_OUT'
@@ -81,9 +92,9 @@ class FileManager(Process):
                      # add file to Harvester stage out
                      logger.info('staging %s files to Harvester',len(local_filelist))
                      self.harvester_messenger.stage_out_files(
-                                                              local_filelist,
-                                                              self.output_file_type
-                                                             )
+                        local_filelist,
+                        self.output_file_type
+                     )
                      local_filelist = []
                   else:
                      logger.warning('Harvester has not yet consumed output files, currently waiting to dump %s output files',len(local_filelist))
@@ -91,8 +102,8 @@ class FileManager(Process):
                logger.error('message type not recognized')
 
       if local_filelist:
-          logger.info('staging %s files to Harvester',len(local_filelist))
-          self.harvester_messenger.stage_out_files(local_filelist, self.output_file_type)
+         logger.info('staging %s files to Harvester',len(local_filelist))
+         self.harvester_messenger.stage_out_files(local_filelist, self.output_file_type)
 
       # exit
       logger.info('FileManager exiting')

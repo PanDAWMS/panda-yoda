@@ -349,8 +349,9 @@ class WorkManager(Process):
 
                         # something went wrong
                         else:
-                            logger.error('there is no eventrange for pandaID %s, this should be impossible since every pandaID in the pandajobs dictionary gets an empty '
-                                         'EventRangeList object. Something is amiss. panda job ids: %s', droid_pandaid, pandajobs.keys())
+                            logger.error('there is no eventrange for pandaID %s, this should be impossible since every pandaID in the '
+                                         'pandajobs dictionary gets an empty EventRangeList object. '
+                                         'Something is amiss. panda job ids: %s', droid_pandaid, pandajobs.keys())
 
                 else:
                     logger.error('message type was not recognized: %s', qmsg['type'])
