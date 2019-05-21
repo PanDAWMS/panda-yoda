@@ -322,7 +322,7 @@ class MPIService(StatefulService.StatefulService):
           self.logger.error('must specify "default_message_buffer_size" in "%s" section of config file',config_section)
           return
        self.logger.info('default_message_buffer_size: %d',self.default_message_buffer_size)
- 
+
        # get self.debug_message_char_length
        if self.config.has_option(config_section,'debug_message_char_length'):
           self.debug_message_char_length = self.config.getint(config_section,'debug_message_char_length')

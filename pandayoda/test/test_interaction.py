@@ -7,7 +7,6 @@
 # - Taylor Childers (john.taylor.childers@cern.ch)
 # - Paul Nilsson (paul.nilsson@cern.ch)
 
-import urllib
 from mpi4py import MPI
 from pandayoda.yodacore import Interaction
 

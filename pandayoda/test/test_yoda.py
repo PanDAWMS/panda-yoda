@@ -6,7 +6,6 @@
 # Authors:
 # - Taylor Childers (john.taylor.childers@cern.ch)
 
-import sys
 import json
 import pickle
 from mpi4py import MPI
@@ -30,7 +29,7 @@ er = [
      'LFN': 'NTUP_SUSY.01272447._000001.root.2',
      'GUID': 'c58cc417-f369-44d8-81b4-72a76c1f2b79',
      'scope': 'mc12_8TeV'},
-    ]
+]
 
 job = {'PandaID': '123',
        'jobsetID': '567',
@@ -58,18 +57,15 @@ else:
     tmpLog.debug("rank{0} sending req".format(mpirank))
     tmpStat, jobData = snd.sendRequest('getJob', {'siteName': 'TEST'})
     while True:
-        tmpStat, res = snd.sendRequest('getEventRanges', {'pandaID': jobData['PandaID'],
-                                                        'jobsetID': jobData['jobsetID']})
+        tmpStat, res = snd.sendRequest('getEventRanges', {'pandaID': jobData['PandaID'], 'jobsetID': jobData['jobsetID']})
         eventRangesStr = res['eventRanges'][0]
         eventRanges = json.loads(eventRangesStr)
         tmpLog.debug("rank{0} got {1} ranges".format(mpirank, len(eventRanges)))
         if eventRanges == []:
-            res = snd.sendRequest('updateJob', {'jobID': jobData['PandaID'],
-                                               'state': 'finished'})
+            res = snd.sendRequest('updateJob', {'jobID': jobData['PandaID'], 'state': 'finished'})
             break
         else:
             for eventRange in eventRanges:
                 tmpLog.debug("update rangeID={0} ranges".format(eventRange['eventRangeID']))
-                snd.sendRequest('updateEventRange', {"eventRangeID": eventRange['eventRangeID'],
-                                                    'eventStatus': "finished"})
+                snd.sendRequest('updateEventRange', {"eventRangeID": eventRange['eventRangeID'], 'eventStatus': "finished"})
     tmpLog.info('rank{0} done'.format(mpirank))

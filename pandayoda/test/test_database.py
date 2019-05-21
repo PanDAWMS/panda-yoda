@@ -22,8 +22,7 @@ eventRangeList = [
      'LFN': 'NTUP_SUSY.01272447._000001.root.2',
      'GUID': 'c58cc417-f369-44d8-81b4-72a76c1f2b79',
      'scope': 'mc12_8TeV'},
-    ]
-
+]
 
 db = Database.Backend()
 
