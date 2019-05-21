@@ -1,42 +1,44 @@
-import os,logging,Queue
-from pandayoda.common.yoda_multiprocessing import Process,Event,Manager
-import RequestHarvesterJob,RequestHarvesterEventRanges,PandaJobDict
-from pandayoda.common import MessageTypes,EventRangeList
+import os
+import logging
+import Queue
+from pandayoda.common.yoda_multiprocessing import Process, Event, Manager
+import RequestHarvesterJob, RequestHarvesterEventRanges, PandaJobDict
+from pandayoda.common import MessageTypes, EventRangeList
 logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
 
 class WorkManager(Process):
-   ''' Work Manager: this thread manages work going to the running Droids '''
+   """ Work Manager: this thread manages work going to the running Droids """
 
-   def __init__(self,config,queues,harvester_messenger):
-      '''
+   def __init__(self, config, queues, harvester_messenger):
+      """
         queues: A dictionary of SerialQueue.SerialQueue objects where the JobManager can send
                      messages to other Droid components about errors, etc.
         config: the ConfigParser handle for yoda
-        '''
+      """
       # call base class init function
-      super(WorkManager,self).__init__()
+      super(WorkManager, self).__init__()
 
       # dictionary of queues for sending messages to Droid components
-      self.queues                = queues
+      self.queues = queues
 
       # configuration of Yoda
-      self.config                = config
+      self.config = config
 
       # harvester communication module
-      self.harvester_messenger   = harvester_messenger
+      self.harvester_messenger = harvester_messenger
 
       # this is used to trigger the thread exit
-      self.exit                  = Event()
+      self.exit = Event()
 
    def stop(self):
-      ''' this function can be called by outside subthreads to cause the JobManager thread to exit'''
+      """ This function can be called by outside subthreads to cause the JobManager thread to exit """
       self.exit.set()
 
    def run(self):
-      ''' this function is executed as the subthread. '''
+      """ This function is executed as the subthread. """
 
       # read inputs from config file
       self.read_config()
