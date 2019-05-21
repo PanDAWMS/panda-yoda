@@ -5,6 +5,7 @@
 #
 # Authors:
 # - Taylor Childers (john.taylor.childers@cern.ch)
+# - Paul Nilsson (paul.nilsson@cern.ch)
 
 
 # add '--fileValidation=FALSE' to jobPars
@@ -15,10 +16,10 @@ def apply_mod(job_def):
     :return:
     """
 
-    jobPars = job_def['jobPars']
+    jobpars = job_def['jobPars']
 
-    jobPars += ' --fileValidation=FALSE'
+    jobpars += ' --fileValidation=FALSE'
 
-    job_def['jobPars'] = jobPars
+    job_def['jobPars'] = jobpars
 
     return job_def

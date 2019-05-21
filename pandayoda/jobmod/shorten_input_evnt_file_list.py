@@ -5,23 +5,24 @@
 #
 # Authors:
 # - Taylor Childers (john.taylor.childers@cern.ch)
+# - Paul Nilsson (paul.nilsson@cern.ch)
 
 
 # when jobPars has very long '--inputEVNTFiles' list
 # it can be good for AthenaMP to remove all but one
 def apply_mod(job_def):
 
-    jobPars = job_def['jobPars']
+    jobpars = job_def['jobPars']
     inFiles = job_def['inFiles']
 
     input_files = inFiles.split(',')
 
-    start_index = jobPars.find('--inputEVNTFile=') + len('--inputEVNTFile=')
-    end_index = jobPars.find(' ', start_index)
+    start_index = jobpars.find('--inputEVNTFile=') + len('--inputEVNTFile=')
+    end_index = jobpars.find(' ', start_index)
 
-    jobPars = jobPars[:start_index] + input_files[0] + ' ' + jobPars[end_index:]
+    jobpars = jobpars[:start_index] + input_files[0] + ' ' + jobpars[end_index:]
 
-    job_def['jobPars'] = jobPars
+    job_def['jobPars'] = jobpars
 
     return job_def
    

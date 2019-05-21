@@ -5,16 +5,17 @@
 #
 # Authors:
 # - Taylor Childers (john.taylor.childers@cern.ch)
+# - Paul Nilsson (paul.nilsson@cern.ch)
 
 
 # removes '--DBRelease' from jobPars
 def apply_mod(job_def):
-    jobPars = job_def['jobPars']
+    jobpars = job_def['jobPars']
 
-    newPars = ''
-    for par in jobPars.split():
+    newpars = ''
+    for par in jobpars.split():
         if not par.startswith('--DBRelease'):
-            newPars += par + ' '
+            newpars += par + ' '
 
-    job_def['jobPars'] = newPars
+    job_def['jobPars'] = newpars
     return job_def
