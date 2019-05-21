@@ -13,9 +13,9 @@
 def apply_mod(job_def):
 
     jobpars = job_def['jobPars']
-    inFiles = job_def['inFiles']
+    infiles = job_def['inFiles']
 
-    input_files = inFiles.split(',')
+    input_files = infiles.split(',')
 
     start_index = jobpars.find('--inputEVNTFile=') + len('--inputEVNTFile=')
     end_index = jobpars.find(' ', start_index)
@@ -25,4 +25,3 @@ def apply_mod(job_def):
     job_def['jobPars'] = jobpars
 
     return job_def
-   
