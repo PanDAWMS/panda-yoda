@@ -11,7 +11,9 @@ import os
 import logging
 import Queue
 from pandayoda.common.yoda_multiprocessing import Process, Event, Manager
-import RequestHarvesterJob, RequestHarvesterEventRanges, PandaJobDict
+import RequestHarvesterJob
+import RequestHarvesterEventRanges
+import PandaJobDict
 from pandayoda.common import MessageTypes, EventRangeList
 logger = logging.getLogger(__name__)
 
@@ -51,7 +53,7 @@ class WorkManager(Process):
         """ This function can be called by outside subthreads to cause the JobManager thread to exit """
         self.exit.set()
 
-    def run(self):
+    def run(self):  # noqa: C901
         """ This function is executed as the subthread. """
 
         # read inputs from config file
@@ -347,8 +349,8 @@ class WorkManager(Process):
 
                         # something went wrong
                         else:
-                            logger.error('there is no eventrange for pandaID %s, this should be impossible since every pandaID in the pandajobs dictionary gets an empty EventRangeList object. '
-                                         'Something is amiss. panda job ids: %s', droid_pandaid, pandajobs.keys())
+                            logger.error('there is no eventrange for pandaID %s, this should be impossible since every pandaID in the pandajobs dictionary gets an empty '
+                                         'EventRangeList object. Something is amiss. panda job ids: %s', droid_pandaid, pandajobs.keys())
 
                 else:
                     logger.error('message type was not recognized: %s', qmsg['type'])
@@ -365,7 +367,6 @@ class WorkManager(Process):
                 logger.debug('RequestHarvesterJob: %s', requestharvesterjob.get_state())
             if requestharvestereventranges is not None:
                 logger.debug('requestHarvesterEventRanges: %s', requestharvestereventranges.get_state())
-
 
         logger.info('signaling exit to threads')
         if requestharvesterjob is not None and requestharvesterjob.is_alive():
@@ -423,7 +424,7 @@ class WorkManager(Process):
             # read log level:
             if 'loglevel' in self.config[config_section]:
                 self.loglevel = self.config[config_section]['loglevel']
-                logger.info('%s loglevel: %s', config_section,self.loglevel)
+                logger.info('%s loglevel: %s', config_section, self.loglevel)
                 logger.setLevel(logging.getLevelName(self.loglevel))
             else:
                 logger.warning('no "loglevel" in "%s" section of config file, keeping default', config_section)
@@ -440,17 +441,19 @@ class WorkManager(Process):
                 self.send_n_eventranges = int(self.config[config_section]['send_n_eventranges'])
                 logger.info('%s send_n_eventranges: %s', config_section, self.send_n_eventranges)
             else:
-                raise Exception('configuration section %s has no "send_n_eventranges" setting. This setting is important and should be optimized to your system. '
+                raise Exception('configuration section %s has no "send_n_eventranges" setting. '
+                                'This setting is important and should be optimized to your system. '
                                 'Typically you should set it to the number of AthenaMP workers on a single node or some factor of that.' % config_section)
-
 
             # read request_n_eventranges:
             if 'request_n_eventranges' in self.config[config_section]:
                 self.request_n_eventranges = int(self.config[config_section]['request_n_eventranges'])
                 logger.info('%s request_n_eventranges: %s', config_section, self.request_n_eventranges)
             else:
-                raise Exception('configuration section %s has no "request_n_eventranges" setting. This setting is important and should be optimized to your system. '
-                                'Typically you should set it to the number of AthenaMP workers on a single node multiplied by the total number of Droid ranks running or some factor of that.' % config_section)
+                raise Exception('configuration section %s has no "request_n_eventranges" setting. '
+                                'This setting is important and should be optimized to your system. '
+                                'Typically you should set it to the number of AthenaMP workers on a single node multiplied by the '
+                                'total number of Droid ranks running or some factor of that.' % config_section)
 
         else:
             raise Exception('no %s section in the configuration' % config_section)
