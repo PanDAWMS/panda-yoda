@@ -19,16 +19,15 @@ config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.
 
 
 class FileManager(Process):
+   IDLE = 'IDLE'
+   STAGE_OUT = 'STAGE_OUT'
+   STAGING_OUT = 'STAGING_OUT'
+   EXITED = 'EXITED'
 
-   IDLE                 = 'IDLE'
-   STAGE_OUT            = 'STAGE_OUT'
-   STAGING_OUT          = 'STAGING_OUT'
-   EXITED               = 'EXITED'
+   STATES = [IDLE, STAGE_OUT, STAGING_OUT, EXITED]
 
-   STATES = [IDLE,STAGE_OUT,STAGING_OUT,EXITED]
-
-   def __init__(self,config,queues,yoda_working_path,harvester_messenger):
-      super(FileManager,self).__init__()
+   def __init__(self, config, queues, yoda_working_path, harvester_messenger):
+      super(FileManager, self).__init__()
 
       # dictionary of queues for sending messages to Droid components
       self.queues                = queues
