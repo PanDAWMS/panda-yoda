@@ -189,7 +189,7 @@ class MPIService(StatefulService.StatefulService):
                     if len(tmpmsg) > self.debug_message_char_length:
                         tmpslice = slice(0, self.debug_message_char_length)
                         tmpmsg = tmpmsg[tmpslice] + '...'
-                    self.logger.debug('received mpi message: %s',tmpmsg)
+                    self.logger.debug('received mpi message: %s', tmpmsg)
                 # forward message
                 self.forward_message(message)
             else:
@@ -214,9 +214,9 @@ class MPIService(StatefulService.StatefulService):
                 if self.logger.getEffectiveLevel() == logging.DEBUG:
                     tmpmsg = str(qmsg)
                     if len(tmpmsg) > self.debug_message_char_length:
-                        tmpslice = slice(0,self.debug_message_char_length)
+                        tmpslice = slice(0, self.debug_message_char_length)
                         tmpmsg = tmpmsg[tmpslice] + '...'
-                    self.logger.debug('received queue message: %s',tmpmsg)
+                    self.logger.debug('received queue message: %s', tmpmsg)
 
                 # determine if destination rank or tag was set
                 if 'destination_rank' in qmsg:
@@ -232,7 +232,7 @@ class MPIService(StatefulService.StatefulService):
                 msgbuff = copy.deepcopy(qmsg)
                 self.logger.info('sending msg of size %s bytes and type %s with destination %s', sys.getsizeof(msgbuff), msgbuff['type'], destination_rank)
                 if tag is None:
-                    send_request = MPI.COMM_WORLD.isend(msgbuff ,dest=destination_rank)
+                    send_request = MPI.COMM_WORLD.isend(msgbuff, dest=destination_rank)
                 else:
                     send_request = MPI.COMM_WORLD.isend(msgbuff, dest=destination_rank, tag=tag)
 
@@ -331,8 +331,7 @@ class MPIService(StatefulService.StatefulService):
           self.logger.warning('no "debug_message_char_length" in "%s" section of config file, using default %s',config_section,default)
           self.debug_message_char_length = default
        self.logger.info('debug_message_char_length: %d',self.debug_message_char_length)
- 
- 
+
        # read yoda log level:
        if self.config.has_option(config_section,'loglevel'):
           self.loglevel = self.config.get(config_section,'loglevel')
@@ -340,7 +339,7 @@ class MPIService(StatefulService.StatefulService):
           self.logger.setLevel(logging.getLevelName(self.loglevel))
        else:
           self.logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
- 
+
        # read yoda loop timeout:
        if self.config.has_option(config_section,'loop_timeout'):
           self.loop_timeout = self.config.getfloat(config_section,'loop_timeout')
