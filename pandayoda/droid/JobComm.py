@@ -125,7 +125,7 @@ class JobComm(StatefulService.StatefulService):  # noqa: C901
         self.read_config()
 
         logger.debug('start yampl payloadcommunicator')
-        athpayloadcomm = athena_payloadcommunicator(self.yampl_socket_name)
+        athpayloadcomm = AthenaPayloadCommunicator(self.yampl_socket_name)
         payload_msg = ''
 
         # current list of output files to send via MPI
@@ -160,8 +160,8 @@ class JobComm(StatefulService.StatefulService):  # noqa: C901
 
                 # send output file data to Yoda/FileManager
                 logger.info('sending %s output files to Yoda/FileManager', len(output_files))
-                mpi_message = {'type':MessageTypes.OUTPUT_FILE,
-                               'filelist':output_files,
+                mpi_message = {'type': MessageTypes.OUTPUT_FILE,
+                               'filelist': output_files,
                                'destination_rank': 0
                                }
                 self.queues['MPIService'].put(mpi_message)
@@ -257,7 +257,6 @@ class JobComm(StatefulService.StatefulService):  # noqa: C901
 
                     waiting_for_eventranges = False
 
-
                 qmsg = None
 
             ##################
@@ -312,7 +311,7 @@ class JobComm(StatefulService.StatefulService):  # noqa: C901
             elif self.get_state() == self.MESSAGE_RECEIVED:
 
                 # if ready for events, send them or wait for some
-                if athena_payloadcommunicator.READY_FOR_EVENTS in payload_msg:
+                if AthenaPayloadCommunicator.READY_FOR_EVENTS in payload_msg:
                     logger.info('payload is ready for event range')
                     self.set_state(self.SEND_EVENT_RANGE)
                     # increment counter to keep track of how many requests are queued
@@ -343,7 +342,7 @@ class JobComm(StatefulService.StatefulService):  # noqa: C901
                     # if we have been told there are no more eventranges, then tell the AthenaMP worker there are no more events
                     if no_more_events:
                         logger.info('sending AthenaMP NO_MORE_EVENTS')
-                        athpayloadcomm.send(athena_payloadcommunicator.NO_MORE_EVENTS)
+                        athpayloadcomm.send(AthenaPayloadCommunicator.NO_MORE_EVENTS)
                         # return to state requesting a message
                         self.set_state(self.WAIT_FOR_PAYLOAD_MESSAGE)
 
@@ -351,7 +350,6 @@ class JobComm(StatefulService.StatefulService):  # noqa: C901
                     else:
                         logger.info('waiting for more events ranges')
                         self.set_state(self.WAIT_FOR_PAYLOAD_MESSAGE)
-
 
                 # something wrong with the index in the EventRangeList index
                 except EventRangeList.RequestedMoreRangesThanAvailable:
@@ -371,7 +369,6 @@ class JobComm(StatefulService.StatefulService):  # noqa: C901
                     athpayloadcomm.send(serializer.serialize(local_eventranges))
                     # decrement counter since we sent some events
                     event_range_request_counter -= 1
-
 
                     # return to state requesting a message
                     self.set_state(self.WAIT_FOR_PAYLOAD_MESSAGE)
@@ -405,14 +402,14 @@ class JobComm(StatefulService.StatefulService):  # noqa: C901
                         logger.info('outputfilename - %s', outputfilename)
 
                     # build the data for Harvester output file
-                    output_file_data = {'type':MessageTypes.OUTPUT_FILE,
-                                        'filename':outputfilename,
-                                        'eventrangeid':eventrangeid,
-                                        'cpu':cpu,
-                                        'wallclock':wallclock,
-                                        'scope':current_job['scopeOut'],
-                                        'pandaid':current_job['PandaID'],
-                                        'eventstatus':'finished',
+                    output_file_data = {'type': MessageTypes.OUTPUT_FILE,
+                                        'filename': outputfilename,
+                                        'eventrangeid': eventrangeid,
+                                        'cpu': cpu,
+                                        'wallclock': wallclock,
+                                        'scope': current_job['scopeOut'],
+                                        'pandaid': current_job['PandaID'],
+                                        'eventstatus': 'finished',
                                         'destination_rank': 0,
                                         }
                     # self.output_file_data.set(output_file_data)
@@ -610,7 +607,7 @@ class JobComm(StatefulService.StatefulService):  # noqa: C901
             # if we have been told there are no more eventranges, then tell the AthenaMP worker there are no more events
             if no_more_events:
                 logger.info('sending AthenaMP NO_MORE_EVENTS')
-                athpayloadcomm.send(athena_payloadcommunicator.NO_MORE_EVENTS)
+                athpayloadcomm.send(AthenaPayloadCommunicator.NO_MORE_EVENTS)
             else:
                 # otherwise, raise the Exception to trigger an event request
                 raise
@@ -633,7 +630,7 @@ class JobComm(StatefulService.StatefulService):  # noqa: C901
             athpayloadcomm.send(serializer.serialize(local_eventranges))
 
 
-class athena_payloadcommunicator:
+class AthenaPayloadCommunicator:
     """ small class to handle yampl payloadcommunication exception handling """
     READY_FOR_EVENTS = 'Ready for events'
     NO_MORE_EVENTS = 'No more events'
