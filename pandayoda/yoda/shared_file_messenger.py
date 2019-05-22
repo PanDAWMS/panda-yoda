@@ -358,14 +358,14 @@ def eventranges_ready(block=False, timeout=60, loop_sleep_time=5):
     logger.debug('eventranges_ready start')
 
     # load name of events file
-    eventRangesFile = sfm_har_config['eventRangesFile']
+    eventrangesfile = sfm_har_config['eventRangesFile']
 
     # check to see if a file exists.
     start = time.time()
     timewaiting = int(time.time() - start)
     while block and (timeout > timewaiting):
         logger.debug('checking for eventRangesFile')
-        if os.path.exists(eventRangesFile):
+        if os.path.exists(eventrangesfile):
             logger.debug('eventRangesFile exists')
             return True
         else:
@@ -384,17 +384,17 @@ def get_eventranges():
     logger.debug('getting eventranges')
 
     # load name of events file
-    eventRangesFile = sfm_har_config['eventRangesFile']
+    eventrangesfile = sfm_har_config['eventRangesFile']
 
     # first check to see if a file already exists.
-    if os.path.exists(eventRangesFile):
+    if os.path.exists(eventrangesfile):
         try:
             logger.debug('eventRangesFile is present, parsing event ranges')
             # read in event range file
-            fstat = os.stat(eventRangesFile)
+            fstat = os.stat(eventrangesfile)
             logger.debug('eventRangesFile stat: %s', str(fstat))
             try:
-                eventranges = json.load(open(eventRangesFile))
+                eventranges = json.load(open(eventrangesfile))
             except Exception:
                 # try again if the files modify time is within 10 seconds
                 succeeded = False
@@ -402,14 +402,14 @@ def get_eventranges():
                 while time_since_last_modified < 10 and not succeeded:
                     try:
                         logger.debug(' trying again to open eventRangesFile: %s', str(fstat))
-                        eventranges = json.load(open(eventRangesFile))
+                        eventranges = json.load(open(eventrangesfile))
                         succeeded = True
                     except Exception:
                         logger.debug(' failed to open, time since last modified is %d seconds',
                                      time_since_last_modified)
                         time.sleep(1)
                         # update data before checking again
-                        fstat = os.stat(eventRangesFile)
+                        fstat = os.stat(eventrangesfile)
                         time_since_last_modified = fstat.st_mtime - time.time()
 
                 if not succeeded:
@@ -421,20 +421,20 @@ def get_eventranges():
                 logger.debug('received %s ranges for Panda ID: %s', len(ranges), jobid)
 
             # remove this file now that we are done with it
-            newtmp = glob.glob(eventRangesFile + '.old*')
-            os.rename(eventRangesFile, eventRangesFile + ('.old.%02i' % len(newtmp)))
+            newtmp = glob.glob(eventrangesfile + '.old*')
+            os.rename(eventrangesfile, eventrangesfile + ('.old.%02i' % len(newtmp)))
             # remove the request file if harvester has not already
             # if os.path.exists(harvesterConfig.get(harConfSect,'eventRangesFile')):
             # os.remove(harvesterConfig.get(harConfSect,'eventRangesFile'))
             # return event ranges
             return eventranges
         except Exception:
-            logger.exception('failed to parse eventRangesFile: %s', eventRangesFile)
+            logger.exception('failed to parse eventRangesFile: %s', eventrangesfile)
             # if the event range file is present, rename it as failedread for debugging
-            if os.path.exists(eventRangesFile):
-                newtmp = glob.glob(eventRangesFile + '.old*')
-                newname = eventRangesFile + ('.old.%02i.failedread' % len(newtmp))
-                os.rename(eventRangesFile, newname)
+            if os.path.exists(eventrangesfile):
+                newtmp = glob.glob(eventrangesfile + '.old*')
+                newname = eventrangesfile + ('.old.%02i.failedread' % len(newtmp))
+                os.rename(eventrangesfile, newname)
             raise exceptions.MessengerFailedToParse('failed to parse event file, find it here %s' % newname)
     return {}
 
