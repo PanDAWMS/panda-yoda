@@ -414,7 +414,8 @@ def get_eventranges():
 
                 if not succeeded:
                     raise Exception(
-                        'failed to open eventRangesFile, even after waiting for modified status. Time since last modified: %d seconds' % time_since_last_modified)
+                        'failed to open eventRangesFile, even after waiting for modified status. '
+                        'Time since last modified: %d seconds' % time_since_last_modified)
 
             logger.debug('received json object with size %s bytes', sys.getsizeof(eventranges))
             for jobid, ranges in eventranges.iteritems():
@@ -440,7 +441,14 @@ def get_eventranges():
 
 
 '''
-The worker needs to put eventStatusDumpJsonFile to update events and/or stage-out. The file is a json dump of a dictionary {pandaID_1:[{'eventRangeID':???, 'eventStatus':???, 'path':???, 'type':???, 'chksum':???, 'guid':???}, ...], pandaID_2:[...], ...}. Only 'eventRangeID' and 'eventStatus' are required to update events, while other file information such as 'path', 'type' and 'chksum' are required in addition if the event produced an output file. 'type' is the type of the file and it can be 'output', 'es_output', or 'log'. 'eventRangeID' should be removed unless the type is 'es_output'. Harvester uploads files depending on the 'type'. 'chksum' is calculated using adler32 if omitted. If the output has an intrinsic guid (this is the case for POOL files) 'guid' needs to be set. eventStatusDumpJsonFile is deleted once Harvester updates the database.
+The worker needs to put eventStatusDumpJsonFile to update events and/or stage-out. The file is a json dump of a dictionary 
+{pandaID_1:[{'eventRangeID':???, 'eventStatus':???, 'path':???, 'type':???, 'chksum':???, 'guid':???}, ...], 
+pandaID_2:[...], ...}. Only 'eventRangeID' and 'eventStatus' are required to update events, while other file information 
+such as 'path', 'type' and 'chksum' are required in addition if the event produced an output file. 'type' is the type of 
+the file and it can be 'output', 'es_output', or 'log'. 'eventRangeID' should be removed unless the type is 'es_output'. 
+Harvester uploads files depending on the 'type'. 'chksum' is calculated using adler32 if omitted. If the output has an 
+intrinsic guid (this is the case for POOL files) 'guid' needs to be set. eventStatusDumpJsonFile is deleted once Harvester 
+updates the database.
 '''
 
 
@@ -449,9 +457,9 @@ def stage_out_file_exists():
     sfm_har_config_done.wait()
 
     # load name of eventStatusDumpJsonFile file
-    eventStatusDumpJsonFile = sfm_har_config['eventStatusDumpJsonFile']
+    eventstatusdumpjsonfile = sfm_har_config['eventStatusDumpJsonFile']
 
-    return os.path.exists(eventStatusDumpJsonFile)
+    return os.path.exists(eventstatusdumpjsonfile)
 
 
 def stage_out_file(output_type, output_path, eventRangeID, eventStatus, pandaID, chksum=None, ):
@@ -468,11 +476,11 @@ def stage_out_file(output_type, output_path, eventRangeID, eventStatus, pandaID,
     pandaID = str(pandaID)
 
     # load name of eventStatusDumpJsonFile file
-    eventStatusDumpJsonFile = sfm_har_config['eventStatusDumpJsonFile']
+    eventstatusdumpjsonfile = sfm_har_config['eventStatusDumpJsonFile']
 
     # first create a temp file to place contents
     # this avoids Harvester trying to read the file while it is being written
-    eventStatusDumpJsonFile_tmp = eventStatusDumpJsonFile + '.tmp'
+    eventstatusdumpjsonfile_tmp = eventstatusdumpjsonfile + '.tmp'
 
     # format data for file:
     file_descriptor = {'eventRangeID': eventRangeID,
@@ -484,7 +492,7 @@ def stage_out_file(output_type, output_path, eventRangeID, eventStatus, pandaID,
                        }
 
     # if file does not already exists, new data is just what we have
-    if not os.path.exists(eventStatusDumpJsonFile):
+    if not os.path.exists(eventstatusdumpjsonfile):
         data = {pandaID: [file_descriptor]}
 
     # if the file exists, move it to a tmp filename, update its contents and then recreate it.
@@ -492,18 +500,18 @@ def stage_out_file(output_type, output_path, eventRangeID, eventStatus, pandaID,
 
         # first move existing file to tmp so Harvester does not read it while we edit
         try:
-            os.rename(eventStatusDumpJsonFile, eventStatusDumpJsonFile_tmp)
+            os.rename(eventstatusdumpjsonfile, eventstatusdumpjsonfile_tmp)
         except Exception:
             logger.warning('tried moving %s to a tmp filename to add more output files for Harvester.',
-                           eventStatusDumpJsonFile)
-            if not os.path.exists(eventStatusDumpJsonFile):
+                           eventstatusdumpjsonfile)
+            if not os.path.exists(eventstatusdumpjsonfile):
                 logger.warning('%s file no longer exists so Harvester must have grabbed it. Need to create a new file',
-                               eventStatusDumpJsonFile)
+                               eventstatusdumpjsonfile)
                 data = {pandaID: [file_descriptor]}
         else:
 
             # now open and read in the data
-            with open(eventStatusDumpJsonFile_tmp, 'r') as f:
+            with open(eventstatusdumpjsonfile_tmp, 'r') as f:
                 data = serializer.deserialize(f.read())
             logger.debug('existing data contains %s', data)
             # if the pandaID already exists, just append the new file to that list
@@ -515,14 +523,14 @@ def stage_out_file(output_type, output_path, eventRangeID, eventStatus, pandaID,
                 logger.debug('addding new panda id list')
                 data[pandaID] = [file_descriptor]
 
-    logger.debug('output to file %s: %s', eventStatusDumpJsonFile, data)
+    logger.debug('output to file %s: %s', eventstatusdumpjsonfile, data)
 
     # overwrite the temp file with the updated data
-    with open(eventStatusDumpJsonFile_tmp, 'w') as f:
+    with open(eventstatusdumpjsonfile_tmp, 'w') as f:
         f.write(serializer.serialize(data))
 
     # move tmp file into place
-    os.rename(eventStatusDumpJsonFile_tmp, eventStatusDumpJsonFile)
+    os.rename(eventstatusdumpjsonfile_tmp, eventstatusdumpjsonfile)
 
 
 def stage_out_files(file_list, output_type):
@@ -533,7 +541,7 @@ def stage_out_files(file_list, output_type):
         raise Exception('incorrect type provided: %s' % (output_type))
 
     # load name of eventStatusDumpJsonFile file
-    eventStatusDumpJsonFile = sfm_har_config['eventStatusDumpJsonFile']
+        eventstatusdumpjsonfile = sfm_har_config['eventStatusDumpJsonFile']
 
     eventStatusDumpData = {}
     # loop over filelist
@@ -563,10 +571,10 @@ def stage_out_files(file_list, output_type):
 
     # create a temp file to place contents
     # this avoids Harvester trying to read the file while it is being written
-    eventStatusDumpJsonFile_tmp = eventStatusDumpJsonFile + '.tmp'
+    eventstatusdumpjsonfile_tmp = eventstatusdumpjsonfile + '.tmp'
 
     # if file does not already exists, new data is just what we have
-    if not os.path.exists(eventStatusDumpJsonFile):
+    if not os.path.exists(eventstatusdumpjsonfile):
         data = eventStatusDumpData
 
     # if the file exists, move it to a tmp filename, update its contents and then recreate it.
@@ -574,18 +582,18 @@ def stage_out_files(file_list, output_type):
 
         # first move existing file to tmp so Harvester does not read it while we edit
         try:
-            os.rename(eventStatusDumpJsonFile, eventStatusDumpJsonFile_tmp)
+            os.rename(eventstatusdumpjsonfile, eventstatusdumpjsonfile_tmp)
         except Exception:
             logger.warning('tried moving %s to a tmp filename to add more output files for Harvester.',
-                           eventStatusDumpJsonFile)
-            if not os.path.exists(eventStatusDumpJsonFile):
+                           eventstatusdumpjsonfile)
+            if not os.path.exists(eventstatusdumpjsonfile):
                 logger.warning('%s file no longer exists so Harvester must have grabbed it. Need to create a new file',
-                               eventStatusDumpJsonFile)
+                               eventstatusdumpjsonfile)
                 data = eventStatusDumpData
         else:
 
             # now open and read in the data
-            with open(eventStatusDumpJsonFile_tmp, 'r') as f:
+            with open(eventstatusdumpjsonfile_tmp, 'r') as f:
                 data = serializer.deserialize(f.read())
             logger.debug('found existing data for pandaIDs: %s', data.keys())
 
@@ -602,13 +610,13 @@ def stage_out_files(file_list, output_type):
 
     if logger.getEffectiveLevel() == logging.DEBUG:
         tmpstr = ' '.join('%s:%s' % (x, len(data[x])) for x in data)
-        logger.debug('writing output to file %s with keys: %s', eventStatusDumpJsonFile, tmpstr)
+        logger.debug('writing output to file %s with keys: %s', eventstatusdumpjsonfile, tmpstr)
 
     # overwrite the temp file with the updated data
-    with open(eventStatusDumpJsonFile_tmp, 'w') as f:
+    with open(eventstatusdumpjsonfile_tmp, 'w') as f:
         f.write(serializer.serialize(data, pretty_print=True))
 
     # move tmp file into place
-    os.rename(eventStatusDumpJsonFile_tmp, eventStatusDumpJsonFile)
+    os.rename(eventstatusdumpjsonfile_tmp, eventstatusdumpjsonfile)
 
     logger.debug('done')
