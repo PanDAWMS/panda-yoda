@@ -195,7 +195,6 @@ class TransformManager(StatefulService.StatefulService):
         # place them back in jobPars
         jobpars = self.job_def['jobPars'][:start_index] + ','.join(x for x in updated_input_files) + ' ' + self.job_def['jobPars'][end_index:]
 
-
         # insert the Yampl AthenaMP setting so Yoda can communicate with AthenaMP
         if "--preExec" not in jobpars:
             jobpars += " --preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " %\
@@ -335,7 +334,7 @@ class TransformManager(StatefulService.StatefulService):
         os.chdir(start_dir)
         logger.debug('staging files completed')
 
-    def read_config(self):
+    def read_config(self):  # noqa: C901
 
         if config_section in self.config:
             # read loglevel:
@@ -393,7 +392,7 @@ class TransformManager(StatefulService.StatefulService):
                 self.run_elsewhere = self.get_boolean(self.config[config_section]['run_elsewhere'])
                 logger.info('%s run_elsewhere: %s', config_section, self.run_elsewhere)
             else:
-                logger.warning('no "run_elsewhere" in "%s" section of config file, using default %s',config_section, self.run_elsewhere)
+                logger.warning('no "run_elsewhere" in "%s" section of config file, using default %s', config_section, self.run_elsewhere)
 
             # read run_directory:
             if 'run_directory' in self.config[config_section]:
