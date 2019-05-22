@@ -462,7 +462,7 @@ def stage_out_file_exists():
     return os.path.exists(eventstatusdumpjsonfile)
 
 
-def stage_out_file(output_type, output_path, eventrangeid, eventStatus, pandaID, chksum=None, ):
+def stage_out_file(output_type, output_path, eventrangeid, eventstatus, pandaid, chksum=None, ):
     global sfm_har_config, sfm_har_config_done
     sfm_har_config_done.wait()
 
@@ -484,7 +484,7 @@ def stage_out_file(output_type, output_path, eventrangeid, eventStatus, pandaID,
 
     # format data for file:
     file_descriptor = {'eventRangeID': eventrangeid,
-                       'eventStatus': eventStatus,
+                       'eventStatus': eventstatus,
                        'path': output_path,
                        'type': output_type,
                        'chksum': chksum,
@@ -543,7 +543,7 @@ def stage_out_files(file_list, output_type):
     # load name of eventStatusDumpJsonFile file
         eventstatusdumpjsonfile = sfm_har_config['eventStatusDumpJsonFile']
 
-    eventStatusDumpData = {}
+    eventstatusdumpdata = {}
     # loop over filelist
     for filedata in file_list:
 
@@ -565,9 +565,9 @@ def stage_out_files(file_list, output_type):
                            'guid': None,
                            }
         try:
-            eventStatusDumpData[pandaid].append(file_descriptor)
+            eventstatusdumpdata[pandaid].append(file_descriptor)
         except KeyError:
-            eventStatusDumpData[pandaid] = [file_descriptor]
+            eventstatusdumpdata[pandaid] = [file_descriptor]
 
     # create a temp file to place contents
     # this avoids Harvester trying to read the file while it is being written
@@ -575,7 +575,7 @@ def stage_out_files(file_list, output_type):
 
     # if file does not already exists, new data is just what we have
     if not os.path.exists(eventstatusdumpjsonfile):
-        data = eventStatusDumpData
+        data = eventstatusdumpdata
 
     # if the file exists, move it to a tmp filename, update its contents and then recreate it.
     else:
@@ -589,7 +589,7 @@ def stage_out_files(file_list, output_type):
             if not os.path.exists(eventstatusdumpjsonfile):
                 logger.warning('%s file no longer exists so Harvester must have grabbed it. Need to create a new file',
                                eventstatusdumpjsonfile)
-                data = eventStatusDumpData
+                data = eventstatusdumpdata
         else:
 
             # now open and read in the data
@@ -597,16 +597,16 @@ def stage_out_files(file_list, output_type):
                 data = serializer.deserialize(f.read())
             logger.debug('found existing data for pandaIDs: %s', data.keys())
 
-            for pandaid in eventStatusDumpData:
+            for pandaid in eventstatusdumpdata:
 
                 # if the pandaID already exists, just append the new file to that list
                 try:
                     logger.debug('addding data to existing panda list')
-                    data[pandaid] += eventStatusDumpData[pandaid]
+                    data[pandaid] += eventstatusdumpdata[pandaid]
                 # if the pandaID does not exist, add a new list
                 except KeyError:
                     logger.debug('addding new panda id list')
-                    data[pandaid] = eventStatusDumpData[pandaid]
+                    data[pandaid] = eventstatusdumpdata[pandaid]
 
     if logger.getEffectiveLevel() == logging.DEBUG:
         tmpstr = ' '.join('%s:%s' % (x, len(data[x])) for x in data)
