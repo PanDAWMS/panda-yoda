@@ -441,13 +441,13 @@ def get_eventranges():
 
 
 '''
-The worker needs to put eventStatusDumpJsonFile to update events and/or stage-out. The file is a json dump of a dictionary 
-{pandaID_1:[{'eventRangeID':???, 'eventStatus':???, 'path':???, 'type':???, 'chksum':???, 'guid':???}, ...], 
-pandaID_2:[...], ...}. Only 'eventRangeID' and 'eventStatus' are required to update events, while other file information 
-such as 'path', 'type' and 'chksum' are required in addition if the event produced an output file. 'type' is the type of 
-the file and it can be 'output', 'es_output', or 'log'. 'eventRangeID' should be removed unless the type is 'es_output'. 
-Harvester uploads files depending on the 'type'. 'chksum' is calculated using adler32 if omitted. If the output has an 
-intrinsic guid (this is the case for POOL files) 'guid' needs to be set. eventStatusDumpJsonFile is deleted once Harvester 
+The worker needs to put eventStatusDumpJsonFile to update events and/or stage-out. The file is a json dump of a dictionary
+{pandaID_1:[{'eventRangeID':???, 'eventStatus':???, 'path':???, 'type':???, 'chksum':???, 'guid':???}, ...],
+pandaID_2:[...], ...}. Only 'eventRangeID' and 'eventStatus' are required to update events, while other file information
+such as 'path', 'type' and 'chksum' are required in addition if the event produced an output file. 'type' is the type of
+the file and it can be 'output', 'es_output', or 'log'. 'eventRangeID' should be removed unless the type is 'es_output'.
+Harvester uploads files depending on the 'type'. 'chksum' is calculated using adler32 if omitted. If the output has an
+intrinsic guid (this is the case for POOL files) 'guid' needs to be set. eventStatusDumpJsonFile is deleted once Harvester
 updates the database.
 '''
 
@@ -462,7 +462,7 @@ def stage_out_file_exists():
     return os.path.exists(eventstatusdumpjsonfile)
 
 
-def stage_out_file(output_type, output_path, eventRangeID, eventStatus, pandaID, chksum=None, ):
+def stage_out_file(output_type, output_path, eventrangeid, eventStatus, pandaID, chksum=None, ):
     global sfm_har_config, sfm_har_config_done
     sfm_har_config_done.wait()
 
@@ -473,7 +473,7 @@ def stage_out_file(output_type, output_path, eventRangeID, eventStatus, pandaID,
         raise Exception('output file not found: %s' % (output_path))
 
     # make sure pandaID is a string
-    pandaID = str(pandaID)
+    pandaid = str(pandaid)
 
     # load name of eventStatusDumpJsonFile file
     eventstatusdumpjsonfile = sfm_har_config['eventStatusDumpJsonFile']
@@ -483,7 +483,7 @@ def stage_out_file(output_type, output_path, eventRangeID, eventStatus, pandaID,
     eventstatusdumpjsonfile_tmp = eventstatusdumpjsonfile + '.tmp'
 
     # format data for file:
-    file_descriptor = {'eventRangeID': eventRangeID,
+    file_descriptor = {'eventRangeID': eventrangeid,
                        'eventStatus': eventStatus,
                        'path': output_path,
                        'type': output_type,
@@ -493,7 +493,7 @@ def stage_out_file(output_type, output_path, eventRangeID, eventStatus, pandaID,
 
     # if file does not already exists, new data is just what we have
     if not os.path.exists(eventstatusdumpjsonfile):
-        data = {pandaID: [file_descriptor]}
+        data = {pandaid: [file_descriptor]}
 
     # if the file exists, move it to a tmp filename, update its contents and then recreate it.
     else:
@@ -507,7 +507,7 @@ def stage_out_file(output_type, output_path, eventRangeID, eventStatus, pandaID,
             if not os.path.exists(eventstatusdumpjsonfile):
                 logger.warning('%s file no longer exists so Harvester must have grabbed it. Need to create a new file',
                                eventstatusdumpjsonfile)
-                data = {pandaID: [file_descriptor]}
+                data = {pandaid: [file_descriptor]}
         else:
 
             # now open and read in the data
@@ -515,13 +515,13 @@ def stage_out_file(output_type, output_path, eventRangeID, eventStatus, pandaID,
                 data = serializer.deserialize(f.read())
             logger.debug('existing data contains %s', data)
             # if the pandaID already exists, just append the new file to that list
-            if pandaID in data:
+            if pandaid in data:
                 logger.debug('addding data to existing panda list')
-                data[pandaID].append(file_descriptor)
+                data[pandaid].append(file_descriptor)
             # if the pandaID does not exist, add a new list
             else:
                 logger.debug('addding new panda id list')
-                data[pandaID] = [file_descriptor]
+                data[pandaid] = [file_descriptor]
 
     logger.debug('output to file %s: %s', eventstatusdumpjsonfile, data)
 
@@ -548,7 +548,7 @@ def stage_out_files(file_list, output_type):
     for filedata in file_list:
 
         # make sure pandaID is a string
-        pandaID = str(filedata['pandaid'])
+        pandaid = str(filedata['pandaid'])
 
         chksum = None
         if 'chksum' in filedata:
@@ -565,9 +565,9 @@ def stage_out_files(file_list, output_type):
                            'guid': None,
                            }
         try:
-            eventStatusDumpData[pandaID].append(file_descriptor)
+            eventStatusDumpData[pandaid].append(file_descriptor)
         except KeyError:
-            eventStatusDumpData[pandaID] = [file_descriptor]
+            eventStatusDumpData[pandaid] = [file_descriptor]
 
     # create a temp file to place contents
     # this avoids Harvester trying to read the file while it is being written
@@ -597,16 +597,16 @@ def stage_out_files(file_list, output_type):
                 data = serializer.deserialize(f.read())
             logger.debug('found existing data for pandaIDs: %s', data.keys())
 
-            for pandaID in eventStatusDumpData:
+            for pandaid in eventStatusDumpData:
 
                 # if the pandaID already exists, just append the new file to that list
                 try:
                     logger.debug('addding data to existing panda list')
-                    data[pandaID] += eventStatusDumpData[pandaID]
+                    data[pandaid] += eventStatusDumpData[pandaid]
                 # if the pandaID does not exist, add a new list
                 except KeyError:
                     logger.debug('addding new panda id list')
-                    data[pandaID] = eventStatusDumpData[pandaID]
+                    data[pandaid] = eventStatusDumpData[pandaid]
 
     if logger.getEffectiveLevel() == logging.DEBUG:
         tmpstr = ' '.join('%s:%s' % (x, len(data[x])) for x in data)
