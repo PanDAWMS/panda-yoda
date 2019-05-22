@@ -44,13 +44,13 @@ The jobSpecFile format is like this:
       "inFiles": "EVNT.06402143._000615.pool.root.1",
       "jobDefinitionID": 0,
       "jobName": "mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.e4376_s3022.3268661856",
-      "jobPars": "--inputEVNTFile=EVNT.06402143._000615.pool.root.1 --AMITag=s3022 --DBRelease=\"default:current\" --DataRunNumber=222525 
-      --conditionsTag \"default:OFLCOND-RUN12-SDR-19\" 
-      --firstEvent=1 --geometryVersion=\"default:ATLAS-R2-2015-03-01-00_VALIDATION\" --maxEvents=1000 --outputHITSFile=HITS.10919503._000051.pool.root.1 
-      --physicsList=FTFP_BERT --postInclude \"default:PyJobTransforms/UseFrontier.py\" 
+      "jobPars": "--inputEVNTFile=EVNT.06402143._000615.pool.root.1 --AMITag=s3022 --DBRelease=\"default:current\" --DataRunNumber=222525
+      --conditionsTag \"default:OFLCOND-RUN12-SDR-19\"
+      --firstEvent=1 --geometryVersion=\"default:ATLAS-R2-2015-03-01-00_VALIDATION\" --maxEvents=1000 --outputHITSFile=HITS.10919503._000051.pool.root.1
+      --physicsList=FTFP_BERT --postInclude \"default:PyJobTransforms/UseFrontier.py\"
       --preInclude \"EVNTtoHITS:SimulationJobOptions/preInclude.BeamPipeKill.py,SimulationJobOptions/preInclude.FrozenShowersFCalOnly.py,AthenaMP/
       AthenaMP_EventService.py\"
-       --randomSeed=611 --runNumber=362002 --simulator=MC12G4 
+       --randomSeed=611 --runNumber=362002 --simulator=MC12G4
       --skipEvents=0 --truthStrategy=MC15aPlus",
       "jobsetID": 3287071385,
       "logFile": "log.10919503._000051.job.log.tgz.1.3298217817",
@@ -244,10 +244,10 @@ def request_jobs():
     global sfm_har_config, sfm_har_config_lock, sfm_har_config_done
     sfm_har_config_done.wait()
     logger.debug('requesting job')
-    jobRequestFile = sfm_har_config['jobRequestFile']
+    jobrequestfile = sfm_har_config['jobRequestFile']
 
-    logger.debug('writing jobRequestFile to signal Harvester: %s', jobRequestFile)
-    open(jobRequestFile, 'w').write('jobRequestFile')
+    logger.debug('writing jobRequestFile to signal Harvester: %s', jobrequestfile)
+    open(jobrequestfile, 'w').write('jobRequestFile')
 
 
 def pandajobs_ready():
@@ -258,16 +258,16 @@ def pandajobs_ready():
     # the file in which job descriptions would be stored
     logger.debug('sfm_har_config keys: %s', sfm_har_config.keys())
     if 'jobSpecFile' in sfm_har_config.keys():
-        jobSpecFile = sfm_har_config['jobSpecFile']
+        jobspecfile = sfm_har_config['jobSpecFile']
     else:
         raise Exception('could not find "jobSpecFile" in harvester config file')
 
     # check to see if a file exists.
-    if os.path.exists(jobSpecFile):
-        logger.debug('found jobSpecFile file from Harvester: %s', jobSpecFile)
+    if os.path.exists(jobspecfile):
+        logger.debug('found jobSpecFile file from Harvester: %s', jobspecfile)
         return True
     else:
-        logger.debug('did not find jobSpecFile file from Harvester: %s', jobSpecFile)
+        logger.debug('did not find jobSpecFile file from Harvester: %s', jobspecfile)
     return False
 
 
@@ -278,23 +278,23 @@ def get_pandajobs():
     logger.debug('in get_pandajobs')
 
     # the file in which job descriptions would be stored
-    jobSpecFile = sfm_har_config['jobSpecFile']
-    jobRequestFile = sfm_har_config['jobRequestFile']
+    jobspecfile = sfm_har_config['jobSpecFile']
+    jobrequestfile = sfm_har_config['jobRequestFile']
 
     # first check to see if a file already exists.
     try:
         logger.debug('jobSpecFile is present, reading job definitions')
         # parse job spec file
-        job_def = json.load(open(jobSpecFile))
+        job_def = json.load(open(jobspecfile))
         # remove this file now that we are done with it
-        os.rename(jobSpecFile, jobSpecFile + '.old')
+        os.rename(jobspecfile, jobspecfile + '.old')
         # remove request file if harvester has not already
-        if os.path.exists(jobRequestFile):
-            os.remove(jobRequestFile)
+        if os.path.exists(jobrequestfile):
+            os.remove(jobrequestfile)
         # return job definition
         return job_def
     except Exception:
-        logger.exception('failed to parse jobSpecFile: %s' % (jobSpecFile))
+        logger.exception('failed to parse jobSpecFile: %s' % (jobspecfile))
         raise
 
 
@@ -303,39 +303,39 @@ def request_eventranges(job_def):
     sfm_har_config_done.wait()
 
     # retrieve event request file
-    eventRequestFile = sfm_har_config['eventRequestFile']
-    eventRequestFile_tmp = eventRequestFile + '.tmp'
+    eventrequestfile = sfm_har_config['eventRequestFile']
+    eventrequestfile_tmp = eventrequestfile + '.tmp'
 
     # crate event request file
-    if not os.path.exists(eventRequestFile):
+    if not os.path.exists(eventrequestfile):
         # need to output a file containing:
         #   {'nRanges': ???, 'pandaID':???, 'taskID':???, 'jobsetID':???}
-        logger.debug('requesting new event ranges by writing to file "%s" with this content: %s', eventRequestFile,
+        logger.debug('requesting new event ranges by writing to file "%s" with this content: %s', eventrequestfile,
                      job_def)
 
         # get new job definition
         new_job_def = {job_def['pandaID']: job_def}
 
-        f = open(eventRequestFile_tmp, 'w')
+        f = open(eventrequestfile_tmp, 'w')
         f.write(serializer.serialize(new_job_def))
         f.close()
 
         # now move tmp filename to real filename
-        os.rename(eventRequestFile_tmp, eventRequestFile)
+        os.rename(eventrequestfile_tmp, eventrequestfile)
 
     else:
         logger.debug('request file already exists. Adding requests')
 
         # move current file to temp
-        os.rename(eventRequestFile, eventRequestFile_tmp)
+        os.rename(eventrequestfile, eventrequestfile_tmp)
 
-        filedata = open(eventRequestFile_tmp).read()
+        filedata = open(eventrequestfile_tmp).read()
         requests = serializer.deserialize(filedata)
 
-        pandaID = job_def['pandaID']
-        if pandaID in requests:
+        pandaid = job_def['pandaID']
+        if pandaid in requests:
             logger.debug('adding event range count to existing request')
-            thisjob = requests[pandaID]
+            thisjob = requests[pandaid]
             if thisjob['jobsetID'] == job_def['jobsetID'] and thisjob['taskID'] == job_def['taskID']:
                 thisjob['nRanges'] += job_def['nRanges']
             else:
@@ -343,13 +343,13 @@ def request_eventranges(job_def):
                                job_def)
         else:
             logger.debug('adding new job definition to existing request')
-            requests[pandaID] = job_def
+            requests[pandaid] = job_def
 
         # output updated requests to file
-        open(eventRequestFile_tmp, 'w').write(serializer.serialize(requests))
+        open(eventrequestfile_tmp, 'w').write(serializer.serialize(requests))
 
         # now move tmp filename to real filename
-        os.rename(eventRequestFile_tmp, eventRequestFile)
+        os.rename(eventrequestfile_tmp, eventrequestfile)
 
 
 def eventranges_ready(block=False, timeout=60, loop_sleep_time=5):
