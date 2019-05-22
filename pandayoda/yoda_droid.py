@@ -52,7 +52,7 @@ except Exception as e:
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
 
 
-def main():
+def main():  # noqa: C901
     # print('%06.2f yoda_droid main' % (imptime - time.time()))
     # keep track of start time for wall-clock monitoring
     start_time = datetime.datetime.now()
@@ -64,7 +64,8 @@ def main():
     oparser.add_argument('-c', '--yoda-config', dest='yoda_config', help='The Yoda Config file is where most configuration information is set.', required=True)
     oparser.add_argument('-w', '--working-path', dest='working_path', help='The Directory in which to run yoda_droid', default='.')
     oparser.add_argument('-t', '--wall-clock-limit', dest='wall_clock_limit',
-                         help='The wall clock time limit in minutes. If given, yoda will trigger all droid ranks to kill their subprocesses and exit. Then Yoda will perform log/output file cleanup.',
+                         help='The wall clock time limit in minutes. If given, yoda will trigger all droid ranks to kill their subprocesses and exit.'
+                              'Then Yoda will perform log/output file cleanup.',
                          default=-1, type=int)
     # control output level
     oparser.add_argument('--debug', dest='debug', default=False, action='store_true', help="Set Logger to DEBUG")
@@ -128,7 +129,7 @@ def main():
     mgr = Manager()
     queue_map = mgr.dict()
     # create MPIService
-    mpiService = MPIService.MPIService(
+    mpiservice = MPIService.MPIService(
         queue_list,
         queue_map,
         mpi_loglevel,
@@ -137,13 +138,13 @@ def main():
         mpi_loop_timeout,
     )
     # start the subprocess
-    mpiService.start()
+    mpiservice.start()
 
     # get rank and world size
-    mpiService.rank.wait()
-    rank = mpiService.rank.get()
-    mpiService.worldsize.wait()
-    nranks = mpiService.worldsize.get()
+    mpiservice.rank.wait()
+    rank = mpiservice.rank.get()
+    mpiservice.worldsize.wait()
+    nranks = mpiservice.worldsize.get()
 
     # set the queue map
     if rank == 0:
@@ -179,7 +180,7 @@ def main():
             'TransformManager': queue_list[queue_map['TransformManager']],
         }
     # tell MPIService we have set the queue_map
-    mpiService.queue_map_is_set()
+    mpiservice.queue_map_is_set()
 
     logging_format = '%(asctime)s|%(process)s|%(thread)s|' + ('%05d' % rank) + '|%(levelname)s|%(name)s|%(message)s'
     logging_datefmt = '%Y-%m-%d %H:%M:%S'
@@ -289,7 +290,7 @@ def main():
             if yoda is not None:
                 yoda.wallclock_expired.set()
                 yoda.stop()
-            # MPIService.MPI.COMM_WORLD.Abort()
+            # mpiservice.MPI.COMM_WORLD.Abort()
             break
 
         if droid and not droid.is_alive():
@@ -310,7 +311,7 @@ def main():
     # logger.info('Rank %s: waiting for other ranks to reach MPI Barrier',mpirank)
     # MPI.COMM_WORLD.Barrier()
     # logger.info('yoda_droid aborting all MPI ranks')
-    # MPIService.MPI.COMM_WORLD.Abort()
+    # mpiservice.MPI.COMM_WORLD.Abort()
 
     if droid is not None:
         logger.info('join Droid')
@@ -323,9 +324,9 @@ def main():
         yoda = None
 
     logger.info(' yoda_droid signaling for MPIService to exit')
-    mpiService.stop()
+    mpiservice.stop()
     logger.info('join MPIService')
-    mpiService.join()
+    mpiservice.join()
     logger.info('yoda_droid exiting')
 
 
