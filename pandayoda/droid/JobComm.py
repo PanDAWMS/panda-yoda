@@ -40,17 +40,27 @@ class FailedToParseYodaMessage(Exception):
     pass
 
 
-class JobComm(StatefulService.StatefulService):
+class JobComm(StatefulService.StatefulService):  # noqa: C901
     """  JobComm: This thread handles all the AthenaMP related payloadcommunication
 
-    Pilot/Droid launches AthenaMP and starts listening to its messages. AthenaMP finishes initialization and sends "Ready for events" to Pilot/Droid. Pilot/Droid sends back an event range. AthenaMP sends NWorkers-1 more times "Ready for events" to Pilot/Droid. On each of these messages Pilot/Droid replies with a new event range. After that all AthenaMP workers are busy processing events. Once some AthenaMP worker is available to take the next event range, AthenaMP sends "Ready for events" to Pilot/Droid. Pilot/Droid sends back an event range. Once some output file becomes available, AthenaMP sends full path, RangeID, CPU time and Wall time to Pilot/Droid and does not expect any answer on this message. Here is an example of such message:
+    Pilot/Droid launches AthenaMP and starts listening to its messages. AthenaMP finishes initialization and sends
+    "Ready for events" to Pilot/Droid. Pilot/Droid sends back an event range. AthenaMP sends NWorkers-1 more times
+    "Ready for events" to Pilot/Droid. On each of these messages Pilot/Droid replies with a new event range. After that
+    all AthenaMP workers are busy processing events. Once some AthenaMP worker is available to take the next event
+    range, AthenaMP sends "Ready for events" to Pilot/Droid. Pilot/Droid sends back an event range. Once some output
+    file becomes available, AthenaMP sends full path, RangeID, CPU time and Wall time to Pilot/Droid and does not expect
+    any answer on this message. Here is an example of such message:
 
-    "/build1/tsulaia/20.3.7.5/run-es/athenaMP-workers-AtlasG4Tf-sim/worker_1/myHITS.pool.root_000.Range-6,ID:Range-6,CPU:1,WALL:1"
+    "/build1/tsulaia/20.3.7.5/run-es/athenaMP-workers-AtlasG4Tf-sim/worker_1/myHITS.pool.root_000.Range-6,ID:Range-6,
+    CPU:1,WALL:1"
 
-     If Pilot/Droid receives "Ready for events"and there are no more ranges to process, it answers with "No more events". This is a signal for AthenaMP that no more events are expected. In this case AthenaMP waits for all its workers to finish processing current event ranges, reports all outputs back to Pilot/Droid and exits.
+    If Pilot/Droid receives "Ready for events"and there are no more ranges to process, it answers with "No more
+    events". This is a signal for AthenaMP that no more events are expected. In this case AthenaMP waits for all its
+    workers to finish processing current event ranges, reports all outputs back to Pilot/Droid and exits.
 
-     The event range format is json and is this: [{"eventRangeID": "8848710-3005316503-6391858827-3-10", "LFN":"EVNT.06402143._012906.pool.root.1", "lastEvent": 3, "startEvent": 3, "scope": "mc15_13TeV", "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"}]
-
+    The event range format is json and is this: [{"eventRangeID": "8848710-3005316503-6391858827-3-10",
+    "LFN":"EVNT.06402143._012906.pool.root.1", "lastEvent": 3, "startEvent": 3, "scope": "mc15_13TeV",
+    "GUID": "63A015D3-789D-E74D-BAA9-9F95DB068EE9"}]
     """
 
     WAITING_FOR_JOB = 'WAITING_FOR_JOB'
