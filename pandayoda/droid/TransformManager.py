@@ -14,7 +14,7 @@ import glob
 import time
 import importlib
 import sys
-from pandayoda.common import VariableWithLock,StatefulService
+from pandayoda.common import VariableWithLock, StatefulService
 logger = logging.getLogger(__name__)
 
 config_section = os.path.basename(__file__)[:os.path.basename(__file__).rfind('.')]
@@ -29,7 +29,7 @@ class TransformManager(StatefulService.StatefulService):
     STARTED = 'STARTED'
     MONITORING = 'MONITORING'
     FINISHED = 'FINISHED'
-    STATES = [CREATED,STARTED,MONITORING,FINISHED]
+    STATES = [CREATED, STARTED, MONITORING, FINISHED]
 
     def __init__(self, job_def,
                  config,
@@ -170,7 +170,7 @@ class TransformManager(StatefulService.StatefulService):
         package, release = self.job_def['homepackage'].split('/')
         gcclocation = ''
         if release.startswith('19'):
-            gcclocation  = '--gcclocation=$VO_ATLAS_SW_DIR/software/'
+            gcclocation = '--gcclocation=$VO_ATLAS_SW_DIR/software/'
             gcclocation += '$CMTCONFIG/'
             gcclocation += '.'.join(release.split('.')[:-1])
             gcclocation += '/gcc-alt-472/$CMTCONFIG'
@@ -186,24 +186,28 @@ class TransformManager(StatefulService.StatefulService):
 
         # first extract input files
         start_index = self.job_def['jobPars'].find('--inputEVNTFile=') + len('--inputEVNTFile=')
-        end_index   = self.job_def['jobPars'].find(' ', start_index)
+        end_index = self.job_def['jobPars'].find(' ', start_index)
         # loop over and add path
         input_files = self.job_def['jobPars'][start_index:end_index].split(',')
         updated_input_files = []
         for input_file in input_files:
-            updated_input_files.append(os.path.join(self.yoda_working_path,input_file))
+            updated_input_files.append(os.path.join(self.yoda_working_path, input_file))
         # place them back in jobPars
-        jobPars = self.job_def['jobPars'][:start_index] + ','.join(x for x in updated_input_files) + ' ' + self.job_def['jobPars'][end_index:]
+        jobpars = self.job_def['jobPars'][:start_index] + ','.join(x for x in updated_input_files) + ' ' + self.job_def['jobPars'][end_index:]
 
 
         # insert the Yampl AthenaMP setting so Yoda can communicate with AthenaMP
-        if "--preExec" not in jobPars:
-            jobPars += " --preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % self.yampl_socket_name
+        if "--preExec" not in jobpars:
+            jobpars += " --preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " %\
+                       self.yampl_socket_name
         else:
-            if "import jobproperties as jps" in jobPars:
-                jobPars = jobPars.replace("import jobproperties as jps;", "import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\";" % self.yampl_socket_name)
+            if "import jobproperties as jps" in jobpars:
+                jobpars = jobpars.replace("import jobproperties as jps;", "import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\";" %
+                                          self.yampl_socket_name)
             else:
-                jobPars = jobPars.replace("--preExec ", "--preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % self.yampl_socket_name)
+                jobpars = jobpars.replace("--preExec ",
+                                          "--preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " %
+                                          self.yampl_socket_name)
 
         # change working dir if need be
         working_dir = self.droid_working_path
@@ -211,7 +215,7 @@ class TransformManager(StatefulService.StatefulService):
             working_dir = self.run_directory
 
         script = template.format(transformation=transformation,
-                                 jobPars=jobPars,
+                                 jobPars=jobpars,
                                  cmtConfig=self.job_def['cmtConfig'],
                                  release=release,
                                  package=package,
@@ -223,8 +227,8 @@ class TransformManager(StatefulService.StatefulService):
                                  )
         logger.debug('write script')
         script_filename = self.runscript_filename
-        script_filename = os.path.join(self.droid_working_path,script_filename)
-        script_file = open(script_filename,'w')
+        script_filename = os.path.join(self.droid_working_path, script_filename)
+        script_file = open(script_filename, 'w')
         script_file.write(script)
         script_file.close()
 
@@ -245,13 +249,13 @@ class TransformManager(StatefulService.StatefulService):
             try:
                 local_mod = importlib.import_module(module_name)
             except ImportError:
-                logger.exception('Failed to import jobmod: %s\n curret python path: %s',module_name,sys.path)
+                logger.exception('Failed to import jobmod: %s\n curret python path: %s', module_name, sys.path)
                 raise
 
             try:
                 self.job_def = local_mod.apply_mod(self.job_def)
             except Exception:
-                logger.exception('Failed to execute jobmod: %s',module_name)
+                logger.exception('Failed to execute jobmod: %s', module_name)
                 raise
 
     def start_subprocess(self):
@@ -340,14 +344,14 @@ class TransformManager(StatefulService.StatefulService):
                 logger.info('%s loglevel: %s', config_section, self.loglevel)
                 logger.setLevel(logging.getLevelName(self.loglevel))
             else:
-                logger.warning('no "loglevel" in "%s" section of config file, keeping default',config_section)
+                logger.warning('no "loglevel" in "%s" section of config file, keeping default', config_section)
 
             # read loop_timeout:
             if 'loop_timeout' in self.config[config_section]:
                 self.loop_timeout = int(self.config[config_section]['loop_timeout'])
-                logger.info('%s loop_timeout: %s',config_section, self.loop_timeout)
+                logger.info('%s loop_timeout: %s', config_section, self.loop_timeout)
             else:
-                logger.warning('no "loop_timeout" in "%s" section of config file, keeping default %s',config_section,self.loop_timeout)
+                logger.warning('no "loop_timeout" in "%s" section of config file, keeping default %s', config_section, self.loop_timeout)
 
             # read template:
             if 'template' in self.config[config_section]:
@@ -389,7 +393,7 @@ class TransformManager(StatefulService.StatefulService):
                 self.run_elsewhere = self.get_boolean(self.config[config_section]['run_elsewhere'])
                 logger.info('%s run_elsewhere: %s', config_section, self.run_elsewhere)
             else:
-                logger.warning('no "run_elsewhere" in "%s" section of config file, using default %s',config_section,self.run_elsewhere)
+                logger.warning('no "run_elsewhere" in "%s" section of config file, using default %s',config_section, self.run_elsewhere)
 
             # read run_directory:
             if 'run_directory' in self.config[config_section]:
@@ -404,7 +408,7 @@ class TransformManager(StatefulService.StatefulService):
                 self.logs_to_stage = self.logs_to_stage.split(',')
                 logger.info('%s logs_to_stage: %s', config_section, self.logs_to_stage)
             else:
-                logger.warning('no "logs_to_stage" in "%s" section of config file, using default %s',config_section,self.logs_to_stage)
+                logger.warning('no "logs_to_stage" in "%s" section of config file, using default %s', config_section, self.logs_to_stage)
 
             # read template:
             if 'subprocess_stdout' in self.config[config_section]:
