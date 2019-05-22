@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 try:
     import yampl
-except:
+except Exception:
     logger.exception("Failed to import yampl")
     raise
 
@@ -27,14 +27,14 @@ ATHENA_READY_FOR_EVENTS = 'Ready for events'
 NO_MORE_EVENTS = 'No more events'
 
 
-class athena_communicator:
+class AthenaCommunicator:
     """ small class to handle yampl communication exception handling """
     def __init__(self, socketname='EventService_EventRanges', context='local'):
 
         # create server socket for yampl
         try:
             self.socket = yampl.ClientSocket(socketname, context)
-        except:
+        except Exception:
             logger.exception('failed to create yampl client socket')
             raise
 
@@ -43,7 +43,7 @@ class athena_communicator:
         try:
             self.socket.send_raw(message)
         except Exception:
-            logger.exception("Failed to send yampl message: %s",message)
+            logger.exception("Failed to send yampl message: %s", message)
             raise
 
     def recv(self):
@@ -64,7 +64,7 @@ def athenamp_worker():
 
     logger.info('start athenamp_worker')
 
-    comm = athena_communicator()
+    comm = AthenaCommunicator()
 
     while True:
         logger.info('start loop, athenamp worker')
@@ -75,11 +75,11 @@ def athenamp_worker():
         logger.info('waiting for response')
         msg = comm.recv_block()
 
-        logger.info('received: %s',msg)
+        logger.info('received: %s', msg)
 
         if msg.startswith('['):
             try:
-                l = serializer.deserialize(msg)
+                _l = serializer.deserialize(msg)
             except Exception:
                 logger.error('failed to deserialize msg')
                 continue
@@ -90,8 +90,8 @@ def athenamp_worker():
             # return file info
             # "/build1/tsulaia/20.3.7.5/run-es/athenaMP-workers-AtlasG4Tf-sim/worker_1/myHITS.pool.root_000.Range-6,ID:Range-6,CPU:1,WALL:1"
 
-            outputfilename = os.path.join(os.getcwd(), 'TEST' + l['eventRangeID'] + '.ROOT')
-            msg = outputfilename + ',ID:' + l['eventRangeID'] + ',CPU:1,WALL:1'
+            outputfilename = os.path.join(os.getcwd(), 'TEST' + _l['eventRangeID'] + '.ROOT')
+            msg = outputfilename + ',ID:' + _l['eventRangeID'] + ',CPU:1,WALL:1'
             logger.info('sending output file: %s', msg)
             comm.send(msg)
 
@@ -148,7 +148,9 @@ if __name__ == '__main__':
       "ddmEndPointIn": "NERSC_DATADISK",
       "ddmEndPointOut": "LRZ-LMU_DATADISK,NERSC_DATADISK",
       "destinationDBlockToken": "dst:LRZ-LMU_DATADISK,dst:NERSC_DATADISK",
-      "destinationDblock": "mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.HITS.e4376_s3022_tid10919503_00_sub0384058277,mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.log.e4376_s3022_tid10919503_00_sub0384058278",
+      "destinationDblock": "mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.HITS.e4376_s3022_
+      tid10919503_00_sub0384058277,mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.log.e4376_s3022_
+      tid10919503_00_sub0384058278",
       "destinationSE": "LRZ-LMU_C2PAP_MCORE",
       "dispatchDBlockToken": "NULL",
       "dispatchDBlockTokenForOut": "NULL,NULL",
@@ -161,7 +163,12 @@ if __name__ == '__main__':
       "inFiles": "EVNT.06402143._000615.pool.root.1",
       "jobDefinitionID": 0,
       "jobName": "mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.e4376_s3022.3268661856",
-      "jobPars": "--inputEVNTFile=EVNT.06402143._000615.pool.root.1 --AMITag=s3022 --DBRelease=\"default:current\" --DataRunNumber=222525 --conditionsTag \"default:OFLCOND-RUN12-SDR-19\" --firstEvent=1 --geometryVersion=\"default:ATLAS-R2-2015-03-01-00_VALIDATION\" --maxEvents=1000 --outputHITSFile=HITS.10919503._000051.pool.root.1 --physicsList=FTFP_BERT --postInclude \"default:PyJobTransforms/UseFrontier.py\" --preInclude \"EVNTtoHITS:SimulationJobOptions/preInclude.BeamPipeKill.py,SimulationJobOptions/preInclude.FrozenShowersFCalOnly.py,AthenaMP/AthenaMP_EventService.py\" --randomSeed=611 --runNumber=362002 --simulator=MC12G4 --skipEvents=0 --truthStrategy=MC15aPlus",
+      "jobPars": "--inputEVNTFile=EVNT.06402143._000615.pool.root.1 --AMITag=s3022 --DBRelease=\"default:current\"
+      --DataRunNumber=222525 --conditionsTag \"default:OFLCOND-RUN12-SDR-19\" --firstEvent=1 --geometryVersion=
+      \"default:ATLAS-R2-2015-03-01-00_VALIDATION\" --maxEvents=1000 --outputHITSFile=HITS.10919503._000051.pool.root.1
+      --physicsList=FTFP_BERT --postInclude \"default:PyJobTransforms/UseFrontier.py\" --preInclude
+      \"EVNTtoHITS:SimulationJobOptions/preInclude.BeamPipeKill.py,SimulationJobOptions/preInclude.FrozenShowersFCalOnly.py,
+      AthenaMP/AthenaMP_EventService.py\" --randomSeed=611 --runNumber=362002 --simulator=MC12G4 --skipEvents=0 --truthStrategy=MC15aPlus",
       "jobsetID": 3287071385,
       "logFile": "log.10919503._000051.job.log.tgz.1.3298217817",
       "logGUID": "6872598f-658b-4ecb-9a61-0e1945e44dac",
@@ -178,7 +185,8 @@ if __name__ == '__main__':
       "prodDBlocks": "mc15_13TeV:mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.evgen.EVNT.e4376/",
       "prodSourceLabel": "managed",
       "prodUserID": "glushkov",
-      "realDatasets": "mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.HITS.e4376_s3022_tid10919503_00,mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.log.e4376_s3022_tid10919503_00",
+      "realDatasets": "mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.HITS.e4376_s3022_tid10919503_00,
+      mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.log.e4376_s3022_tid10919503_00",
       "realDatasetsIn": "mc15_13TeV:mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.evgen.EVNT.e4376/",
       "scopeIn": "mc15_13TeV",
       "scopeLog": "mc15_13TeV",
