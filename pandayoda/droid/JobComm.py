@@ -395,8 +395,8 @@ class JobComm(StatefulService.StatefulService):  # noqa: C901
                     # if staging, stage and change output filename
                     if self.stage_outputs:
                         # move file to staging_path
-                        logger.debug('shutil.move(%s,%s)',outputfilename, self.staging_path)
-                        shutil.move(outputfilename,self.staging_path)
+                        logger.debug('shutil.move(%s,%s)', outputfilename, self.staging_path)
+                        shutil.move(outputfilename, self.staging_path)
                         # change output filename
                         outputfilename = os.path.join(self.staging_path, os.path.basename(outputfilename))
                         logger.info('outputfilename - %s', outputfilename)
@@ -495,7 +495,7 @@ class JobComm(StatefulService.StatefulService):  # noqa: C901
             # read get_more_events_threshold:
             if 'get_more_events_threshold' in self.config[config_section]:
                 self.get_more_events_threshold = int(self.config[config_section]['get_more_events_threshold'])
-                logger.info('%s get_more_events_threshold: %s',config_section, self.get_more_events_threshold)
+                logger.info('%s get_more_events_threshold: %s', config_section, self.get_more_events_threshold)
             else:
                 raise Exception('must specify "get_more_events_threshold" in "%s" section of config file' % config_section)
 
