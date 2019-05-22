@@ -13,8 +13,8 @@ import time
 import socket
 import platform
 import Queue
-from pandayoda.common import MessageTypes,StatefulService
-from pandayoda.droid import TransformManager,JobComm
+from pandayoda.common import MessageTypes, StatefulService
+from pandayoda.droid import TransformManager, JobComm
 from pandayoda.common import yoda_multiprocessing as mp
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ class Droid(StatefulService.StatefulService):
             MPI.COMM_WORLD.Abort()
             logger.info('Droid is exiting')
 
-    def subrun(self):
+    def subrun(self):  # noqa: C901
         """ this function is the business logic, but wrapped in exception """
 
         logger.info('Droid Thread starting')
@@ -103,8 +103,8 @@ class Droid(StatefulService.StatefulService):
             droid_output_path = os.path.join(droid_working_path, self.output_subdir)
             try:
                 logger.info('Droid make output directory: %s', droid_output_path)
-                os.makedirs(droid_output_path,0775)
-            except OSError,e:
+                os.makedirs(droid_output_path, 0775)
+            except OSError as e:
                 if 'File exists' in str(e):
                     pass
                 else:
@@ -150,7 +150,6 @@ class Droid(StatefulService.StatefulService):
                 # change state
                 self.set_state(Droid.WAITING_FOR_JOB)
 
-
             ###############################################
             # Waiting for a job definition from Yoda
             #########
@@ -169,12 +168,13 @@ class Droid(StatefulService.StatefulService):
                             new_job_msg = qmsg
                             self.set_state(Droid.JOB_RECEIVED)
                         else:
-                            logger.error('received NEW_JOB message but it did not contain a job description key, requesting new job, message = %s',qmsg)
+                            logger.error('received NEW_JOB message but it did not contain a job description key,'
+                                         'requesting new job, message = %s', qmsg)
                             self.set_state(Droid.REQUEST_JOB)
                         # set MPIService to be Queue focused
                         # MPIService.mpiService.set_queue_blocking()
                     else:
-                        logger.error('message type was not NEW_JOB, faied parsing: %s',qmsg)
+                        logger.error('message type was not NEW_JOB, faied parsing: %s', qmsg)
 
             ###############################################
             # Job received
@@ -273,7 +273,7 @@ class Droid(StatefulService.StatefulService):
         for name, thread in self.subthreads.iteritems():
             logger.info('waiting for %s to join', name)
             thread.join()
-            logger.info('%s has joined',name)
+            logger.info('%s has joined', name)
 
         # send yoda message that Droid has exited
         logger.info('droid notifying yoda that it has exited')
@@ -288,7 +288,7 @@ class Droid(StatefulService.StatefulService):
             # read log level:
             if 'loglevel' in self.config[config_section]:
                 self.loglevel = self.config[config_section]['loglevel']
-                logger.info('%s loglevel: %s', config_section,self.loglevel)
+                logger.info('%s loglevel: %s', config_section, self.loglevel)
                 logger.setLevel(logging.getLevelName(self.loglevel))
             else:
                 logger.warning('no "loglevel" in "%s" section of config file, keeping default', config_section)
@@ -300,7 +300,6 @@ class Droid(StatefulService.StatefulService):
             else:
                 logger.warning('no "loop_timeout" in "%s" section of config file, keeping default %s', config_section, self.loop_timeout)
 
-
             # read droid yampl_socket_name:
             if 'yampl_socket_name' in self.config[config_section]:
                 self.yampl_socket_name = self.config[config_section]['yampl_socket_name']
@@ -309,7 +308,6 @@ class Droid(StatefulService.StatefulService):
             else:
                 self.yampl_socket_name = 'EventServiceDroid_r{rank}'.format(rank=self.rank)
                 logger.warning('no "yampl_socket_name" in "%s" section of config file, keeping default %s', config_section, self.yampl_socket_name)
-
 
             # read droid working_path:
             if 'working_path' in self.config[config_section]:
@@ -329,7 +327,7 @@ class Droid(StatefulService.StatefulService):
             raise Exception('no %s section in the configuration' % config_section)
 
     def request_job(self, queues):
-        qmsg = {'type': MessageTypes.REQUEST_JOB, 'destination_rank':0}
+        qmsg = {'type': MessageTypes.REQUEST_JOB, 'destination_rank': 0}
         queues['MPIService'].put(qmsg)
 
     def get_queue_message(self, queues, block=False, timeout=None):
