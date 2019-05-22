@@ -1,4 +1,6 @@
-import logging, os, time
+import logging
+import os
+import time
 from pandayoda.common import StatefulService, exceptions, MessageTypes
 from pandayoda.common import yoda_multiprocessing as mp
 
@@ -128,7 +130,6 @@ class RequestHarvesterJob(StatefulService.StatefulService):
                 else:
                     logger.info('no response yet, sleep for %s', self.loop_timeout)
                     time.sleep(self.loop_timeout)
-
 
             #########
             # GETTING_JOB State

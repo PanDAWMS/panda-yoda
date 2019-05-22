@@ -77,7 +77,7 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
     def no_more_eventranges(self):
         return self.no_more_eventranges_flag.is_set()
 
-    def run(self):
+    def run(self):  # noqa: C901
         """ Overriding base class function. """
 
         # get the messenger for communicating with Harvester
@@ -97,7 +97,7 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
                 self.loop_timeout = int(self.config[config_section]['loop_timeout'])
                 logger.info('%s loop_timeout: %s', config_section, self.loop_timeout)
             else:
-                logger.warning('no "loop_timeout" in "%s" section of config file, keeping default %s',config_section, self.loop_timeout)
+                logger.warning('no "loop_timeout" in "%s" section of config file, keeping default %s', config_section, self.loop_timeout)
 
             # read droid eventrange_timeout:
             if 'eventrange_timeout' in self.config[config_section]:
@@ -109,7 +109,6 @@ class RequestHarvesterEventRanges(StatefulService.StatefulService):
 
         else:
             raise Exception('no %s section in the configuration' % config_section)
-
 
         # start in the request state
         self.set_state(self.REQUEST)

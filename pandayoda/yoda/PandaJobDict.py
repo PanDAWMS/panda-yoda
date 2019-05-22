@@ -25,7 +25,7 @@ class PandaJobDict:
 
     def append_from_dict(self, pandajobs):
         for _id in pandajobs.keys():
-            self.jobs[str(__id)] = PandaJob.PandaJob(pandajobs[_id])
+            self.jobs[str(_id)] = PandaJob.PandaJob(pandajobs[_id])
 
     def get_job_with_most_ready_events(self):
         # if there are no jobs, return None
@@ -63,7 +63,7 @@ class PandaJobDict:
             return self.jobs[pandaid].eventranges
         return None
 
-    def have_pandaID(self, pandaid):
+    def have_pandaid(self, pandaid):  # UNUSED
         pandaid = str(pandaid)
         if pandaid in self.jobs.keys():
             return True
