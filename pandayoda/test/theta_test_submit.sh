@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Authors:
+# - Taylor Childers (john.taylor.childers@cern.ch)
+
 #COBALT -n 3
 #COBALT -q debug-flat-quad
 #COBALT -t 40
 #COBALT --attrs mcdram=cache:numa=quad
 #COBALT -A AtlasADSP
-
-
-
-
 
 echo [$SECONDS] Setting up yoda environment
 MPI_RANKS_PER_NODE=1

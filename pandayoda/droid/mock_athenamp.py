@@ -1,131 +1,138 @@
 #!/usr/bin/env python
-import os,sys,time,logging,multiprocessing
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Authors:
+# - Taylor Childers (john.taylor.childers@cern.ch)
+
+#!/usr/bin/env python
+import os
+import time
+import logging
+import multiprocessing
+
+from pandayoda.common import serializer
+
 logger = logging.getLogger(__name__)
 
-from pandayoda.common import MessageTypes,serializer
-
 try:
-   import yampl
-except:
-   logger.exception("Failed to import yampl")
-   raise
+    import yampl
+except Exception:
+    logger.exception("Failed to import yampl")
+    raise
 
 ATHENA_READY_FOR_EVENTS = 'Ready for events'
-NO_MORE_EVENTS          = 'No more events'
+NO_MORE_EVENTS = 'No more events'
 
-class athena_communicator:
-   ''' small class to handle yampl communication exception handling '''
-   def __init__(self,socketname='EventService_EventRanges',context='local'):
 
-      # create server socket for yampl
-      try:
-         self.socket = yampl.ClientSocket(socketname, context)
-      except:
-         logger.exception('failed to create yampl client socket')
-         raise
+class AthenaCommunicator:
+    """ small class to handle yampl communication exception handling """
+    def __init__(self, socketname='EventService_EventRanges', context='local'):
 
-   def send(self,message):
-      # send message using yampl
-      try:
-         self.socket.send_raw(message)
-      except:
-         logger.exception("Failed to send yampl message: %s",message)
-         raise
+        # create server socket for yampl
+        try:
+            self.socket = yampl.ClientSocket(socketname, context)
+        except Exception:
+            logger.exception('failed to create yampl client socket')
+            raise
 
-   def recv(self):
-      # receive yampl message
-      size, buf = self.socket.try_recv_raw()
-      if size == -1:
-         return ''
-      return str(buf)
+    def send(self, message):
+        # send message using yampl
+        try:
+            self.socket.send_raw(message)
+        except Exception:
+            logger.exception("Failed to send yampl message: %s", message)
+            raise
 
-   def recv_block(self):
-      size, buf = self.socket.recv_raw()
-      if size == -1:
-         return ''
-      return str(buf)
+    def recv(self):
+        # receive yampl message
+        size, buf = self.socket.try_recv_raw()
+        if size == -1:
+            return ''
+        return str(buf)
 
+    def recv_block(self):
+        size, buf = self.socket.recv_raw()
+        if size == -1:
+            return ''
+        return str(buf)
 
 
 def athenamp_worker():
 
-   logger.info('start athenamp_worker')
-   
-   comm = athena_communicator()
+    logger.info('start athenamp_worker')
 
-   while True:
-      logger.info('start loop, athenamp worker')
+    comm = AthenaCommunicator()
 
-      logger.info('sending ready for events')
-      comm.send(ATHENA_READY_FOR_EVENTS)
+    while True:
+        logger.info('start loop, athenamp worker')
 
-      logger.info('waiting for response')
-      msg = comm.recv_block()
+        logger.info('sending ready for events')
+        comm.send(ATHENA_READY_FOR_EVENTS)
 
-      logger.info('received: %s',msg)
+        logger.info('waiting for response')
+        msg = comm.recv_block()
 
-      if msg.startswith('['):
-         try:
-            l = serializer.deserialize(msg)
-         except:
-            logger.error('failed to deserialize msg')
-            continue
+        logger.info('received: %s', msg)
 
-         # received event ranges, sleep for a bit and return the file 
-         time.sleep(5)
+        if msg.startswith('['):
+            try:
+                _l = serializer.deserialize(msg)
+            except Exception:
+                logger.error('failed to deserialize msg')
+                continue
 
-         # return file info
-         # "/build1/tsulaia/20.3.7.5/run-es/athenaMP-workers-AtlasG4Tf-sim/worker_1/myHITS.pool.root_000.Range-6,ID:Range-6,CPU:1,WALL:1"
+            # received event ranges, sleep for a bit and return the file
+            time.sleep(5)
 
-         outputfilename = os.path.join(os.getcwd(),'TEST'+l['eventRangeID']+'.ROOT')
-         msg = outputfilename +',ID:'+l['eventRangeID']+',CPU:1,WALL:1'
-         logger.info('sending output file: %s',msg)
-         com.send(msg)
+            # return file info
+            # "/build1/tsulaia/20.3.7.5/run-es/athenaMP-workers-AtlasG4Tf-sim/worker_1/myHITS.pool.root_000.Range-6,ID:Range-6,CPU:1,WALL:1"
 
-      elif NO_MORE_EVENTS in msg:
-         break
+            outputfilename = os.path.join(os.getcwd(), 'TEST' + _l['eventRangeID'] + '.ROOT')
+            msg = outputfilename + ',ID:' + _l['eventRangeID'] + ',CPU:1,WALL:1'
+            logger.info('sending output file: %s', msg)
+            comm.send(msg)
 
-   logger.info('worker exiting')
+        elif NO_MORE_EVENTS in msg:
+            break
 
-
+    logger.info('worker exiting')
 
 
 def athenamp():
-   # get the number of workers that are suppose to be running
-   workers = int(os.environ['ATHENA_PROC_NUMBER'])
-   logger.info('workers %d',workers)
+    # get the number of workers that are suppose to be running
+    workers = int(os.environ['ATHENA_PROC_NUMBER'])
+    logger.info('workers %d', workers)
 
-   procs = []
-   for i in range(workers):
-      p = multiprocessing.Process(target=athenamp_worker)
-      p.start()
-      procs.append(p)
+    procs = []
+    for i in range(workers):
+        p = multiprocessing.Process(target=athenamp_worker)
+        p.start()
+        procs.append(p)
 
-   for p in procs:
-      p.join()
+    for p in procs:
+        p.join()
 
-   logger.info('exiting')
-
-
-
-
+    logger.info('exiting')
 
 
 # testing this thread
 if __name__ == '__main__':
-   logging.basicConfig(level=logging.DEBUG,
-         format='%(asctime)s|%(process)s|%(thread)s|%(levelname)s|%(name)s|%(funcName)s|%(message)s',
-         datefmt='%Y-%m-%d %H:%M:%S')
-   logging.info('Start mock athenamp')
-   
-   #import argparse
-   #oparser = argparse.ArgumentParser()
-   #oparser.add_argument('-l','--jobWorkingDir', dest="jobWorkingDir", default=None, help="Job's working directory.",required=True)
-   #args = oparser.parse_args()
+    logging.basicConfig(level=logging.DEBUG,
+                        format='%(asctime)s|%(process)s|%(thread)s|%(levelname)s|%(name)s|%(funcName)s|%(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S')
+    logging.info('Start mock athenamp')
 
-   athenamp()
+    #import argparse
+    #oparser = argparse.ArgumentParser()
+    #oparser.add_argument('-l','--jobWorkingDir', dest="jobWorkingDir", default=None, help="Job's working directory.",required=True)
+    #args = oparser.parse_args()
 
-   logger.info('exit mock')
+    athenamp()
+
+    logger.info('exit mock')
 
 '''
    job_def = {
@@ -141,7 +148,9 @@ if __name__ == '__main__':
       "ddmEndPointIn": "NERSC_DATADISK",
       "ddmEndPointOut": "LRZ-LMU_DATADISK,NERSC_DATADISK",
       "destinationDBlockToken": "dst:LRZ-LMU_DATADISK,dst:NERSC_DATADISK",
-      "destinationDblock": "mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.HITS.e4376_s3022_tid10919503_00_sub0384058277,mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.log.e4376_s3022_tid10919503_00_sub0384058278",
+      "destinationDblock": "mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.HITS.e4376_s3022_
+      tid10919503_00_sub0384058277,mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.log.e4376_s3022_
+      tid10919503_00_sub0384058278",
       "destinationSE": "LRZ-LMU_C2PAP_MCORE",
       "dispatchDBlockToken": "NULL",
       "dispatchDBlockTokenForOut": "NULL,NULL",
@@ -154,7 +163,12 @@ if __name__ == '__main__':
       "inFiles": "EVNT.06402143._000615.pool.root.1",
       "jobDefinitionID": 0,
       "jobName": "mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.e4376_s3022.3268661856",
-      "jobPars": "--inputEVNTFile=EVNT.06402143._000615.pool.root.1 --AMITag=s3022 --DBRelease=\"default:current\" --DataRunNumber=222525 --conditionsTag \"default:OFLCOND-RUN12-SDR-19\" --firstEvent=1 --geometryVersion=\"default:ATLAS-R2-2015-03-01-00_VALIDATION\" --maxEvents=1000 --outputHITSFile=HITS.10919503._000051.pool.root.1 --physicsList=FTFP_BERT --postInclude \"default:PyJobTransforms/UseFrontier.py\" --preInclude \"EVNTtoHITS:SimulationJobOptions/preInclude.BeamPipeKill.py,SimulationJobOptions/preInclude.FrozenShowersFCalOnly.py,AthenaMP/AthenaMP_EventService.py\" --randomSeed=611 --runNumber=362002 --simulator=MC12G4 --skipEvents=0 --truthStrategy=MC15aPlus",
+      "jobPars": "--inputEVNTFile=EVNT.06402143._000615.pool.root.1 --AMITag=s3022 --DBRelease=\"default:current\"
+      --DataRunNumber=222525 --conditionsTag \"default:OFLCOND-RUN12-SDR-19\" --firstEvent=1 --geometryVersion=
+      \"default:ATLAS-R2-2015-03-01-00_VALIDATION\" --maxEvents=1000 --outputHITSFile=HITS.10919503._000051.pool.root.1
+      --physicsList=FTFP_BERT --postInclude \"default:PyJobTransforms/UseFrontier.py\" --preInclude
+      \"EVNTtoHITS:SimulationJobOptions/preInclude.BeamPipeKill.py,SimulationJobOptions/preInclude.FrozenShowersFCalOnly.py,
+      AthenaMP/AthenaMP_EventService.py\" --randomSeed=611 --runNumber=362002 --simulator=MC12G4 --skipEvents=0 --truthStrategy=MC15aPlus",
       "jobsetID": 3287071385,
       "logFile": "log.10919503._000051.job.log.tgz.1.3298217817",
       "logGUID": "6872598f-658b-4ecb-9a61-0e1945e44dac",
@@ -171,7 +185,8 @@ if __name__ == '__main__':
       "prodDBlocks": "mc15_13TeV:mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.evgen.EVNT.e4376/",
       "prodSourceLabel": "managed",
       "prodUserID": "glushkov",
-      "realDatasets": "mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.HITS.e4376_s3022_tid10919503_00,mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.log.e4376_s3022_tid10919503_00",
+      "realDatasets": "mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.HITS.e4376_s3022_tid10919503_00,
+      mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.simul.log.e4376_s3022_tid10919503_00",
       "realDatasetsIn": "mc15_13TeV:mc15_13TeV.362002.Sherpa_CT10_Znunu_Pt0_70_CVetoBVeto_fac025.evgen.EVNT.e4376/",
       "scopeIn": "mc15_13TeV",
       "scopeLog": "mc15_13TeV",
@@ -250,6 +265,3 @@ if __name__ == '__main__':
       }
    ]
 '''
-
-
-
