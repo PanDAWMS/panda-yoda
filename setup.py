@@ -9,7 +9,7 @@
 from distutils.core import setup
 import subprocess
 
-desc = subprocess.check_output(['git', 'describe', '--tags'])
+desc = subprocess.check_output(['git', 'describe', '--tags']).decode("utf-8")
 tag = desc.split('-')[0]
 
 setup(
